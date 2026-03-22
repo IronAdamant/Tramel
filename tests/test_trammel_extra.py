@@ -412,5 +412,152 @@ class TestConstraintPropagation(unittest.TestCase):
             self.assertIn("constraints_applied", strat)
 
 
+# ── Recipe files & composite scoring ─────────────────────────────────────────
+
+class TestRecipeFiles(unittest.TestCase):
+    def test_files_populated_on_save(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "rf.db"))
+            strat = {"steps": [{"file": "a.py"}, {"file": "b.py"}]}
+            store.save_recipe("goal", strat, True)
+            sig = sha256_json(strat)
+            rows = store.conn.execute(
+                "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
+            ).fetchall()
+            self.assertEqual(sorted(r[0] for r in rows), ["a.py", "b.py"])
+
+    def test_files_updated_on_resave(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "rf.db"))
+            strat = {"steps": [{"file": "a.py"}]}
+            store.save_recipe("goal", strat, True)
+            store.save_recipe("goal", strat, True)
+            sig = sha256_json(strat)
+            rows = store.conn.execute(
+                "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+
+    def test_backfill_files(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "bf.db"))
+            from trammel.utils import dumps_json
+            import time as _time
+            sig = sha256_json({"steps": [{"file": "x.py"}]})
+            now = _time.time()
+            store.conn.execute(
+                "INSERT INTO recipes (sig, pattern, strategy, constraints, successes, created, updated) "
+                "VALUES (?, ?, ?, ?, 1, ?, ?)",
+                (sig, "backfill test", dumps_json({"steps": [{"file": "x.py"}]}), "[]", now, now),
+            )
+            store.conn.commit()
+            store._backfill_files()
+            rows = store.conn.execute(
+                "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][0], "x.py")
+
+    def test_text_only_scoring(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ts.db"))
+            strat = {"steps": [{"file": "auth.py"}]}
+            store.save_recipe("refactor auth module", strat, True)
+            got = store.retrieve_best_recipe("refactor authentication")
+            self.assertIsNotNone(got)
+
+    def test_file_boost(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "fb.db"))
+            strat_a = {"steps": [{"file": "utils.py"}], "id": "a"}
+            strat_b = {"steps": [{"file": "auth.py"}], "id": "b"}
+            store.save_recipe("refactor auth module", strat_a, True)
+            store.save_recipe("refactor auth module", strat_b, True)
+            # With context_files matching auth.py, strat_b should win
+            got = store.retrieve_best_recipe(
+                "refactor auth module", context_files={"auth.py", "login.py"},
+            )
+            self.assertIsNotNone(got)
+            self.assertEqual(got.get("id"), "b")
+
+    def test_success_boost(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "sb.db"))
+            strat_a = {"steps": [{"file": "x.py"}], "id": "a"}
+            strat_b = {"steps": [{"file": "x.py"}], "id": "b"}
+            store.save_recipe("refactor auth module", strat_a, True)
+            # strat_b has lower success rate
+            store.save_recipe("refactor auth module", strat_b, False)
+            got = store.retrieve_best_recipe(
+                "refactor auth module", context_files={"x.py"},
+            )
+            self.assertIsNotNone(got)
+            self.assertEqual(got.get("id"), "a")
+
+    def test_list_recipes_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "le.db"))
+            self.assertEqual(store.list_recipes(), [])
+
+    def test_list_recipes_populated(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "lp.db"))
+            store.save_recipe("goal a", {"steps": [{"file": "a.py"}]}, True)
+            store.save_recipe("goal b", {"steps": [{"file": "b.py"}]}, True)
+            recipes = store.list_recipes()
+            self.assertEqual(len(recipes), 2)
+            self.assertIn("files", recipes[0])
+
+    def test_list_recipes_mcp(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "lm.db"))
+            store.save_recipe("goal", {"steps": [{"file": "z.py"}]}, True)
+            result = dispatch_tool(store, "list_recipes", {})
+            self.assertEqual(len(result), 1)
+            self.assertIn("z.py", result[0]["files"])
+
+
+# ── MCP tools: update_plan_status, deactivate_constraint ─────────────────────
+
+class TestNewMCPTools(unittest.TestCase):
+    def test_update_plan_status_mcp(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ups.db"))
+            pid = store.create_plan("goal", {"steps": []})
+            result = dispatch_tool(store, "update_plan_status", {
+                "plan_id": pid, "status": "completed",
+            })
+            self.assertTrue(result["ok"])
+            plan = store.get_plan(pid)
+            self.assertEqual(plan["status"], "completed")
+
+    def test_deactivate_constraint_mcp(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "dc.db"))
+            cid = store.add_constraint("avoid", "test constraint")
+            self.assertEqual(len(store.get_active_constraints()), 1)
+            result = dispatch_tool(store, "deactivate_constraint", {
+                "constraint_id": cid,
+            })
+            self.assertTrue(result["ok"])
+            self.assertEqual(len(store.get_active_constraints()), 0)
+
+    def test_status_includes_tool_count(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "st.db"))
+            result = dispatch_tool(store, "status", {})
+            self.assertIn("tools", result)
+            self.assertEqual(result["tools"], 17)
+
+    def test_all_17_schemas_valid(self) -> None:
+        from trammel.mcp_server import _TOOL_SCHEMAS
+        self.assertEqual(len(_TOOL_SCHEMAS), 17)
+        for name, schema in _TOOL_SCHEMAS.items():
+            self.assertIn("name", schema)
+            self.assertIn("description", schema)
+            self.assertIn("parameters", schema)
+            self.assertEqual(schema["name"], name)
+
+
 if __name__ == "__main__":
     unittest.main()

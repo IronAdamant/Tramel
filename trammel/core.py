@@ -272,6 +272,7 @@ class Planner:
         return detect_language(project_root)
 
     def decompose(self, goal: str, project_root: str) -> dict[str, Any]:
+        # Fast path: exact text match without project scan
         recipe = self.store.retrieve_best_recipe(goal)
         if recipe:
             return recipe
@@ -281,6 +282,12 @@ class Planner:
         analyzer = self._get_analyzer(project_root)
         symbols = analyzer.collect_symbols(project_root)
         dep_graph = analyzer.analyze_imports(project_root)
+
+        # Structural recipe match: try again with file context
+        context_files = set(symbols) | set(dep_graph)
+        recipe = self.store.retrieve_best_recipe(goal, context_files=context_files)
+        if recipe:
+            return recipe
 
         all_files = set(symbols) | set(dep_graph)
         relevant_graph = {

@@ -64,6 +64,8 @@ pip install trammel[mcp]   # or: pip install mcp
 trammel-mcp                # starts stdio MCP server
 ```
 
+See `SYSTEM_PROMPT.md` for a reference orchestration guide that LLM clients can use to drive the plan-verify-store loop.
+
 Configure in `.claude/.mcp.json`:
 
 ```json
@@ -77,32 +79,34 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (14):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`
+**MCP tools (17):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`
 
 ## Architecture
 
 Trammel treats planning as a structured search problem:
 
-1. **Decompose** -- Analyze project imports via AST, build dependency graph, topological sort, generate steps with ordering rationale
+1. **Decompose** -- Analyze project imports (Python AST or TypeScript regex), build dependency graph, topological sort, generate steps with ordering rationale
 2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`)
 3. **Verify** -- Run edits in isolated temp copies, per-step or full-run; extract structured failure analysis on failure
 4. **Constrain** -- Propagate failure reasons as persistent constraints that block repetition across sessions
-5. **Remember** -- Store successful strategies as recipes, retrieved by trigram cosine similarity (min threshold 0.3)
+5. **Remember** -- Store successful strategies as recipes, retrieved by composite scoring (text similarity + file overlap + success ratio)
 
 ## Project Layout
 
 ```
 trammel/              Importable package
   __init__.py         plan_and_execute, explore, synthesize, __version__
+  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language
   core.py             Planner: import analysis, toposort, beam strategies
   harness.py          ExecutionHarness: temp copy, edits, test runner
-  store.py            RecipeStore: SQLite persistence (5 tables)
-  utils.py            Trigrams, cosine, AST analysis, failure extraction
+  store.py            RecipeStore: SQLite persistence (7 tables)
+  utils.py            Trigrams, cosine, failure extraction
   cli.py              Argparse CLI entry point
-  mcp_server.py       MCP tool schemas and dispatch
+  mcp_server.py       MCP tool schemas and dispatch (17 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (70 tests)
+tests/                stdlib unittest (96 tests)
 wiki-local/           Spec, glossary, and wiki index
+SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
 ```
 
@@ -112,6 +116,7 @@ pyproject.toml        Package metadata
 |-------|---------|
 | `recipes` | Successful strategies keyed by SHA-256, with pattern, constraints, success/failure counts |
 | `recipe_trigrams` | Inverted trigram index for fast recipe retrieval (trigram → recipe sig) |
+| `recipe_files` | File paths associated with recipe steps, for structural matching (Jaccard overlap) |
 | `plans` | Goal + strategy snapshot with step progress tracking |
 | `steps` | Individual work units with dependencies, rationale, verification results |
 | `constraints` | Failure records (dependency/incompatible/requires/avoid) that prevent known-bad repetition |
@@ -139,6 +144,31 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.0.0
+
+- **Reference LLM integration**: New `SYSTEM_PROMPT.md` providing a reference orchestration guide for LLM clients (plan-verify-store loop).
+- **New MCP tools**: `update_plan_status` (exposes existing store method), `deactivate_constraint` (exposes existing store method). `status` tool now includes `tools` count in response. Tool count 16 → 17.
+- **96 tests** (4 new).
+
+### 1.9.0
+
+- **Structural recipe matching**: New `recipe_files` table in SQLite schema (7 tables total) with indexes on both columns. `save_recipe` populates `recipe_files` with file paths from strategy steps. `_backfill_files()` auto-migrates existing databases.
+- **Composite scoring**: `retrieve_best_recipe` accepts optional `context_files` for composite scoring — text similarity (0.5), file overlap via Jaccard (0.3), success ratio (0.2). Without `context_files`, scoring is backward-compatible (text-only).
+- **Planner integration**: `Planner.decompose` passes project file context to recipe retrieval (two-phase: text-only fast path, then structural).
+- **New MCP tools**: `list_recipes` (limit=20), `get_recipe` gains `context_files` parameter. Tool count 14 → 16.
+- **92 tests** (9 new recipe tests).
+
+### 1.8.0
+
+- **Multi-language support**: New `trammel/analyzers.py` with `LanguageAnalyzer` protocol, `PythonAnalyzer`, `TypeScriptAnalyzer` (regex-based, stdlib-only), `detect_language()`, `get_analyzer()`.
+- **Planner integration**: `Planner` accepts optional `analyzer` parameter, auto-detects language. `ExecutionHarness` accepts optional `analyzer` for language-specific test commands and error patterns.
+- **Refactored analysis**: `_collect_python_symbols` removed from `core.py` (moved to `PythonAnalyzer`). `analyze_imports` in `utils.py` now a backward-compat wrapper delegating to `PythonAnalyzer`. `ast` import removed from `utils.py`.
+- **`analyze_failure`** accepts optional `error_patterns` parameter.
+- **`_IGNORED_DIRS` expanded**: `.next`, `.nuxt`, `coverage`, `.turbo`, `.parcel-cache`.
+- **`language` parameter** added to `plan_and_execute`, `explore`, and MCP `decompose`/`explore` tools.
+- **New exports**: `PythonAnalyzer`, `TypeScriptAnalyzer`, `detect_language` from `trammel.__init__`.
+- **83 tests** (13 new in `tests/test_analyzers.py`).
 
 ### 1.7.0
 
@@ -198,7 +228,7 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 - **Incremental verification**: Per-step harness with `verify_step()` and `run_incremental()`.
 - **Failure analysis**: Structured error extraction (type, message, file, line, suggestion).
 - **Constraint propagation**: Persistent failure constraints that block repetition across sessions.
-- **MCP server**: 13 tools exposed via stdio transport, matching Stele/Chisel pattern.
+- **MCP server**: 13 tools exposed via stdio transport, matching Stele/Chisel pattern (expanded to 17 by v2.0.0).
 - **Enriched schema**: Recipes store strategies + constraints + failure counts. Plans track step-level status. New `steps` and `constraints` tables.
 
 ### 0.3.0

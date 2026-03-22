@@ -217,6 +217,11 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                     "type": "string",
                     "description": "Goal to match against stored recipes.",
                 },
+                "context_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File paths in the current project for structural matching boost.",
+                },
             },
             "required": ["goal"],
         },
@@ -309,6 +314,63 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "required": [],
         },
     },
+    "update_plan_status": {
+        "name": "update_plan_status",
+        "description": (
+            "Set a plan's status (pending/running/completed/failed). "
+            "Use to close out a plan after all steps are done or after aborting."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "integer",
+                    "description": "Plan ID to update.",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "running", "completed", "failed"],
+                    "description": "New status.",
+                },
+            },
+            "required": ["plan_id", "status"],
+        },
+    },
+    "deactivate_constraint": {
+        "name": "deactivate_constraint",
+        "description": (
+            "Deactivate a constraint by ID. Use when a constraint is stale or "
+            "over-conservative. The constraint remains in the database but is "
+            "no longer enforced during decomposition."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "constraint_id": {
+                    "type": "integer",
+                    "description": "ID of the constraint to deactivate.",
+                },
+            },
+            "required": ["constraint_id"],
+        },
+    },
+    "list_recipes": {
+        "name": "list_recipes",
+        "description": (
+            "List stored recipes with pattern, success/failure counts, "
+            "and file paths touched."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum recipes to return (default: 20).",
+                },
+            },
+            "required": [],
+        },
+    },
     "list_strategies": {
         "name": "list_strategies",
         "description": (
@@ -376,7 +438,13 @@ def dispatch_tool(
             return {"ok": True}
 
         case "get_recipe":
-            return store.retrieve_best_recipe(arguments["goal"]) or {"match": None}
+            ctx = set(arguments["context_files"]) if arguments.get("context_files") else None
+            return store.retrieve_best_recipe(
+                arguments["goal"], context_files=ctx,
+            ) or {"match": None}
+
+        case "list_recipes":
+            return store.list_recipes(limit=arguments.get("limit", 20))
 
         case "add_constraint":
             cid = store.add_constraint(
@@ -390,6 +458,14 @@ def dispatch_tool(
 
         case "get_constraints":
             return store.get_active_constraints(arguments.get("constraint_type"))
+
+        case "update_plan_status":
+            store.update_plan_status(arguments["plan_id"], arguments["status"])
+            return {"ok": True}
+
+        case "deactivate_constraint":
+            store.deactivate_constraint(arguments["constraint_id"])
+            return {"ok": True}
 
         case "list_plans":
             return store.list_plans(arguments.get("status"))
@@ -411,6 +487,7 @@ def dispatch_tool(
                 "plans_total": plans,
                 "plans_active": active,
                 "constraints_active": constraints,
+                "tools": len(_TOOL_SCHEMAS),
             }
 
         case "list_strategies":

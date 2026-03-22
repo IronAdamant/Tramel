@@ -100,9 +100,19 @@ class RecipeStore:
             );
             CREATE INDEX IF NOT EXISTS idx_recipe_trigrams_tri
                 ON recipe_trigrams(trigram);
+            CREATE TABLE IF NOT EXISTS recipe_files (
+                recipe_sig TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                FOREIGN KEY (recipe_sig) REFERENCES recipes(sig)
+            );
+            CREATE INDEX IF NOT EXISTS idx_recipe_files_sig
+                ON recipe_files(recipe_sig);
+            CREATE INDEX IF NOT EXISTS idx_recipe_files_path
+                ON recipe_files(file_path);
         """)
         self.conn.commit()
         self._backfill_trigrams()
+        self._backfill_files()
 
     def _backfill_trigrams(self) -> None:
         """Populate recipe_trigrams for any recipes that lack trigram entries."""
@@ -119,6 +129,27 @@ class RecipeStore:
                     "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
                     [(t, sig) for t in tris],
                 )
+
+    def _backfill_files(self) -> None:
+        """Populate recipe_files for recipes that lack file entries."""
+        orphans = self.conn.execute(
+            "SELECT sig, strategy FROM recipes WHERE sig NOT IN "
+            "(SELECT DISTINCT recipe_sig FROM recipe_files)"
+        ).fetchall()
+        if not orphans:
+            return
+        with transaction(self.conn):
+            for sig, strategy_str in orphans:
+                try:
+                    strategy = json.loads(strategy_str)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                files = {s.get("file") for s in strategy.get("steps", []) if s.get("file")}
+                if files:
+                    self.conn.executemany(
+                        "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
+                        [(sig, f) for f in files],
+                    )
 
     # ── Recipes ──────────────────────────────────────────────────────────────
 
@@ -165,9 +196,26 @@ class RecipeStore:
                     "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
                     [(t, sig) for t in tris],
                 )
+            # Index file paths
+            self.conn.execute(
+                "DELETE FROM recipe_files WHERE recipe_sig = ?", (sig,),
+            )
+            files = {s.get("file") for s in strategy.get("steps", []) if s.get("file")}
+            if files:
+                self.conn.executemany(
+                    "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
+                    [(sig, f) for f in files],
+                )
+
+    _W_TEXT = 0.5
+    _W_FILES = 0.3
+    _W_SUCCESS = 0.2
 
     def retrieve_best_recipe(
-        self, goal: str, min_similarity: float = 0.3
+        self,
+        goal: str,
+        min_similarity: float = 0.3,
+        context_files: set[str] | None = None,
     ) -> dict[str, Any] | None:
         goal_tris = unique_trigrams(goal)
         if not goal_tris:
@@ -183,24 +231,70 @@ class RecipeStore:
         sig_tuple = tuple(row[0] for row in candidate_sigs)
         sig_ph = ",".join("?" for _ in sig_tuple)
         cur = self.conn.execute(
-            f"SELECT pattern, strategy, successes, failures FROM recipes "
+            f"SELECT sig, pattern, strategy, successes, failures FROM recipes "
             f"WHERE sig IN ({sig_ph})",
             sig_tuple,
         )
         best: dict[str, Any] | None = None
         best_score = -1.0
-        best_succ = -1
-        for pattern, strategy_str, succ, _fail in cur:
-            sim = trigram_bag_cosine(goal, pattern)
-            if sim < min_similarity:
+        for sig, pattern, strategy_str, succ, fail in cur:
+            text_sim = trigram_bag_cosine(goal, pattern)
+            if text_sim < min_similarity:
                 continue
-            if sim > best_score or (sim == best_score and succ > best_succ):
-                best_score = sim
-                best_succ = succ
+
+            if context_files is not None:
+                # Composite scoring
+                recipe_file_rows = self.conn.execute(
+                    "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
+                ).fetchall()
+                recipe_files = {r[0] for r in recipe_file_rows}
+                if recipe_files and context_files:
+                    intersection = context_files & recipe_files
+                    union = context_files | recipe_files
+                    file_overlap = len(intersection) / len(union)
+                else:
+                    file_overlap = 0.0
+
+                total = succ + fail
+                success_ratio = succ / total if total > 0 else 0.5
+
+                score = (
+                    self._W_TEXT * text_sim
+                    + self._W_FILES * file_overlap
+                    + self._W_SUCCESS * success_ratio
+                )
+            else:
+                # Backward-compatible text-only scoring
+                score = text_sim
+
+            if score > best_score:
+                best_score = score
                 best = json.loads(strategy_str)
-                if sim == 1.0:
+                if context_files is None and text_sim == 1.0:
                     break
         return best
+
+    def list_recipes(self, limit: int = 20) -> list[dict[str, Any]]:
+        """List stored recipes with pattern, counts, and file paths."""
+        rows = self.conn.execute(
+            "SELECT sig, pattern, successes, failures, updated "
+            "FROM recipes ORDER BY updated DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for sig, pattern, succ, fail, updated in rows:
+            file_rows = self.conn.execute(
+                "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
+            ).fetchall()
+            result.append({
+                "sig": sig[:12],
+                "pattern": pattern,
+                "successes": succ,
+                "failures": fail,
+                "files": [r[0] for r in file_rows],
+                "updated": updated,
+            })
+        return result
 
     # ── Plans ────────────────────────────────────────────────────────────────
 
