@@ -17,8 +17,8 @@ import logging
 import os
 import sys
 
-from trammel.mcp_server import _TOOL_SCHEMAS, dispatch_tool
-from trammel.store import RecipeStore
+from .mcp_server import _TOOL_SCHEMAS, dispatch_tool
+from .store import RecipeStore
 
 logger = logging.getLogger(__name__)
 

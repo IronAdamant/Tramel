@@ -13,7 +13,7 @@ from typing import Any
 
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",
-    ".tox", ".mypy_cache", ".ruff_cache", "dist", "build",
+    ".tox", ".mypy_cache", ".ruff_cache", ".chisel", "dist", "build",
 })
 
 

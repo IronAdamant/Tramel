@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose

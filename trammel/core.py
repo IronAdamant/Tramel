@@ -37,7 +37,7 @@ def _collect_python_symbols(project_root: str) -> dict[str, list[dict[str, Any]]
                 with open(path, encoding="utf-8", errors="replace") as fp:
                     src = fp.read()
                 tree = ast.parse(src, filename=path)
-            except (OSError, SyntaxError, UnicodeDecodeError):
+            except (OSError, SyntaxError):
                 continue
             file_symbols: list[dict[str, Any]] = []
             for node in ast.walk(tree):

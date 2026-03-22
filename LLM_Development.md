@@ -8,11 +8,12 @@
 
 ## Active context
 
-- **Version:** 1.3.0
+- **Version:** 1.4.0
 - **Focus:** Code hygiene and documentation accuracy. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
 
+- **2026-03-23:** [CLEANUP] Release **1.4.0**. Converted `mcp_stdio.py` from absolute to relative imports for consistency with the rest of the package. Removed unreachable `UnicodeDecodeError` from `_collect_python_symbols` except clause in `core.py` — files are opened with `errors="replace"`, so the exception can never be raised. Added `.chisel` to `_IGNORED_DIRS` in `utils.py` (tool cache directory, same category as `.mypy_cache`/`.ruff_cache`). Full codebase audit: no TODOs, no truncated code, no duplicated code, no dead imports, all 45 tests pass. All docs updated.
 - **2026-03-23:** [CLEANUP] Release **1.3.0**. Removed unused test imports (`explore`, `synthesize`, `analyze_imports`, `cosine`, `trigram_bag_cosine`, `trigram_signature` from `test_trammel_extra.py`). Removed dead `goal_slice` parameter from `_collect_python_symbols` in `core.py` — was computed per symbol but never consumed by `_generate_steps` or any downstream code. Simplified `topological_sort` in `utils.py`: replaced redundant `rev.setdefault(t, [])` with direct `rev[t]` access since all keys are pre-initialized. Fixed `plan_and_execute` API signature in `spec-project.md` to include `test_cmd` parameter. All 45 tests pass. All docs updated.
 - **2026-03-23:** [IMPROVE] Release **1.2.0**. Eliminated version duplication: `__version__` now derived from `importlib.metadata.version()` at runtime (falls back to `"dev"` when not installed). Converted `dispatch_tool` 13-branch if/elif chain to Python 3.10+ `match/case`. Made test command configurable: `ExecutionHarness` accepts `test_cmd` parameter, propagated through `plan_and_execute`, CLI (`--test-cmd`), and MCP `verify_step` schema. `retrieve_best_recipe` short-circuits on exact match (similarity 1.0). Added `tests/__init__.py`. All 45 tests pass. All docs updated.
 - **2026-03-23:** [CLEANUP] Release **1.1.0**. Removed dead code: unused `advance_plan_step` method from `RecipeStore`, unused `json`/`os` imports from `mcp_server.py`, unused `json` import from `test_trammel.py`. Consolidated duplicated ignored-dirs logic: `harness.py` hardcoded skip list replaced with shared `_is_ignored_dir` helper from `utils.py`; fixed `egg-info` frozenset entry that could never match actual `*.egg-info` directories (now uses suffix check). Modernized `topological_sort` to use `collections.deque` instead of `list.pop(0)` for O(1) queue operations. Simplified `Planner.decompose`: replaced verbose loop building `all_files` with set union. All 45 tests pass. All docs updated.
