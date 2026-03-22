@@ -51,6 +51,7 @@ Use from the CLI:
 ```bash
 python -m trammel --version
 python -m trammel "refactor X to Y" --root /path/to/project --beams 3 --db ./trammel.db
+python -m trammel "fix tests" --test-cmd pytest -x -q
 echo '{"goal":"fix tests"}' | python -m trammel
 ```
 
@@ -137,6 +138,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 1.2.0
+
+- **Version from metadata**: `__version__` now derived from `importlib.metadata` at runtime, eliminating version duplication between `pyproject.toml` and source code.
+- **Match/case dispatch**: `dispatch_tool` in `mcp_server.py` converted from 13-branch if/elif chain to Python 3.10+ `match/case`.
+- **Configurable test command**: `ExecutionHarness` accepts `test_cmd` parameter for custom test runners (e.g. pytest). Propagated through `plan_and_execute`, CLI (`--test-cmd`), and MCP `verify_step` tool.
+- **Recipe retrieval optimization**: `retrieve_best_recipe` short-circuits on exact match (similarity 1.0).
+- **Tests package**: Added `tests/__init__.py`.
 
 ### 1.1.0
 

@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -27,8 +27,8 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `plan_and_execute(goal, project_root, num_beams=3, db_path="trammel.db")` | Decompose → plan → beams → harness each beam → log trajectories → save recipe on first passing beam |
 | `explore(goal, project_root, num_beams=3, db_path="trammel.db")` | Decompose + beams only (no harness) |
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
-| `trammel/__version__` | Matches `pyproject.toml` version |
-| CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db` |
+| `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
+| CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd` |
 | MCP `trammel-mcp` | 13 tools over stdio transport |
 
 ## 4. Planner (`core.py`)
@@ -41,6 +41,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 ## 5. Harness (`harness.py`)
 
+- **`__init__(timeout_s=60, test_cmd=None)`**: Configure timeout and optional custom test command (e.g. `["pytest", "-x"]`). Defaults to `unittest discover`.
 - **`run(edits, project_root)`**: Copy project to temp dir, apply all edits, run tests. Returns structured result.
 - **`verify_step(edits, project_root, prior_edits)`**: Verify a single step in isolation. Applies prior_edits first, then current edits.
 - **`run_incremental(step_edits, project_root)`**: Verify step-by-step. Stops at first failure with `failed_at_step` index and `failure_analysis`.
@@ -93,7 +94,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 ## 9. Extension points
 
-- Swap `unittest` command in harness for pytest or a custom runner.
+- Pass `test_cmd` to `ExecutionHarness` for pytest or a custom runner.
 - Emit real `content` in edits from an LLM (the primary integration point).
 - Add richer beam strategies beyond the current three.
 - Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.

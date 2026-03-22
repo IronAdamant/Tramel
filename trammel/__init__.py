@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as _meta_version
 from typing import Any
 
 from .core import Planner
 from .harness import ExecutionHarness
 from .store import RecipeStore
 
-__version__ = "1.1.0"
+try:
+    __version__ = _meta_version("trammel")
+except PackageNotFoundError:
+    __version__ = "dev"
 
 
 def plan_and_execute(
@@ -16,6 +20,7 @@ def plan_and_execute(
     project_root: str,
     num_beams: int = 3,
     db_path: str = "trammel.db",
+    test_cmd: list[str] | None = None,
 ) -> dict[str, Any]:
     """Decompose goal, explore beam strategies, verify, and store recipe on success."""
     store = RecipeStore(db_path)
@@ -25,7 +30,7 @@ def plan_and_execute(
     store.update_plan_status(plan_id, "running")
 
     beams = planner.explore_trajectories(strategy, num_beams=num_beams)
-    harness = ExecutionHarness()
+    harness = ExecutionHarness(test_cmd=test_cmd)
     best: dict[str, Any] | None = None
     best_score = -1.0
 

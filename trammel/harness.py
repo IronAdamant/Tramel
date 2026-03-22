@@ -41,9 +41,11 @@ def _pick_test_cmd(project_root: str) -> list[str]:
     return [exe, "-m", "unittest", "discover", "-q", "-s", ".", "-p", "test_*.py"]
 
 
-def _run_tests(tmp: str, timeout_s: int) -> dict[str, Any]:
+def _run_tests(
+    tmp: str, timeout_s: int, test_cmd: list[str] | None = None,
+) -> dict[str, Any]:
     """Run tests in the given directory and return structured results."""
-    cmd = _pick_test_cmd(tmp)
+    cmd = test_cmd if test_cmd else _pick_test_cmd(tmp)
     env = os.environ.copy()
     env.setdefault("PYTHONHASHSEED", "0")
     try:
@@ -71,8 +73,11 @@ def _run_tests(tmp: str, timeout_s: int) -> dict[str, Any]:
 
 
 class ExecutionHarness:
-    def __init__(self, timeout_s: int = 60) -> None:
+    def __init__(
+        self, timeout_s: int = 60, test_cmd: list[str] | None = None,
+    ) -> None:
         self.timeout_s = timeout_s
+        self.test_cmd = test_cmd
 
     def run(self, edits: list[dict[str, Any]], project_root: str) -> dict[str, Any]:
         """Full verification: apply all edits, run tests once."""
@@ -82,7 +87,7 @@ class ExecutionHarness:
                 project_root, tmp, dirs_exist_ok=True, ignore=_ignore_copy,
             )
             _apply_edits(tmp, edits)
-            return _run_tests(tmp, self.timeout_s)
+            return _run_tests(tmp, self.timeout_s, self.test_cmd)
 
     def verify_step(
         self,
@@ -102,7 +107,7 @@ class ExecutionHarness:
             if prior_edits:
                 _apply_edits(tmp, prior_edits)
             _apply_edits(tmp, edits)
-            return _run_tests(tmp, self.timeout_s)
+            return _run_tests(tmp, self.timeout_s, self.test_cmd)
 
     def run_incremental(
         self,
@@ -124,7 +129,7 @@ class ExecutionHarness:
                 )
                 _apply_edits(tmp, accumulated)
                 _apply_edits(tmp, edits)
-                result = _run_tests(tmp, self.timeout_s)
+                result = _run_tests(tmp, self.timeout_s, self.test_cmd)
 
             if not result["success"]:
                 return {

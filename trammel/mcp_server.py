@@ -129,6 +129,11 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                     "items": {"type": "object"},
                     "description": "Edits from already-verified prior steps to apply first.",
                 },
+                "test_cmd": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Custom test command (e.g. ['pytest', '-x']). Defaults to unittest discover.",
+                },
             },
             "required": ["edits", "project_root"],
         },
@@ -301,86 +306,88 @@ def dispatch_tool(
     store: RecipeStore, tool_name: str, arguments: dict[str, Any]
 ) -> Any:
     """Route an MCP tool call to the appropriate Trammel logic."""
-    if tool_name == "decompose":
-        planner = Planner(store=store)
-        return planner.decompose(arguments["goal"], arguments["project_root"])
+    match tool_name:
+        case "decompose":
+            return Planner(store=store).decompose(
+                arguments["goal"], arguments["project_root"],
+            )
 
-    if tool_name == "explore":
-        planner = Planner(store=store)
-        strategy = planner.decompose(arguments["goal"], arguments["project_root"])
-        beams = planner.explore_trajectories(
-            strategy, num_beams=arguments.get("num_beams", 3)
-        )
-        return {"strategy": strategy, "beams": beams}
+        case "explore":
+            planner = Planner(store=store)
+            strategy = planner.decompose(arguments["goal"], arguments["project_root"])
+            beams = planner.explore_trajectories(
+                strategy, num_beams=arguments.get("num_beams", 3),
+            )
+            return {"strategy": strategy, "beams": beams}
 
-    if tool_name == "create_plan":
-        plan_id = store.create_plan(arguments["goal"], arguments["strategy"])
-        return {"plan_id": plan_id}
+        case "create_plan":
+            return {"plan_id": store.create_plan(arguments["goal"], arguments["strategy"])}
 
-    if tool_name == "get_plan":
-        plan = store.get_plan(arguments["plan_id"])
-        return plan or {"error": "plan not found"}
+        case "get_plan":
+            return store.get_plan(arguments["plan_id"]) or {"error": "plan not found"}
 
-    if tool_name == "verify_step":
-        harness = ExecutionHarness()
-        return harness.verify_step(
-            arguments["edits"],
-            arguments["project_root"],
-            prior_edits=arguments.get("prior_edits"),
-        )
+        case "verify_step":
+            harness = ExecutionHarness(test_cmd=arguments.get("test_cmd"))
+            return harness.verify_step(
+                arguments["edits"],
+                arguments["project_root"],
+                prior_edits=arguments.get("prior_edits"),
+            )
 
-    if tool_name == "record_step":
-        store.update_step(
-            arguments["step_id"],
-            arguments["status"],
-            edits=arguments.get("edits"),
-            verification=arguments.get("verification"),
-        )
-        return {"ok": True}
+        case "record_step":
+            store.update_step(
+                arguments["step_id"],
+                arguments["status"],
+                edits=arguments.get("edits"),
+                verification=arguments.get("verification"),
+            )
+            return {"ok": True}
 
-    if tool_name == "save_recipe":
-        store.save_recipe(
-            arguments["goal"], arguments["strategy"], arguments["outcome"]
-        )
-        return {"ok": True}
+        case "save_recipe":
+            store.save_recipe(
+                arguments["goal"], arguments["strategy"], arguments["outcome"],
+            )
+            return {"ok": True}
 
-    if tool_name == "get_recipe":
-        recipe = store.retrieve_best_recipe(arguments["goal"])
-        return recipe or {"match": None}
+        case "get_recipe":
+            return store.retrieve_best_recipe(arguments["goal"]) or {"match": None}
 
-    if tool_name == "add_constraint":
-        cid = store.add_constraint(
-            arguments["constraint_type"],
-            arguments["description"],
-            context=arguments.get("context"),
-            plan_id=arguments.get("plan_id"),
-            step_id=arguments.get("step_id"),
-        )
-        return {"constraint_id": cid}
+        case "add_constraint":
+            cid = store.add_constraint(
+                arguments["constraint_type"],
+                arguments["description"],
+                context=arguments.get("context"),
+                plan_id=arguments.get("plan_id"),
+                step_id=arguments.get("step_id"),
+            )
+            return {"constraint_id": cid}
 
-    if tool_name == "get_constraints":
-        return store.get_active_constraints(arguments.get("constraint_type"))
+        case "get_constraints":
+            return store.get_active_constraints(arguments.get("constraint_type"))
 
-    if tool_name == "list_plans":
-        return store.list_plans(arguments.get("status"))
+        case "list_plans":
+            return store.list_plans(arguments.get("status"))
 
-    if tool_name == "history":
-        return store.get_trajectories(arguments["plan_id"])
+        case "history":
+            return store.get_trajectories(arguments["plan_id"])
 
-    if tool_name == "status":
-        recipes = store.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
-        plans = store.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
-        active = store.conn.execute(
-            "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
-        ).fetchone()[0]
-        constraints = store.conn.execute(
-            "SELECT COUNT(*) FROM constraints WHERE active = 1"
-        ).fetchone()[0]
-        return {
-            "recipes": recipes,
-            "plans_total": plans,
-            "plans_active": active,
-            "constraints_active": constraints,
-        }
+        case "status":
+            recipes = store.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+            plans = store.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
+            active = store.conn.execute(
+                "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
+            ).fetchone()[0]
+            constraints = store.conn.execute(
+                "SELECT COUNT(*) FROM constraints WHERE active = 1"
+            ).fetchone()[0]
+            return {
+                "recipes": recipes,
+                "plans_total": plans,
+                "plans_active": active,
+                "constraints_active": constraints,
+            }
 
-    raise ValueError(f"Unknown tool: {tool_name!r}. Available: {sorted(_TOOL_SCHEMAS)}")
+        case _:
+            raise ValueError(
+                f"Unknown tool: {tool_name!r}. Available: {sorted(_TOOL_SCHEMAS)}"
+            )

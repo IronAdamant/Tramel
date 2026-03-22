@@ -19,6 +19,10 @@ def main() -> None:
     parser.add_argument("--root", default=os.getcwd(), help="Project root (default: cwd)")
     parser.add_argument("--beams", type=int, default=3, help="Requested beam count (capped by CPU)")
     parser.add_argument("--db", default="trammel.db", help="SQLite path for recipes and plans")
+    parser.add_argument(
+        "--test-cmd", nargs="+", default=None,
+        help="Custom test command (default: unittest discover)",
+    )
     args = parser.parse_args()
 
     if args.goal is None:
@@ -30,5 +34,7 @@ def main() -> None:
     else:
         goal = args.goal
 
-    result = plan_and_execute(goal, args.root, num_beams=args.beams, db_path=args.db)
+    result = plan_and_execute(
+        goal, args.root, num_beams=args.beams, db_path=args.db, test_cmd=args.test_cmd,
+    )
     print(json.dumps(result, indent=2))

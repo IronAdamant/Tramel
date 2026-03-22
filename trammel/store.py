@@ -131,6 +131,8 @@ class RecipeStore:
                 best_score = sim
                 best_succ = succ
                 best = json.loads(strategy_str)
+                if sim == 1.0:
+                    break
         return best
 
     # ── Plans ────────────────────────────────────────────────────────────────
