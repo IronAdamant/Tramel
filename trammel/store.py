@@ -259,7 +259,10 @@ class RecipeStore:
 
             if score > best_score:
                 best_score = score
-                best = json.loads(strategy_str)
+                try:
+                    best = json.loads(strategy_str)
+                except (json.JSONDecodeError, TypeError):
+                    continue
                 if context_files is None and text_sim == 1.0:
                     break
         return best
@@ -496,7 +499,7 @@ class RecipeStore:
             try:
                 success = json.loads(outcome_str).get("success", False)
             except (json.JSONDecodeError, TypeError):
-                pass
+                success = False
             pair[0 if success else 1] += 1
         return {k: tuple(v) for k, v in stats.items()}
 

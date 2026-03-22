@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.4.0
+**Version:** 2.5.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -49,7 +49,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 - **Topological sort**: Kahn's algorithm orders files so dependencies come first. Cycles are appended at end.
 - **Step generation**: Each file with symbols becomes a step with `description`, `rationale`, `depends_on` (indices of prior steps this depends on).
 - **Beam strategies (6 built-in)**: `bottom_up` (dependencies first — safest; stable-sorts by ascending dependency count, genuinely uses `dep_graph`), `top_down` (API surface first; stable-sorts by descending dependency count, genuinely uses `dep_graph`), `risk_first` (most-imported files first — highest coupling impact), `critical_path` (longest dependency chain first — bottleneck feedback, recursive depth computation), `cohesion` (flood-fill connected components, process tightly coupled groups contiguously, largest first, topological sort within each component), `minimal_change` (fewest symbols first — quick wins, catch trivial failures early).
-- **Strategy registry**: Pluggable via `register_strategy(name, fn, description)`. Six built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
+- **Strategy registry**: Pluggable via `register_strategy(name, description, fn)`. Six built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
 - **Strategy learning**: `explore_trajectories` accepts optional `store`. When provided, `get_strategy_stats()` aggregates trajectory outcomes by variant (success/failure counts) and strategies are sorted by historical success rate.
 
 ## 6. Harness (`harness.py`)

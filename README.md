@@ -104,7 +104,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point
   mcp_server.py       MCP tool schemas and dispatch (17 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (146 tests, 4 files)
+tests/                stdlib unittest (146 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -144,6 +144,11 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.5.0
+
+- **Code cleanup**: Removed unused `import sys` from `harness.py`. Eliminated duplicate `set(symbols) | set(dep_graph)` computation in `Planner.decompose` (`core.py`). Added defensive `json.loads` error handling in `retrieve_best_recipe` (`store.py`). Made failure default explicit in `get_strategy_stats` (`store.py`). Fixed `register_strategy` parameter order in `spec-project.md` documentation.
+- **146 tests** (unchanged).
 
 ### 2.4.0
 

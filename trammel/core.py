@@ -385,12 +385,10 @@ class Planner:
         dep_graph = analyzer.analyze_imports(project_root)
 
         # Structural recipe match: try again with file context
-        context_files = set(symbols) | set(dep_graph)
-        recipe = self.store.retrieve_best_recipe(goal, context_files=context_files)
+        all_files = set(symbols) | set(dep_graph)
+        recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
         if recipe:
             return recipe
-
-        all_files = set(symbols) | set(dep_graph)
         relevant_graph = {
             f: [d for d in deps if d in all_files]
             for f, deps in dep_graph.items()
