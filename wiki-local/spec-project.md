@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 1.5.0
+**Version:** 1.6.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -109,5 +109,4 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 - Emit real `content` in edits from an LLM (the primary integration point).
 - Add richer beam strategies beyond the current three.
 - Add constraint types beyond the four built-in (avoid/dependency/incompatible/requires).
-- Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.
 - Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.

@@ -140,6 +140,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### 1.6.0
+
+- **Simplified symbol collection**: `_collect_python_symbols` returns symbol name strings instead of redundant dicts; unused `file`, `type`, `line` fields removed (only `name` was consumed downstream).
+- **Removed dead parameter**: `_step_rationale` no longer accepts unused `filepath` argument.
+- **Inlined beam descriptions**: Removed `_BEAM_STRATEGIES` module-level constant; descriptions inlined at usage site, eliminating fragile index-based coupling.
+- **Documentation fix**: Removed duplicated extension point line in `spec-project.md`.
+
 ### 1.5.0
 
 - **Concurrent write protection**: All mutating `RecipeStore` methods wrapped in explicit `BEGIN IMMEDIATE` transactions with exponential backoff retry on `SQLITE_BUSY`. Multi-statement operations like `create_plan` are now atomic. `db_connect` sets `timeout=5.0`.

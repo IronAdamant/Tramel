@@ -23,9 +23,9 @@ def _default_beam_count(requested: int) -> int:
 
 # ── Symbol collection ────────────────────────────────────────────────────────
 
-def _collect_python_symbols(project_root: str) -> dict[str, list[dict[str, Any]]]:
-    """Collect function/class symbols grouped by relative file path."""
-    symbols: dict[str, list[dict[str, Any]]] = {}
+def _collect_python_symbols(project_root: str) -> dict[str, list[str]]:
+    """Collect function/class symbol names grouped by relative file path."""
+    symbols: dict[str, list[str]] = {}
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for name in files:
@@ -39,15 +39,11 @@ def _collect_python_symbols(project_root: str) -> dict[str, list[dict[str, Any]]
                 tree = ast.parse(src, filename=path)
             except (OSError, SyntaxError):
                 continue
-            file_symbols: list[dict[str, Any]] = []
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    file_symbols.append({
-                        "file": rel,
-                        "name": node.name,
-                        "type": type(node).__name__,
-                        "line": node.lineno,
-                    })
+            file_symbols: list[str] = [
+                node.name
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            ]
             if file_symbols:
                 symbols[rel] = file_symbols
     return symbols
@@ -57,7 +53,7 @@ def _collect_python_symbols(project_root: str) -> dict[str, list[dict[str, Any]]
 
 def _generate_steps(
     file_order: list[str],
-    symbols: dict[str, list[dict[str, Any]]],
+    symbols: dict[str, list[str]],
     dep_graph: dict[str, list[str]],
     goal: str,
 ) -> list[dict[str, Any]]:
@@ -66,10 +62,9 @@ def _generate_steps(
     file_to_step: dict[str, int] = {}
 
     for filepath in file_order:
-        file_syms = symbols.get(filepath, [])
-        if not file_syms:
+        sym_names = symbols.get(filepath, [])
+        if not sym_names:
             continue
-        sym_names = [s["name"] for s in file_syms]
         step_idx = len(steps)
         file_to_step[filepath] = step_idx
 
@@ -83,7 +78,7 @@ def _generate_steps(
             "symbol_count": len(sym_names),
             "description": f"Modify {filepath}: {', '.join(sym_names[:5])}"
                            + (f" (+{len(sym_names)-5} more)" if len(sym_names) > 5 else ""),
-            "rationale": _step_rationale(filepath, dep_files, sym_names),
+            "rationale": _step_rationale(dep_files, sym_names),
             "depends_on": depends_on,
         })
 
@@ -101,7 +96,7 @@ def _generate_steps(
     return steps
 
 
-def _step_rationale(filepath: str, dep_files: list[str], sym_names: list[str]) -> str:
+def _step_rationale(dep_files: list[str], sym_names: list[str]) -> str:
     parts: list[str] = []
     if dep_files:
         parts.append(f"imports from {', '.join(dep_files[:3])}")
@@ -253,13 +248,6 @@ def _order_risk_first(
     return result
 
 
-_BEAM_STRATEGIES: list[tuple[str, str]] = [
-    ("bottom_up", "Modify dependencies first, then dependents (safest)"),
-    ("top_down", "Modify API surface first, then internals"),
-    ("risk_first", "Modify most-imported files first (highest impact)"),
-]
-
-
 # ── Planner ──────────────────────────────────────────────────────────────────
 
 class Planner:
@@ -310,9 +298,9 @@ class Planner:
         dep_graph = strategy.get("dependency_graph", {})
 
         ordered_variants: list[tuple[str, str, list[dict[str, Any]]]] = [
-            ("bottom_up", _BEAM_STRATEGIES[0][1], _order_bottom_up(steps)),
-            ("top_down", _BEAM_STRATEGIES[1][1], _order_top_down(steps)),
-            ("risk_first", _BEAM_STRATEGIES[2][1], _order_risk_first(steps, dep_graph)),
+            ("bottom_up", "Modify dependencies first, then dependents (safest)", _order_bottom_up(steps)),
+            ("top_down", "Modify API surface first, then internals", _order_top_down(steps)),
+            ("risk_first", "Modify most-imported files first (highest impact)", _order_risk_first(steps, dep_graph)),
         ]
 
         beams: list[dict[str, Any]] = []
