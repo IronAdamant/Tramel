@@ -81,7 +81,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (17):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`
+**MCP tools (18):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`
 
 ## Architecture
 
@@ -99,15 +99,16 @@ Trammel treats planning as a structured search problem:
 trammel/              Importable package
   __init__.py         plan_and_execute, explore, synthesize, __version__
   analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language (~370 LOC)
-  analyzers_ext.py    GoAnalyzer, RustAnalyzer, CppAnalyzer, JavaAnalyzer (~400 LOC)
+  analyzers_ext.py    GoAnalyzer, RustAnalyzer, CppAnalyzer (5-pattern symbol detection), JavaAnalyzer (source root detection) (~400 LOC)
   core.py             Planner: import analysis, toposort, beam strategies
   harness.py          ExecutionHarness: temp copy, edits, test runner, base-copy caching
-  store.py            RecipeStore: SQLite persistence (7 tables), recipe pruning
+  store.py            RecipeStore: SQLite persistence (7 tables), inherits RecipeStoreMixin (~342 LOC)
+  store_recipes.py    RecipeStoreMixin: recipe methods (save, retrieve, list, prune, trigram/file backfill) (~210 LOC)
   utils.py            Trigrams, cosine, failure extraction, goal normalization, goal similarity
   cli.py              Argparse CLI entry point (--dry-run, --language)
-  mcp_server.py       MCP tool schemas and dispatch (17 tools)
+  mcp_server.py       MCP tool schemas and dispatch (18 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (166 tests, 4 modules)
+tests/                stdlib unittest (175 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -147,6 +148,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.7.0
+
+- **Store module split**: Extracted recipe methods (`save_recipe`, `retrieve_best_recipe`, `list_recipes`, `prune_recipes`, `_rebuild_trigram_index`, `_backfill_files`) into `store_recipes.py` as `RecipeStoreMixin` (~210 LOC). `RecipeStore` in `store.py` now inherits from it (~342 LOC, down from 540).
+- **Expanded C++ symbol detection**: Replaced single function pattern in `CppAnalyzer` with 5 targeted patterns: template functions, qualified functions (static/inline/constexpr), operator overloading, constructor/destructor detection, macro-prefixed functions (EXPORT_API etc).
+- **Java/Kotlin source root detection**: New `JavaAnalyzer._detect_source_roots(project_root)` reads `build.gradle`/`build.gradle.kts` and `pom.xml` to find standard source directories (`src/main/java`, `src/main/kotlin`, etc). Falls back to project root. `analyze_imports` now walks detected source roots instead of project root.
+- **MCP tool `prune_recipes`**: Exposed recipe pruning as MCP tool with `max_age_days` and `min_success_ratio` parameters. 18 MCP tools total.
+- **175 tests** (9 new: 5 C++ expansion, 3 Java source roots, 2 MCP prune, minus 1 renamed).
 
 ### 2.6.0
 

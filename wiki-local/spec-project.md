@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.6.0
+**Version:** 2.7.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -29,7 +29,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
 | CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language` |
-| MCP `trammel-mcp` | 17 tools over stdio transport |
+| MCP `trammel-mcp` | 18 tools over stdio transport |
 
 ## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
 
@@ -40,8 +40,8 @@ Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, 
 - **`TypeScriptAnalyzer`**: Regex-based, stdlib-only analysis for `.ts`/`.tsx`/`.js`/`.jsx`/`.mts`/`.mjs` files. Symbol detection via `_TS_SYMBOL_PATTERNS` list (interface, enum, const enum, type alias, abstract class, decorated class, function expression, namespace). `_strip_js_comments` strips comments before symbol/import detection. Import detection via expanded `_TS_IMPORT_RE` (standard imports, re-exports `export { } from`, barrel exports `export * from`, type re-exports `export type { } from`, dynamic imports `import()`). `_TS_ALIAS_IMPORT_RE` detects non-relative alias imports. `_read_ts_path_aliases(root)` reads `compilerOptions.paths` + `baseUrl` from `tsconfig.json`. `_resolve_alias()` resolves alias-based import paths.
 - **`GoAnalyzer`**: Regex-based analysis for `.go` files. Reads `go.mod` for module path. Resolves internal imports (imports matching the module path) to project-relative file paths.
 - **`RustAnalyzer`**: Regex-based analysis for `.rs` files. Resolves `use crate::` imports and `mod` declarations to project-relative file paths.
-- **`CppAnalyzer`**: Regex-based analysis for `.c/.cpp/.cc/.cxx/.h/.hpp/.hxx` files. Symbol detection for class, struct, namespace, enum, typedef, and function declarations. `#include "..."` import resolution with comment stripping. Registered as "cpp" and "c".
-- **`JavaAnalyzer`**: Regex-based analysis for `.java/.kt/.kts` files. Symbol detection for class, interface, enum, fun, object, and @interface declarations. Package-based import resolution. Registered as "java" and "kotlin".
+- **`CppAnalyzer`**: Regex-based analysis for `.c/.cpp/.cc/.cxx/.h/.hpp/.hxx` files. 5-pattern symbol detection: template functions, qualified functions (static/inline/constexpr), operator overloading, constructor/destructor, macro-prefixed functions (EXPORT_API etc). `#include "..."` import resolution with comment stripping. Registered as "cpp" and "c".
+- **`JavaAnalyzer`**: Regex-based analysis for `.java/.kt/.kts` files. Symbol detection for class, interface, enum, fun, object, and @interface declarations. `_detect_source_roots(project_root)` reads `build.gradle`/`build.gradle.kts`/`pom.xml` for standard source directories (`src/main/java`, `src/main/kotlin`, etc); falls back to project root. `analyze_imports` walks detected source roots instead of project root. Registered as "java" and "kotlin".
 - **Shared `_collect_symbols_regex` helper**: Common symbol collection logic used by `TypeScriptAnalyzer`, `GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, and `JavaAnalyzer` (regex-based analyzers).
 - **`detect_language(root)`**: Heuristic detection by file extension prevalence. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, and `.java`/`.kt` files.
 - **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 9 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin.
@@ -66,7 +66,9 @@ Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, 
 - **`run_incremental(step_edits, project_root)`**: Verify step-by-step. Stops at first failure with `failed_at_step` index and `failure_analysis`.
 - **`analyze_failure(stderr, stdout, error_patterns=None)`**: Extracts error_type, message, file, line, suggestion from test output via regex patterns. Accepts optional `error_patterns` for language-specific patterns.
 
-## 7. Store (`store.py`)
+## 7. Store (`store.py` + `store_recipes.py`)
+
+Module split: `store.py` (~342 LOC) holds schema init, plans, steps, constraints, trajectories, and `RecipeStore` (inherits `RecipeStoreMixin`). `store_recipes.py` (~210 LOC) holds `RecipeStoreMixin` with recipe methods: `save_recipe`, `retrieve_best_recipe`, `list_recipes`, `prune_recipes`, `_rebuild_trigram_index`, `_backfill_files`.
 
 **SQLite tables (7)**
 
@@ -96,7 +98,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 ## 8. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
-17 tools exposed via stdio JSON-RPC:
+18 tools exposed via stdio JSON-RPC:
 
 | Tool | Purpose |
 |------|---------|
@@ -117,6 +119,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 | `list_recipes` | List stored recipes (limit=20) |
 | `update_plan_status` | Update plan status (exposes existing store method) |
 | `deactivate_constraint` | Deactivate a constraint (exposes existing store method) |
+| `prune_recipes` | Remove stale/low-quality recipes (`max_age_days`, `min_success_ratio` parameters) |
 
 See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-verify-store loop for LLM clients.
 

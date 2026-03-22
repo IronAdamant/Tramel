@@ -206,8 +206,16 @@ _CPP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*namespace\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*enum\s+(?:class\s+)?(\w+)"),
     re.compile(r"(?:^|\n)\s*typedef\s+[\w\s*&:<>,]+\s+(\w+)\s*;"),
-    # Function: return-type name(...)  {
-    re.compile(r"(?:^|\n)[^\S\n]*(?:[\w:*&<>]+\s+)+(\w+)\s*\([^;)]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:override\s*)?[{]"),
+    # Template function
+    re.compile(r"(?:^|\n)\s*template\s*<[^>]*>\s*(?:[\w:*&<>\s]+\s+)?(\w+)\s*\("),
+    # Standard function with qualifiers
+    re.compile(r"(?:^|\n)\s*(?:(?:static|inline|constexpr|virtual|explicit|extern)\s+)*(?:[\w:*&<>]+\s+)+(\w+)\s*\([^;)]*\)"),
+    # Operator overloading
+    re.compile(r"(?:^|\n)\s*(?:[\w:*&<>]+\s+)*(operator\s*(?:<<|>>|==|!=|<=|>=|[+\-*/%<>&|^~!]|\[\]|\(\)|->|new|delete))\s*\("),
+    # Constructor/destructor (out-of-class: Class::~Class)
+    re.compile(r"(?:^|\n)\s*(?:explicit\s+)?(\w+)\s*::\s*~?\w+\s*\("),
+    # Macro-prefixed function (e.g. EXPORT_API void func())
+    re.compile(r"(?:^|\n)\s*[A-Z_]{2,}\s+(?:[\w:*&<>]+\s+)*(\w+)\s*\("),
 ]
 
 _CPP_INCLUDE_RE = re.compile(r'#include\s+"([^"]+)"')
@@ -310,25 +318,27 @@ class JavaAnalyzer:
         return _get_collect_symbols_regex()(project_root, _JAVA_EXTENSIONS, _JAVA_SYMBOL_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
+        source_roots = self._detect_source_roots(project_root)
         # Build mapping: package → list of project files declaring that package
         pkg_to_files: dict[str, list[str]] = {}
         file_set: set[str] = set()
-        for root, dirs, files in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in files:
-                if not any(fname.endswith(ext) for ext in _JAVA_EXTENSIONS):
-                    continue
-                path = os.path.join(root, fname)
-                rel = os.path.relpath(path, project_root)
-                file_set.add(rel)
-                try:
-                    with open(path, encoding="utf-8", errors="replace") as fp:
-                        src = fp.read()
-                except OSError:
-                    continue
-                m = _JAVA_PACKAGE_RE.search(src)
-                if m:
-                    pkg_to_files.setdefault(m.group(1), []).append(rel)
+        for src_root in source_roots:
+            for root, dirs, files in os.walk(src_root):
+                dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+                for fname in files:
+                    if not any(fname.endswith(ext) for ext in _JAVA_EXTENSIONS):
+                        continue
+                    path = os.path.join(root, fname)
+                    rel = os.path.relpath(path, project_root)
+                    file_set.add(rel)
+                    try:
+                        with open(path, encoding="utf-8", errors="replace") as fp:
+                            src = fp.read()
+                    except OSError:
+                        continue
+                    m = _JAVA_PACKAGE_RE.search(src)
+                    if m:
+                        pkg_to_files.setdefault(m.group(1), []).append(rel)
 
         graph: dict[str, list[str]] = {}
         for rel in file_set:
@@ -341,7 +351,6 @@ class JavaAnalyzer:
             deps: set[str] = set()
             for m in _JAVA_IMPORT_RE.finditer(src):
                 import_path = m.group(1)
-                # Try matching against known project packages
                 parts = import_path.split(".")
                 for i in range(len(parts), 0, -1):
                     pkg = ".".join(parts[:i])
@@ -353,6 +362,43 @@ class JavaAnalyzer:
             if deps:
                 graph[rel] = sorted(deps)
         return graph
+
+    @staticmethod
+    def _detect_source_roots(project_root: str) -> list[str]:
+        """Detect Java/Kotlin source roots from build files or standard layouts."""
+        roots: list[str] = []
+        # Gradle
+        for gradle_file in ("build.gradle", "build.gradle.kts"):
+            if os.path.isfile(os.path.join(project_root, gradle_file)):
+                for candidate in ("src/main/java", "src/main/kotlin",
+                                  "src/test/java", "src/test/kotlin"):
+                    full = os.path.join(project_root, candidate)
+                    if os.path.isdir(full):
+                        roots.append(full)
+                break
+        # Maven
+        if not roots:
+            pom = os.path.join(project_root, "pom.xml")
+            if os.path.isfile(pom):
+                try:
+                    with open(pom, encoding="utf-8", errors="replace") as fp:
+                        pom_text = fp.read()
+                    m = re.search(r"<sourceDirectory>\s*(.*?)\s*</sourceDirectory>", pom_text)
+                    if m:
+                        full = os.path.join(project_root, m.group(1))
+                        if os.path.isdir(full):
+                            roots.append(full)
+                except OSError:
+                    pass
+                if not roots:
+                    for candidate in ("src/main/java", "src/test/java"):
+                        full = os.path.join(project_root, candidate)
+                        if os.path.isdir(full):
+                            roots.append(full)
+        # Fallback: project root itself
+        if not roots:
+            roots.append(project_root)
+        return roots
 
     def pick_test_cmd(self, project_root: str) -> list[str]:
         if os.path.isfile(os.path.join(project_root, "gradlew")):

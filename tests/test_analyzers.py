@@ -520,6 +520,43 @@ class TestCppAnalyzer(unittest.TestCase):
             graph = CppAnalyzer().analyze_imports(d)
             self.assertNotIn("main.cpp", graph)
 
+    def test_template_function(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "tmpl.hpp").write_text(
+                "template<typename T>\nT process(T val) { return val; }\n",
+                encoding="utf-8",
+            )
+            symbols = CppAnalyzer().collect_symbols(d)
+            self.assertIn("process", symbols.get("tmpl.hpp", []))
+
+    def test_qualified_function(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "qual.cpp").write_text(
+                "static inline constexpr int compute(int x) { return x; }\n",
+                encoding="utf-8",
+            )
+            symbols = CppAnalyzer().collect_symbols(d)
+            self.assertIn("compute", symbols.get("qual.cpp", []))
+
+    def test_operator_overloading(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "ops.cpp").write_text(
+                "struct Foo {};\n"
+                "bool operator==(const Foo& a, const Foo& b) { return true; }\n",
+                encoding="utf-8",
+            )
+            symbols = CppAnalyzer().collect_symbols(d)
+            names = symbols.get("ops.cpp", [])
+            self.assertTrue(any("operator" in n for n in names))
+
+    def test_macro_prefixed_function(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "api.cpp").write_text(
+                "EXPORT_API void exported_func() {}\n", encoding="utf-8",
+            )
+            symbols = CppAnalyzer().collect_symbols(d)
+            self.assertIn("exported_func", symbols.get("api.cpp", []))
+
 
 # ── JavaAnalyzer ─────────────────────────────────────────────────────────────
 
@@ -590,6 +627,48 @@ class TestJavaAnalyzer(unittest.TestCase):
     def test_error_patterns_java(self) -> None:
         markers = [p[0] for p in JavaAnalyzer().error_patterns()]
         self.assertIn("FAILURE", markers)
+
+    def test_maven_source_root(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "pom.xml").write_text("<project/>", encoding="utf-8")
+            src = pathlib.Path(d) / "src" / "main" / "java" / "com" / "ex"
+            src.mkdir(parents=True)
+            (src / "App.java").write_text(
+                "package com.ex;\npublic class App {}\n", encoding="utf-8",
+            )
+            (src / "Util.java").write_text(
+                "package com.ex;\nimport com.ex.App;\npublic class Util {}\n",
+                encoding="utf-8",
+            )
+            graph = JavaAnalyzer().analyze_imports(d)
+            util_key = os.path.join("src", "main", "java", "com", "ex", "Util.java")
+            app_key = os.path.join("src", "main", "java", "com", "ex", "App.java")
+            self.assertIn(util_key, graph)
+            self.assertIn(app_key, graph[util_key])
+
+    def test_gradle_source_root(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "build.gradle").write_text("apply plugin: 'java'\n", encoding="utf-8")
+            src = pathlib.Path(d) / "src" / "main" / "java" / "com" / "ex"
+            src.mkdir(parents=True)
+            (src / "Main.java").write_text(
+                "package com.ex;\npublic class Main {}\n", encoding="utf-8",
+            )
+            symbols = JavaAnalyzer().collect_symbols(d)
+            self.assertTrue(any("Main" in v for v in symbols.values()))
+
+    def test_kotlin_gradle_source_root(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "build.gradle.kts").write_text("plugins { kotlin(\"jvm\") }\n", encoding="utf-8")
+            src = pathlib.Path(d) / "src" / "main" / "kotlin" / "com" / "ex"
+            src.mkdir(parents=True)
+            (src / "Main.kt").write_text(
+                "package com.ex\nfun main() {}\n", encoding="utf-8",
+            )
+            graph = JavaAnalyzer().analyze_imports(d)
+            # Single file, no internal imports — just verify detection works
+            roots = JavaAnalyzer._detect_source_roots(d)
+            self.assertTrue(any("kotlin" in r for r in roots))
 
 
 # ── Detection (C++ / Java) ──────────────────────────────────────────────────

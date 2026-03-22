@@ -127,6 +127,11 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_recipes": _schema("list_recipes",
         "List stored recipes with pattern, success/failure counts, and file paths touched.",
         {"limit": _prop("integer", "Maximum recipes to return (default: 20).")}),
+    "prune_recipes": _schema("prune_recipes",
+        "Remove stale, low-quality recipes. Cascade-deletes associated trigram index "
+        "and file entries. Returns count of pruned recipes.",
+        {"max_age_days": _prop("integer", "Max age in days before a recipe is prunable (default: 90)."),
+         "min_success_ratio": _prop("number", "Minimum success ratio to keep (default: 0.1).")}),
     "list_strategies": _schema("list_strategies",
         "List all registered beam strategies with their historical "
         "success/failure rates from trajectory data.",
@@ -193,6 +198,14 @@ def dispatch_tool(
 
         case "list_recipes":
             return store.list_recipes(limit=arguments.get("limit", 20))
+
+        case "prune_recipes":
+            return {
+                "pruned": store.prune_recipes(
+                    max_age_days=arguments.get("max_age_days", 90),
+                    min_success_ratio=arguments.get("min_success_ratio", 0.1),
+                )
+            }
 
         case "add_constraint":
             cid = store.add_constraint(

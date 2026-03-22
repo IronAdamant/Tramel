@@ -547,16 +547,42 @@ class TestNewMCPTools(unittest.TestCase):
             store = RecipeStore(os.path.join(d, "st.db"))
             result = dispatch_tool(store, "status", {})
             self.assertIn("tools", result)
-            self.assertEqual(result["tools"], 17)
+            self.assertEqual(result["tools"], 18)
 
-    def test_all_17_schemas_valid(self) -> None:
+    def test_all_18_schemas_valid(self) -> None:
         from trammel.mcp_server import _TOOL_SCHEMAS
-        self.assertEqual(len(_TOOL_SCHEMAS), 17)
+        self.assertEqual(len(_TOOL_SCHEMAS), 18)
         for name, schema in _TOOL_SCHEMAS.items():
             self.assertIn("name", schema)
             self.assertIn("description", schema)
             self.assertIn("parameters", schema)
             self.assertEqual(schema["name"], name)
+
+
+# ── MCP prune_recipes ────────────────────────────────────────────────────────
+
+class TestPruneRecipesMCP(unittest.TestCase):
+    def test_prune_recipes_mcp_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "pr.db"))
+            result = dispatch_tool(store, "prune_recipes", {})
+            self.assertEqual(result["pruned"], 0)
+
+    def test_prune_recipes_mcp_with_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "pr2.db"))
+            strat = {"steps": [{"file": "old.py"}]}
+            store.save_recipe("old goal", strat, False)
+            sig = sha256_json(strat)
+            import time as _time
+            old_time = _time.time() - (100 * 86400)
+            store.conn.execute(
+                "UPDATE recipes SET updated = ?, created = ? WHERE sig = ?",
+                (old_time, old_time, sig),
+            )
+            store.conn.commit()
+            result = dispatch_tool(store, "prune_recipes", {"max_age_days": 90})
+            self.assertEqual(result["pruned"], 1)
 
 
 # ── CLI dry-run ──────────────────────────────────────────────────────────────
