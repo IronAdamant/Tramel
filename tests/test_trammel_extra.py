@@ -14,18 +14,14 @@ from unittest.mock import patch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from trammel import ExecutionHarness, explore, plan_and_execute, synthesize  # noqa: E402
+from trammel import ExecutionHarness, plan_and_execute  # noqa: E402
 from trammel.core import Planner, _default_beam_count  # noqa: E402
 from trammel.mcp_server import _TOOL_SCHEMAS, dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.utils import (  # noqa: E402
     analyze_failure,
-    analyze_imports,
-    cosine,
     sha256_json,
     topological_sort,
-    trigram_bag_cosine,
-    trigram_signature,
 )
 
 

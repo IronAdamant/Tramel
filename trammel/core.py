@@ -23,9 +23,7 @@ def _default_beam_count(requested: int) -> int:
 
 # ── Symbol collection ────────────────────────────────────────────────────────
 
-def _collect_python_symbols(
-    project_root: str, goal_slice: str
-) -> dict[str, list[dict[str, Any]]]:
+def _collect_python_symbols(project_root: str) -> dict[str, list[dict[str, Any]]]:
     """Collect function/class symbols grouped by relative file path."""
     symbols: dict[str, list[dict[str, Any]]] = {}
     for root, dirs, files in os.walk(project_root):
@@ -49,7 +47,6 @@ def _collect_python_symbols(
                         "name": node.name,
                         "type": type(node).__name__,
                         "line": node.lineno,
-                        "goal_slice": goal_slice[:100],
                     })
             if file_symbols:
                 symbols[rel] = file_symbols
@@ -159,7 +156,7 @@ class Planner:
 
         active_constraints = self.store.get_active_constraints()
 
-        symbols = _collect_python_symbols(project_root, goal)
+        symbols = _collect_python_symbols(project_root)
         dep_graph = analyze_imports(project_root)
 
         all_files = set(symbols) | set(dep_graph)

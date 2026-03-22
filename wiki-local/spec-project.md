@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -24,7 +24,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 | Entry | Behavior |
 |-------|----------|
-| `plan_and_execute(goal, project_root, num_beams=3, db_path="trammel.db")` | Decompose → plan → beams → harness each beam → log trajectories → save recipe on first passing beam |
+| `plan_and_execute(goal, project_root, num_beams=3, db_path="trammel.db", test_cmd=None)` | Decompose → plan → beams → harness each beam → log trajectories → save recipe on first passing beam |
 | `explore(goal, project_root, num_beams=3, db_path="trammel.db")` | Decompose + beams only (no harness) |
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |

@@ -139,6 +139,12 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### 1.3.0
+
+- **Dead code removal**: Removed unused test imports (`explore`, `synthesize`, `analyze_imports`, `cosine`, `trigram_bag_cosine`, `trigram_signature`). Removed dead `goal_slice` parameter from `_collect_python_symbols` — computed per symbol but never consumed downstream.
+- **Simplified topological sort**: Removed redundant `rev.setdefault()` call where keys are guaranteed to exist from pre-initialization.
+- **Documentation fix**: `plan_and_execute` API signature in spec now includes `test_cmd` parameter.
+
 ### 1.2.0
 
 - **Version from metadata**: `__version__` now derived from `importlib.metadata` at runtime, eliminating version duplication between `pyproject.toml` and source code.

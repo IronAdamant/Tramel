@@ -161,7 +161,7 @@ def topological_sort(deps: dict[str, list[str]]) -> list[str]:
     for node, targets in deps.items():
         in_count[node] = len(targets)
         for t in targets:
-            rev.setdefault(t, []).append(node)
+            rev[t].append(node)
 
     queue = deque(sorted(n for n in all_nodes if in_count[n] == 0))
     result: list[str] = []
