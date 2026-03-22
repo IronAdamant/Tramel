@@ -1,0 +1,19 @@
+# Trammel — LLM development log
+
+## Project overview
+
+**Trammel** is a stdlib-only Python package that externalizes the planning bottleneck for LLM coding assistants: dependency-aware decomposition, real beam strategy branching, incremental per-step verification, failure constraint propagation, and SQLite-backed recipe memory. It is a tool FOR LLMs, not a tool that calls LLMs.
+
+**Guidelines:** Single-purpose modules; no third-party deps for core; tests via `unittest` only. MCP server requires optional `mcp` package.
+
+## Active context
+
+- **Version:** 1.0.0
+- **Focus:** Complete rework — dependency-aware planning, incremental verification, failure constraints, MCP server integration. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
+
+## Session log
+
+- **2026-03-22:** [MAJOR] Release **1.0.0**. Full rework from scaffolding harness to cognitive planning tool. `Planner.decompose` now analyzes project imports via AST, builds dependency graph, applies topological sort, generates steps with ordering rationale and dependency tracking. `explore_trajectories` produces genuinely different beam strategies: `bottom_up` (dependencies first), `top_down` (API surface first), `risk_first` (highest coupling first). `ExecutionHarness` gains `verify_step` (single-step isolation) and `run_incremental` (step-by-step verification that aborts on first failure). Structured `analyze_failure` extracts error type, message, file, line, and suggestion from test output. New `constraints` table enables failure propagation across sessions — constraints are checked during decomposition and prevent repetition of known-bad approaches. Schema expanded from 3 to 5 tables (added `steps` and `constraints`). `recipes` now store strategy patterns with constraints and failure counts. MCP server (`trammel-mcp`) exposes 13 tools via stdio transport, matching Stele/Chisel pattern. `mcp>=1.0.0` as optional dependency. Full suite **45** tests. All docs updated.
+- **2026-03-22:** [CLEANUP] Release **0.3.0**. Added min similarity threshold (0.3) to `retrieve_best_recipe` to prevent unrelated recipe matches. `_collect_python_symbols` now handles `ast.AsyncFunctionDef` and filters ignored directories (`.git`, `venv`, `node_modules`, etc.) during `os.walk`. Deduplicated trigram computation: `trigram_signature` reuses `_trigram_list`; replaced `defaultdict` with `Counter`; removed unused `defaultdict` import. Removed dead code: unnecessary lambda wrapper in `harness.py`, unreachable `if __name__` guard in `cli.py`. All docs updated. Full suite **24** tests.
+- **2026-03-22:** [MAINT] Release **0.2.0**. Replaced misleading positional trigram "cosine" with `trigram_bag_cosine` (union vocabulary). `RecipeStore.retrieve_best_recipe` tie-breaks on `successes`. `db_connect` enables `PRAGMA foreign_keys=ON`. Harness uses `sys.executable` instead of bare `python`. Beam edits now include `path` aligned with harness (`content` still required for writes). Added `dumps_json`, `__version__`, CLI `--version`. Documentation: `README.md`, `COMPLETE_PROJECT_DOCUMENTATION.md`, this file. Tests: +3 (trigram bag, `save_recipe(False)`, tie-break). Full suite **24** tests. Indexed docs via Stele (`user-stele-context`).
+- **2026-03-22:** [DOCS] Added **`wiki-local/`** (`index.md`, `spec-project.md`, `glossary.md`) per project doc convention; updated `README.md` and `COMPLETE_PROJECT_DOCUMENTATION.md`. Re-indexed wiki pages in Stele.

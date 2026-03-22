@@ -1,0 +1,388 @@
+"""Tool schemas and dispatch for Trammel MCP servers.
+
+Contains JSON Schema definitions for all Trammel tools and the dispatch
+function used by the stdio MCP server.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+from .core import Planner
+from .harness import ExecutionHarness
+from .store import RecipeStore
+
+_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+    "decompose": {
+        "name": "decompose",
+        "description": (
+            "Decompose a high-level goal into a dependency-aware strategy with ordered steps. "
+            "Analyzes project imports to determine file dependencies, generates steps with "
+            "ordering rationale, and checks for matching cached recipes."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "High-level goal to decompose (e.g. 'refactor auth module').",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Absolute path to the project root directory.",
+                },
+            },
+            "required": ["goal", "project_root"],
+        },
+    },
+    "explore": {
+        "name": "explore",
+        "description": (
+            "Generate beam variants for a strategy without running verification. "
+            "Returns multiple execution orderings: bottom_up (safest), top_down (API-first), "
+            "risk_first (highest coupling first)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "High-level goal string.",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Absolute path to the project root directory.",
+                },
+                "num_beams": {
+                    "type": "integer",
+                    "description": "Number of beam variants to generate (default: 3, max: 12).",
+                },
+            },
+            "required": ["goal", "project_root"],
+        },
+    },
+    "create_plan": {
+        "name": "create_plan",
+        "description": (
+            "Create a tracked plan from a strategy. Persists the plan and its steps "
+            "in the database for incremental execution and verification."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "Goal this plan addresses.",
+                },
+                "strategy": {
+                    "type": "object",
+                    "description": "Strategy dict (from decompose) with steps, dependency_graph, etc.",
+                },
+            },
+            "required": ["goal", "strategy"],
+        },
+    },
+    "get_plan": {
+        "name": "get_plan",
+        "description": (
+            "Retrieve full plan state including all steps, their statuses, "
+            "verification results, and discovered constraints."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "integer",
+                    "description": "ID of the plan to retrieve.",
+                },
+            },
+            "required": ["plan_id"],
+        },
+    },
+    "verify_step": {
+        "name": "verify_step",
+        "description": (
+            "Verify a single step's edits in an isolated temp copy of the project. "
+            "Runs unittest discovery after applying edits. Returns structured pass/fail "
+            "with failure analysis (error type, file, line, suggestion) on failure."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
+                    },
+                    "description": "Edits for this step: [{path, content}, ...].",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Absolute path to the project root.",
+                },
+                "prior_edits": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Edits from already-verified prior steps to apply first.",
+                },
+            },
+            "required": ["edits", "project_root"],
+        },
+    },
+    "record_step": {
+        "name": "record_step",
+        "description": (
+            "Update a step's status, edits, and verification results in the database. "
+            "Use after verify_step to persist the outcome."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "integer",
+                    "description": "Database ID of the step to update.",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "running", "passed", "failed", "skipped"],
+                    "description": "New status for the step.",
+                },
+                "edits": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Edits applied in this step.",
+                },
+                "verification": {
+                    "type": "object",
+                    "description": "Verification result from verify_step.",
+                },
+            },
+            "required": ["step_id", "status"],
+        },
+    },
+    "save_recipe": {
+        "name": "save_recipe",
+        "description": (
+            "Store a verified strategy as a reusable recipe. Successful recipes are "
+            "retrieved by trigram similarity when future goals match."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "Goal pattern for future matching.",
+                },
+                "strategy": {
+                    "type": "object",
+                    "description": "Strategy to persist.",
+                },
+                "outcome": {
+                    "type": "boolean",
+                    "description": "True if the strategy succeeded, false if it failed.",
+                },
+            },
+            "required": ["goal", "strategy", "outcome"],
+        },
+    },
+    "get_recipe": {
+        "name": "get_recipe",
+        "description": (
+            "Retrieve the best matching recipe for a goal. Uses trigram cosine "
+            "similarity (minimum 0.3) with tie-breaking on success count."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "Goal to match against stored recipes.",
+                },
+            },
+            "required": ["goal"],
+        },
+    },
+    "add_constraint": {
+        "name": "add_constraint",
+        "description": (
+            "Record a failure constraint to prevent repeating known-bad approaches. "
+            "Active constraints are checked during decomposition and propagated to "
+            "future planning sessions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "constraint_type": {
+                    "type": "string",
+                    "enum": ["dependency", "incompatible", "requires", "avoid"],
+                    "description": "Type of constraint.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable constraint description.",
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Structured context (file, function, error details).",
+                },
+                "plan_id": {"type": "integer", "description": "Associated plan ID."},
+                "step_id": {"type": "integer", "description": "Associated step ID."},
+            },
+            "required": ["constraint_type", "description"],
+        },
+    },
+    "get_constraints": {
+        "name": "get_constraints",
+        "description": "Retrieve all active failure constraints, optionally filtered by type.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "constraint_type": {
+                    "type": "string",
+                    "enum": ["dependency", "incompatible", "requires", "avoid"],
+                    "description": "Filter by constraint type.",
+                },
+            },
+            "required": [],
+        },
+    },
+    "list_plans": {
+        "name": "list_plans",
+        "description": "List all plans, optionally filtered by status.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "running", "completed", "failed"],
+                    "description": "Filter by plan status.",
+                },
+            },
+            "required": [],
+        },
+    },
+    "history": {
+        "name": "history",
+        "description": (
+            "Retrieve trajectory history for a plan: which beams were tried, "
+            "how many steps completed, outcomes, and failure reasons."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "integer",
+                    "description": "Plan ID to get trajectory history for.",
+                },
+            },
+            "required": ["plan_id"],
+        },
+    },
+    "status": {
+        "name": "status",
+        "description": (
+            "Get a summary of the current Trammel state: active plans, "
+            "recipe count, constraint count."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+}
+
+
+def dispatch_tool(
+    store: RecipeStore, tool_name: str, arguments: dict[str, Any]
+) -> Any:
+    """Route an MCP tool call to the appropriate Trammel logic."""
+    if tool_name == "decompose":
+        planner = Planner(store=store)
+        return planner.decompose(arguments["goal"], arguments["project_root"])
+
+    if tool_name == "explore":
+        planner = Planner(store=store)
+        strategy = planner.decompose(arguments["goal"], arguments["project_root"])
+        beams = planner.explore_trajectories(
+            strategy, num_beams=arguments.get("num_beams", 3)
+        )
+        return {"strategy": strategy, "beams": beams}
+
+    if tool_name == "create_plan":
+        plan_id = store.create_plan(arguments["goal"], arguments["strategy"])
+        return {"plan_id": plan_id}
+
+    if tool_name == "get_plan":
+        plan = store.get_plan(arguments["plan_id"])
+        return plan or {"error": "plan not found"}
+
+    if tool_name == "verify_step":
+        harness = ExecutionHarness()
+        return harness.verify_step(
+            arguments["edits"],
+            arguments["project_root"],
+            prior_edits=arguments.get("prior_edits"),
+        )
+
+    if tool_name == "record_step":
+        store.update_step(
+            arguments["step_id"],
+            arguments["status"],
+            edits=arguments.get("edits"),
+            verification=arguments.get("verification"),
+        )
+        return {"ok": True}
+
+    if tool_name == "save_recipe":
+        store.save_recipe(
+            arguments["goal"], arguments["strategy"], arguments["outcome"]
+        )
+        return {"ok": True}
+
+    if tool_name == "get_recipe":
+        recipe = store.retrieve_best_recipe(arguments["goal"])
+        return recipe or {"match": None}
+
+    if tool_name == "add_constraint":
+        cid = store.add_constraint(
+            arguments["constraint_type"],
+            arguments["description"],
+            context=arguments.get("context"),
+            plan_id=arguments.get("plan_id"),
+            step_id=arguments.get("step_id"),
+        )
+        return {"constraint_id": cid}
+
+    if tool_name == "get_constraints":
+        return store.get_active_constraints(arguments.get("constraint_type"))
+
+    if tool_name == "list_plans":
+        return store.list_plans(arguments.get("status"))
+
+    if tool_name == "history":
+        return store.get_trajectories(arguments["plan_id"])
+
+    if tool_name == "status":
+        recipes = store.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+        plans = store.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
+        active = store.conn.execute(
+            "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
+        ).fetchone()[0]
+        constraints = store.conn.execute(
+            "SELECT COUNT(*) FROM constraints WHERE active = 1"
+        ).fetchone()[0]
+        return {
+            "recipes": recipes,
+            "plans_total": plans,
+            "plans_active": active,
+            "constraints_active": constraints,
+        }
+
+    raise ValueError(f"Unknown tool: {tool_name!r}. Available: {sorted(_TOOL_SCHEMAS)}")
