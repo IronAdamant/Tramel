@@ -16,9 +16,12 @@ from trammel.analyzers import PythonAnalyzer  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.utils import (  # noqa: E402
     cosine,
+    goal_similarity,
+    normalize_goal,
     topological_sort,
     trigram_bag_cosine,
     trigram_signature,
+    word_jaccard,
 )
 
 
@@ -172,11 +175,58 @@ class TestStore(unittest.TestCase):
                 (sig, "manual test goal", dumps_json({"manual": True}), "[]", now, now),
             )
             store.conn.commit()
-            store._backfill_trigrams()
+            store._rebuild_trigram_index()
             rows = store.conn.execute(
                 "SELECT trigram FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
             ).fetchall()
             self.assertGreater(len(rows), 0)
+
+
+class TestRecipeMatching(unittest.TestCase):
+    def test_normalize_goal_verb_replacement(self) -> None:
+        result = normalize_goal("refactor the auth module")
+        self.assertEqual(result, "restructure the auth module")
+
+    def test_normalize_goal_case_insensitive(self) -> None:
+        result = normalize_goal("REFACTOR Auth")
+        self.assertEqual(result, "restructure auth")
+
+    def test_normalize_goal_preserves_unknown_words(self) -> None:
+        result = normalize_goal("foo bar baz")
+        self.assertEqual(result, "foo bar baz")
+
+    def test_word_jaccard_identical(self) -> None:
+        self.assertAlmostEqual(word_jaccard("a b c", "a b c"), 1.0, places=5)
+
+    def test_word_jaccard_disjoint(self) -> None:
+        self.assertAlmostEqual(word_jaccard("a b", "c d"), 0.0, places=5)
+
+    def test_word_jaccard_partial(self) -> None:
+        self.assertAlmostEqual(word_jaccard("a b c", "a b d"), 0.5, places=5)
+
+    def test_word_jaccard_empty(self) -> None:
+        self.assertAlmostEqual(word_jaccard("", ""), 1.0, places=5)
+
+    def test_goal_similarity_synonym_boost(self) -> None:
+        sim = goal_similarity("refactor auth", "rewrite auth")
+        baseline = trigram_bag_cosine("refactor auth", "rewrite auth")
+        self.assertGreater(sim, baseline)
+
+    def test_retrieve_recipe_synonym_match(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "syn.db"))
+            strat = {"steps": [{"file": "auth.py", "description": "refactor auth"}]}
+            store.save_recipe("refactor auth module", strat, True)
+            got = store.retrieve_best_recipe("rewrite auth module")
+            self.assertIsNotNone(got)
+
+    def test_retrieve_recipe_no_false_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "fp.db"))
+            strat = {"steps": [{"file": "auth.py", "description": "refactor auth"}]}
+            store.save_recipe("refactor auth module", strat, True)
+            got = store.retrieve_best_recipe("add logging to database")
+            self.assertIsNone(got)
 
 
 class TestHarness(unittest.TestCase):
@@ -246,13 +296,12 @@ class TestPlanAndExecute(unittest.TestCase):
     def test_explore_returns_beams(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
-            ex = explore("add logging", d, num_beams=3, db_path=os.path.join(d, "e.db"))
+            ex = explore("add logging", d, num_beams=6, db_path=os.path.join(d, "e.db"))
             self.assertIn("beams", ex)
             self.assertIn("strategy", ex)
-            variants = [b["variant"] for b in ex["beams"]]
-            self.assertIn("bottom_up", variants)
-            self.assertIn("top_down", variants)
-            self.assertIn("risk_first", variants)
+            variants = {b["variant"] for b in ex["beams"]}
+            for expected in ("bottom_up", "top_down", "risk_first", "critical_path", "cohesion", "minimal_change"):
+                self.assertIn(expected, variants)
 
     def test_synthesize_then_retrieve(self) -> None:
         with tempfile.TemporaryDirectory() as d:

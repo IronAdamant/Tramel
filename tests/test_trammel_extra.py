@@ -160,9 +160,9 @@ class TestPlannerExtra(unittest.TestCase):
             pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
             planner = Planner(store=RecipeStore(os.path.join(d, "x.db")))
             strat = planner.decompose("task", d)
-            beams = planner.explore_trajectories(strat, num_beams=3)
+            beams = planner.explore_trajectories(strat, num_beams=6)
             variants = {b["variant"] for b in beams}
-            self.assertEqual(variants, {"bottom_up", "top_down", "risk_first"})
+            self.assertEqual(len(variants), 6)
 
 
 # ── Harness extras ───────────────────────────────────────────────────────────

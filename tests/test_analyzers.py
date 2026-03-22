@@ -113,6 +113,122 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
         self.assertIn("TypeError", markers)
         self.assertIn("Cannot find module", markers)
 
+    def test_collect_symbols_interface(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "types.ts").write_text(
+                "export interface UserProps {\n  name: string;\n}\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("UserProps", symbols.get("types.ts", []))
+
+    def test_collect_symbols_enum(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "colors.ts").write_text(
+                "export enum Color {\n  Red,\n  Green,\n  Blue\n}\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("Color", symbols.get("colors.ts", []))
+
+    def test_collect_symbols_const_enum(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "dir.ts").write_text(
+                "export const enum Direction {\n  Up,\n  Down\n}\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("Direction", symbols.get("dir.ts", []))
+
+    def test_collect_symbols_type_alias(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "types.ts").write_text(
+                "export type ID = string | number;\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("ID", symbols.get("types.ts", []))
+
+    def test_collect_symbols_abstract_class(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "base.ts").write_text(
+                "export abstract class Base {\n  abstract run(): void;\n}\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("Base", symbols.get("base.ts", []))
+
+    def test_collect_symbols_decorated_class(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "comp.ts").write_text(
+                "@Component({selector: 'app'})\nexport class MyComponent {\n}\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("MyComponent", symbols.get("comp.ts", []))
+
+    def test_collect_symbols_function_expression(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "handler.ts").write_text(
+                "export const handler = function(req: Request) {\n  return null;\n}\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("handler", symbols.get("handler.ts", []))
+
+    def test_import_reexport(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "utils.ts").write_text(
+                "export function greet() { return 'hi'; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "index.ts").write_text(
+                "export { greet } from './utils';\n", encoding="utf-8",
+            )
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertIn("index.ts", graph)
+            self.assertIn("utils.ts", graph["index.ts"])
+
+    def test_import_barrel_export(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "models.ts").write_text(
+                "export class User {}\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "index.ts").write_text(
+                "export * from './models';\n", encoding="utf-8",
+            )
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertIn("index.ts", graph)
+            self.assertIn("models.ts", graph["index.ts"])
+
+    def test_import_dynamic(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "lazy.ts").write_text(
+                "export function load() { return 42; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.ts").write_text(
+                "const mod = import('./lazy');\n", encoding="utf-8",
+            )
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertIn("main.ts", graph)
+            self.assertIn("lazy.ts", graph["main.ts"])
+
+    def test_import_type_reexport(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "types.ts").write_text(
+                "export interface Foo { x: number; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "index.ts").write_text(
+                "export type { Foo } from './types';\n", encoding="utf-8",
+            )
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertIn("index.ts", graph)
+            self.assertIn("types.ts", graph["index.ts"])
+
+    def test_mts_mjs_collected(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "mod.mts").write_text(
+                "export function mtsFunc() {}\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "util.mjs").write_text(
+                "export function mjsFunc() {}\n", encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("mtsFunc", symbols.get("mod.mts", []))
+            self.assertIn("mjsFunc", symbols.get("util.mjs", []))
+
 
 # ── Detection ────────────────────────────────────────────────────────────────
 
@@ -144,6 +260,59 @@ class TestDetectLanguage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             analyzer = detect_language(d)
             self.assertEqual(analyzer.name, "python")
+
+
+# ── TsConfig ─────────────────────────────────────────────────────────────────
+
+class TestTsConfig(unittest.TestCase):
+    def test_tsconfig_path_aliases(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = pathlib.Path(d) / "src"
+            src.mkdir()
+            (src / "utils.ts").write_text(
+                "export function helper() { return 1; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.ts").write_text(
+                "import { helper } from '@/utils';\nconsole.log(helper());\n",
+                encoding="utf-8",
+            )
+            pathlib.Path(d, "tsconfig.json").write_text(
+                json.dumps({
+                    "compilerOptions": {
+                        "baseUrl": ".",
+                        "paths": {"@/*": ["src/*"]}
+                    }
+                }),
+                encoding="utf-8",
+            )
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertIn("main.ts", graph)
+            self.assertIn(os.path.join("src", "utils.ts"), graph["main.ts"])
+
+    def test_tsconfig_missing_graceful(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "utils.ts").write_text(
+                "export function greet() { return 'hi'; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.ts").write_text(
+                "import { greet } from './utils';\n", encoding="utf-8",
+            )
+            # No tsconfig.json — should still work for relative imports
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertIn("main.ts", graph)
+            self.assertIn("utils.ts", graph["main.ts"])
+
+    def test_tsconfig_invalid_json_graceful(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "utils.ts").write_text(
+                "export function greet() { return 'hi'; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.ts").write_text(
+                "import { greet } from './utils';\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "tsconfig.json").write_text("not json!", encoding="utf-8")
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertIn("main.ts", graph)
 
 
 if __name__ == "__main__":

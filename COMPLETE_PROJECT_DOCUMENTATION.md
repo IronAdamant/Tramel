@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
 **Updated:** 2026-03-23
-**Version:** 2.1.0
+**Version:** 2.2.0
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition (Python + TypeScript), real beam branching, incremental verification, failure constraint propagation, structural recipe matching, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server (17 tools) for LLM integration with reference system prompt.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 2.1.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 2.2.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 | `SYSTEM_PROMPT.md` | Reference orchestration guide for LLM clients: plan-verify-store loop |
 
 ## wiki-local/
@@ -28,12 +28,12 @@
 |------|---------|-----------|
 | `trammel/__init__.py` | `__version__` (from `importlib.metadata`), `plan_and_execute`, `explore`, `synthesize`; exports `PythonAnalyzer`, `TypeScriptAnalyzer`, `detect_language`; wires Planner, ExecutionHarness, RecipeStore | `core`, `harness`, `store`, `analyzers` |
 | `trammel/__main__.py` | `python -m trammel` → `cli.main()` | `cli` |
-| `trammel/analyzers.py` | `LanguageAnalyzer` protocol, `PythonAnalyzer` (AST-based), `TypeScriptAnalyzer` (regex-based), `detect_language()`, `get_analyzer()` | stdlib |
+| `trammel/analyzers.py` | `LanguageAnalyzer` protocol, `PythonAnalyzer` (AST-based), `TypeScriptAnalyzer` (regex-based: `_TS_SYMBOL_PATTERNS` list, expanded import/re-export detection, `_TS_ALIAS_IMPORT_RE`, `_read_ts_path_aliases`, `_resolve_alias`, `.mts`/`.mjs` extensions), `detect_language()`, `get_analyzer()` | stdlib |
 | `trammel/cli.py` | Argparse + JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd` | `__init__` |
-| `trammel/core.py` | `Planner`: import-aware dependency analysis (delegates to language analyzers), topological step ordering, real beam branching (bottom_up/top_down/risk_first), constraint propagation via `_apply_constraints`. Pluggable strategy registry (`register_strategy`/`get_strategies`/`StrategyFn`/`StrategyEntry`); 3 built-in strategies auto-registered. `explore_trajectories` supports strategy learning via optional `store`. | `store`, `utils`, `analyzers` |
+| `trammel/core.py` | `Planner`: import-aware dependency analysis (delegates to language analyzers), topological step ordering, real beam branching (bottom_up/top_down/risk_first/critical_path/cohesion/minimal_change), constraint propagation via `_apply_constraints`. Pluggable strategy registry (`register_strategy`/`get_strategies`/`StrategyFn`/`StrategyEntry`); 6 built-in strategies auto-registered. `explore_trajectories` supports strategy learning via optional `store`. | `store`, `utils`, `analyzers` |
 | `trammel/harness.py` | Temp copy, `_apply_edits`, full `run()`, `verify_step()`, `run_incremental()`, configurable `test_cmd`, failure analysis. Accepts optional `analyzer` for language-specific test commands and error patterns. Falls back to `PythonAnalyzer` for default test command. | `utils`, `analyzers` |
-| `trammel/store.py` | SQLite: recipes, recipe_trigrams, recipe_files (structural matching), plans, steps, constraints, trajectories (7 tables). Context manager. Transaction wrapping. Composite scoring (text + file overlap + success ratio). `list_recipes(limit=20)`. | `utils` |
-| `trammel/utils.py` | Trigrams, cosine, `unique_trigrams`, `transaction`, `topological_sort`, `analyze_failure` (accepts optional `error_patterns`), `_is_ignored_dir`, `_ERROR_PATTERNS`, `dumps_json`, `sha256_json`, `db_connect` | stdlib |
+| `trammel/store.py` | SQLite: recipes, recipe_trigrams, recipe_files (structural matching), plans, steps, constraints, trajectories (7 tables). Context manager. Transaction wrapping. Composite scoring (text + file overlap + success ratio). `list_recipes(limit=20)`. `save_recipe` normalizes patterns before trigram indexing. `retrieve_best_recipe` uses `goal_similarity` scoring and normalizes goals for trigram queries. `_rebuild_trigram_index` rebuilds all trigrams with normalized text on init. | `utils` |
+| `trammel/utils.py` | Trigrams, cosine, `unique_trigrams`, `transaction`, `topological_sort`, `analyze_failure` (accepts optional `error_patterns`), `_is_ignored_dir`, `_ERROR_PATTERNS`, `dumps_json`, `sha256_json`, `db_connect`, `_VERB_SYNONYMS` (40+ verb variants → 9 canonical forms), `normalize_goal`, `word_jaccard`, `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard) | stdlib |
 | `trammel/mcp_server.py` | MCP tool schemas (17 tools) + `match/case` `dispatch_tool` routing | `core`, `harness`, `store` |
 | `trammel/mcp_stdio.py` | MCP stdio server entry point (`trammel-mcp` console script) | `mcp_server`, `store`, `mcp` (optional) |
 
@@ -43,16 +43,16 @@
 |------|---------|
 | `tests/test_trammel.py` | Core: trigrams, toposort, import analysis, store (incl. trigram index), harness, plan_and_execute, explore |
 | `tests/test_trammel_extra.py` | Edges: failure analysis, step updates, constraint filtering/propagation, transactions, context manager, incremental harness, MCP dispatch, CLI |
-| `tests/test_strategies.py` | Strategy registry, strategy learning, strategy stats, beam strategies (TestBeamStrategies moved from test_trammel_extra.py) |
-| `tests/test_analyzers.py` | Language analyzers: PythonAnalyzer, TypeScriptAnalyzer, detect_language (12 tests) |
+| `tests/test_strategies.py` | Strategy registry, strategy learning, strategy stats, beam strategies incl. critical_path/cohesion/minimal_change (TestBeamStrategies moved from test_trammel_extra.py) |
+| `tests/test_analyzers.py` | Language analyzers: PythonAnalyzer, TypeScriptAnalyzer (symbols, imports, tsconfig, graceful fallbacks), detect_language (27 tests) |
 
 ## Data flow
 
-1. `plan_and_execute` → `RecipeStore.retrieve_best_recipe` with optional `context_files` (two-phase: text-only fast path, then composite scoring with file overlap). Composite weights: text 0.5, file overlap (Jaccard) 0.3, success ratio 0.2. Min threshold 0.3 → optional cached strategy.
+1. `plan_and_execute` → `RecipeStore.retrieve_best_recipe` with optional `context_files` (two-phase: text-only fast path, then composite scoring with file overlap). Scoring uses `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard on normalized text). Composite weights: text 0.5, file overlap (Jaccard) 0.3, success ratio 0.2. Min threshold 0.3 → optional cached strategy.
 2. Else `Planner.decompose` detects language (or uses provided `analyzer`), scans symbols via `LanguageAnalyzer` (Python AST or TypeScript regex), builds dependency graph, `topological_sort` orders files → steps with rationale + depends_on. Active constraints enforced via `_apply_constraints` (avoid/dependency/incompatible/requires). Passes project file context to recipe retrieval for structural matching.
-3. `explore_trajectories` emits beams from the strategy registry (pluggable via `register_strategy`). When `store` provided, strategies sorted by historical success rate via `get_strategy_stats()`. Constraint-aware strategies: `bottom_up` (dependencies first, skipped at end), `top_down` (API first, skipped at end), `risk_first` (highest coupling first, incompatible isolated, package batching). Skipped steps excluded from beam edits.
+3. `explore_trajectories` emits beams from the strategy registry (pluggable via `register_strategy`). When `store` provided, strategies sorted by historical success rate via `get_strategy_stats()`. Constraint-aware strategies: `bottom_up` (dependencies first, skipped at end), `top_down` (API first, skipped at end), `risk_first` (highest coupling first, incompatible isolated, package batching), `critical_path` (longest dependency chain first), `cohesion` (flood-fill connected components, largest first, toposort within), `minimal_change` (fewest symbols first). Skipped steps excluded from beam edits.
 4. `ExecutionHarness.run` copies tree, applies content edits, runs language-appropriate test command. `verify_step` does single-step verification. `run_incremental` verifies step-by-step, aborting on first failure with structured `failure_analysis` (accepts language-specific `error_patterns`).
-5. Success → `save_recipe` (strategy + constraints + trigram index + file paths in `recipe_files`); failure → `add_constraint` (type, description, context). All mutations wrapped in `BEGIN IMMEDIATE` transactions with BUSY retry. Plans/steps/trajectories logged in SQLite.
+5. Success → `save_recipe` (strategy + constraints + normalized trigram index + file paths in `recipe_files`); failure → `add_constraint` (type, description, context). All mutations wrapped in `BEGIN IMMEDIATE` transactions with BUSY retry. Plans/steps/trajectories logged in SQLite.
 
 ## Schema (trammel.db)
 
@@ -68,6 +68,7 @@
 
 ## Changelog (high level)
 
+- **2.2.0:** Three features. (1) Improved recipe matching — `_VERB_SYNONYMS` dict (40+ verb variants → 9 canonical forms), `normalize_goal`, `word_jaccard`, `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard on normalized text) in `utils.py`; `save_recipe` normalizes before trigram indexing; `retrieve_best_recipe` uses `goal_similarity`; `_backfill_trigrams` renamed to `_rebuild_trigram_index` (rebuilds all trigrams with normalized text on init). (2) New beam strategies (6 total, 3 new) — `critical_path` (longest dependency chain first), `cohesion` (flood-fill connected components, largest first, toposort within), `minimal_change` (fewest symbols first). (3) TypeScript analyzer improvements — `_TS_SYMBOL_PATTERNS` list replacing single regex (interface, enum, const enum, type alias, abstract class, decorated class, function expression), expanded `_TS_IMPORT_RE` (re-exports, barrel exports, type re-exports, dynamic imports), `_TS_ALIAS_IMPORT_RE`, `_read_ts_path_aliases`, `_resolve_alias`, `.mts`/`.mjs` extensions. 129 tests (34 new).
 - **2.1.0:** Cleanup — removed dead `json` import from `core.py`, eliminated duplicated error patterns between `utils.py` and `PythonAnalyzer` (`PythonAnalyzer.error_patterns()` now returns shared `_ERROR_PATTERNS`), removed duplicated `_pick_test_cmd` from `harness.py` (falls back to `PythonAnalyzer.pick_test_cmd`), removed `analyze_imports` backward-compat wrapper from `utils.py` (callers use `PythonAnalyzer` directly). 95 tests (1 obsolete backward-compat test removed).
 - **2.0.0:** Reference LLM integration. New `SYSTEM_PROMPT.md` orchestration guide. New MCP tools: `update_plan_status`, `deactivate_constraint`. `status` tool includes `tools` count. 17 MCP tools total. 4 new tests; 96 total.
 - **1.9.0:** Structural recipe matching. New `recipe_files` table (7 tables total) with indexes. `save_recipe` populates file paths. `_backfill_files()` auto-migrates. `retrieve_best_recipe` accepts `context_files` for composite scoring (text 0.5, file overlap Jaccard 0.3, success ratio 0.2). Two-phase retrieval in `Planner.decompose`. New `list_recipes` MCP tool; `get_recipe` gains `context_files`. 16 MCP tools. 9 new tests; 92 total.

@@ -246,11 +246,108 @@ def _order_risk_first(
     return result
 
 
+def _order_critical_path(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Longest dependency chain first (fast feedback on bottlenecks). Skipped at end."""
+    active = [s for s in steps if s.get("status") != "skipped"]
+    skipped = [s for s in steps if s.get("status") == "skipped"]
+
+    all_files = {s.get("file", "") for s in active}
+    depth: dict[str, int] = {}
+
+    def _longest(f: str, visited: set[str]) -> int:
+        if f in depth:
+            return depth[f]
+        if f in visited:
+            return 0
+        visited.add(f)
+        children = [d for d in dep_graph.get(f, []) if d in all_files]
+        val = 1 + max((_longest(c, visited) for c in children), default=0)
+        depth[f] = val
+        return val
+
+    for s in active:
+        _longest(s.get("file", ""), set())
+
+    active.sort(key=lambda s: depth.get(s.get("file", ""), 0), reverse=True)
+    return active + skipped
+
+
+def _order_cohesion(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Group tightly coupled files, process each group contiguously. Skipped at end."""
+    active = [s for s in steps if s.get("status") != "skipped"]
+    skipped = [s for s in steps if s.get("status") == "skipped"]
+
+    all_files = {s.get("file", "") for s in active}
+    adj: dict[str, set[str]] = {f: set() for f in all_files}
+    for f, deps in dep_graph.items():
+        if f not in all_files:
+            continue
+        for d in deps:
+            if d in all_files:
+                adj[f].add(d)
+                adj[d].add(f)
+
+    # Flood-fill connected components
+    visited: set[str] = set()
+    components: list[list[str]] = []
+    for f in sorted(all_files):
+        if f in visited:
+            continue
+        component: list[str] = []
+        stack = [f]
+        while stack:
+            node = stack.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            component.append(node)
+            stack.extend(sorted(adj.get(node, set()) - visited))
+        components.append(component)
+
+    components.sort(key=len, reverse=True)
+
+    file_order: list[str] = []
+    for comp in components:
+        if len(comp) == 1:
+            file_order.extend(comp)
+        else:
+            sub_graph = {
+                f: [d for d in dep_graph.get(f, []) if d in set(comp)]
+                for f in comp
+            }
+            file_order.extend(topological_sort(sub_graph))
+
+    file_to_step = {s.get("file", ""): s for s in active}
+    ordered = [file_to_step[f] for f in file_order if f in file_to_step]
+    ordered_files = {s.get("file", "") for s in ordered}
+    for s in active:
+        if s.get("file", "") not in ordered_files:
+            ordered.append(s)
+    return ordered + skipped
+
+
+def _order_minimal_change(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Fewest symbols first (quick wins, catch trivial failures early). Skipped at end."""
+    active = [s for s in steps if s.get("status") != "skipped"]
+    skipped = [s for s in steps if s.get("status") == "skipped"]
+    active.sort(key=lambda s: s.get("symbol_count", 0))
+    return active + skipped
+
+
 # ── Register built-in strategies ──────────────────────────────────────────────
 
 register_strategy("bottom_up", "Modify dependencies first, then dependents (safest)", _order_bottom_up)
 register_strategy("top_down", "Modify API surface first, then internals", _order_top_down)
 register_strategy("risk_first", "Modify most-imported files first (highest impact)", _order_risk_first)
+register_strategy("critical_path", "Longest dependency chain first (bottleneck feedback)", _order_critical_path)
+register_strategy("cohesion", "Tightly coupled files grouped together", _order_cohesion)
+register_strategy("minimal_change", "Fewest symbols first (quick wins)", _order_minimal_change)
 
 
 # ── Planner ──────────────────────────────────────────────────────────────────

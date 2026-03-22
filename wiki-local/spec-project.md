@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.1.0
+**Version:** 2.2.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -35,7 +35,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 - **`LanguageAnalyzer` protocol**: Defines `collect_symbols(root) -> dict[str, list[str]]`, `analyze_imports(root) -> dict[str, list[str]]`, `test_command() -> list[str]`, `error_patterns() -> list[str]`.
 - **`PythonAnalyzer`**: AST-based symbol collection and import analysis (moved from `core.py` and `utils.py`).
-- **`TypeScriptAnalyzer`**: Regex-based, stdlib-only analysis for `.ts`/`.tsx`/`.js`/`.jsx` files.
+- **`TypeScriptAnalyzer`**: Regex-based, stdlib-only analysis for `.ts`/`.tsx`/`.js`/`.jsx`/`.mts`/`.mjs` files. Symbol detection via `_TS_SYMBOL_PATTERNS` list (interface, enum, const enum, type alias, abstract class, decorated class, function expression). Import detection via expanded `_TS_IMPORT_RE` (standard imports, re-exports `export { } from`, barrel exports `export * from`, type re-exports `export type { } from`, dynamic imports `import()`). `_TS_ALIAS_IMPORT_RE` detects non-relative alias imports. `_read_ts_path_aliases(root)` reads `compilerOptions.paths` + `baseUrl` from `tsconfig.json`. `_resolve_alias()` resolves alias-based import paths.
 - **`detect_language(root)`**: Heuristic detection by file extension prevalence.
 - **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance.
 
@@ -45,8 +45,8 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 - **Import analysis**: Delegated to language-specific analyzers. `Planner` accepts optional `analyzer` and auto-detects language if not provided.
 - **Topological sort**: Kahn's algorithm orders files so dependencies come first. Cycles are appended at end.
 - **Step generation**: Each file with symbols becomes a step with `description`, `rationale`, `depends_on` (indices of prior steps this depends on).
-- **Beam strategies**: `bottom_up` (dependencies first — safest), `top_down` (API surface first), `risk_first` (most-imported files first — highest coupling impact).
-- **Strategy registry**: Pluggable via `register_strategy(name, fn, description)`. Three built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
+- **Beam strategies (6 built-in)**: `bottom_up` (dependencies first — safest), `top_down` (API surface first), `risk_first` (most-imported files first — highest coupling impact), `critical_path` (longest dependency chain first — bottleneck feedback, recursive depth computation), `cohesion` (flood-fill connected components, process tightly coupled groups contiguously, largest first, topological sort within each component), `minimal_change` (fewest symbols first — quick wins, catch trivial failures early).
+- **Strategy registry**: Pluggable via `register_strategy(name, fn, description)`. Six built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
 - **Strategy learning**: `explore_trajectories` accepts optional `store`. When provided, `get_strategy_stats()` aggregates trajectory outcomes by variant (success/failure counts) and strategies are sorted by historical success rate.
 
 ## 6. Harness (`harness.py`)
@@ -69,7 +69,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 - `constraints(id, plan_id FK, step_id FK, constraint_type, description, context, active)` — types: dependency, incompatible, requires, avoid.
 - `trajectories(id, plan_id FK, beam_id, strategy_variant, steps_completed, outcome, failure_reason)`.
 
-**Recipe retrieval**: Two-phase indexed lookup — query `recipe_trigrams` for candidates sharing trigrams with goal, then compute exact `trigram_bag_cosine` on candidates only. When `context_files` provided, composite scoring: text similarity (0.5) + file overlap via Jaccard (0.3) + success ratio (0.2). Without `context_files`, backward-compatible text-only scoring. Minimum threshold 0.3; tie-break on `successes`.
+**Recipe retrieval**: Two-phase indexed lookup — query `recipe_trigrams` for candidates sharing trigrams with normalized goal, then score via `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard on normalized text). When `context_files` provided, composite scoring: text similarity (0.5) + file overlap via Jaccard (0.3) + success ratio (0.2). Without `context_files`, backward-compatible text-only scoring. Minimum threshold 0.3; tie-break on `successes`. `save_recipe` normalizes patterns before trigram indexing. `_rebuild_trigram_index` rebuilds all trigrams with normalized text on init (renamed from `_backfill_trigrams`).
 
 **`list_recipes(limit=20)`**: Returns recent recipes ordered by update time.
 
@@ -116,6 +116,10 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 - `analyze_failure` — Structured error extraction from test output. Accepts optional `error_patterns` for language-specific patterns.
 - `unique_trigrams` — Distinct trigram set for index population and lookup.
 - `trigram_bag_cosine` — Shared-vocabulary trigram cosine similarity.
+- `_VERB_SYNONYMS` — Dict mapping 40+ verb variants to 9 canonical forms (e.g., "refactor"/"restructure"/"reorganize" all map to "refactor").
+- `normalize_goal(text)` — Lowercase + verb synonym replacement for goal text normalization.
+- `word_jaccard(a, b)` — Word-level Jaccard similarity between two strings.
+- `goal_similarity(a, b)` — Blended similarity: 0.4 trigram cosine + 0.6 word Jaccard on normalized text.
 - `transaction` — Context manager for explicit SQLite transactions with BUSY retry.
 - `dumps_json` — Stable `sort_keys=True` JSON for hashing and persistence.
 - `sha256_json` — Content-addressed recipe ID.
@@ -125,7 +129,7 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 
 - Pass `test_cmd` to `ExecutionHarness` for pytest or a custom runner.
 - Emit real `content` in edits from an LLM (the primary integration point).
-- Register custom beam strategies via `register_strategy()` beyond the three built-in.
+- Register custom beam strategies via `register_strategy()` beyond the six built-in.
 - Add constraint types beyond the four built-in (avoid/dependency/incompatible/requires).
 - Implement `LanguageAnalyzer` protocol for additional languages beyond Python and TypeScript.
 - Use `SYSTEM_PROMPT.md` as a reference for building LLM client orchestration loops.

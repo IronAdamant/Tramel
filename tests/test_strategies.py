@@ -15,6 +15,9 @@ from trammel import ExecutionHarness, Planner  # noqa: E402
 from trammel.core import (  # noqa: E402
     _STRATEGY_REGISTRY,
     _order_bottom_up,
+    _order_cohesion,
+    _order_critical_path,
+    _order_minimal_change,
     _order_risk_first,
     get_strategies,
     register_strategy,
@@ -69,10 +72,9 @@ class TestBeamStrategies(unittest.TestCase):
 class TestStrategyRegistry(unittest.TestCase):
     def test_builtins_registered(self) -> None:
         names = get_strategies()
-        self.assertIn("bottom_up", names)
-        self.assertIn("top_down", names)
-        self.assertIn("risk_first", names)
-        self.assertEqual(len(names), 3)
+        for expected in ("bottom_up", "top_down", "risk_first", "critical_path", "cohesion", "minimal_change"):
+            self.assertIn(expected, names)
+        self.assertEqual(len(names), 6)
 
     def test_register_custom(self) -> None:
         name = "_test_custom_strat"
@@ -99,7 +101,7 @@ class TestStrategyRegistry(unittest.TestCase):
                 pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
                 planner = Planner(store=RecipeStore(os.path.join(d, "x.db")))
                 strat = planner.decompose("task", d)
-                beams = planner.explore_trajectories(strat, num_beams=4)
+                beams = planner.explore_trajectories(strat, num_beams=7)
                 variants = {b["variant"] for b in beams}
                 self.assertIn(name, variants)
         finally:
@@ -145,6 +147,101 @@ class TestStrategyStats(unittest.TestCase):
             self.assertEqual(beams[0]["variant"], "risk_first")
 
 
+# ── New strategy ordering tests ─────────────────────────────────────────────
+
+class TestNewStrategies(unittest.TestCase):
+    def test_critical_path_deepest_first(self):
+        # Steps for a.py, b.py, c.py, d.py
+        # dep_graph: d->c->b->a chain. d has depth 3, should come first.
+        steps = [
+            {"file": "a.py", "symbol_count": 1},
+            {"file": "b.py", "symbol_count": 1},
+            {"file": "c.py", "symbol_count": 1},
+            {"file": "d.py", "symbol_count": 1},
+        ]
+        dep_graph = {"d.py": ["c.py"], "c.py": ["b.py"], "b.py": ["a.py"]}
+        ordered = _order_critical_path(steps, dep_graph)
+        files = [s["file"] for s in ordered]
+        self.assertEqual(files[0], "d.py")  # deepest chain
+
+    def test_critical_path_skipped_at_end(self):
+        steps = [
+            {"file": "a.py", "status": "skipped"},
+            {"file": "b.py"},
+        ]
+        ordered = _order_critical_path(steps, {})
+        self.assertEqual(ordered[-1]["file"], "a.py")
+        self.assertEqual(ordered[-1].get("status"), "skipped")
+
+    def test_critical_path_handles_cycle(self):
+        steps = [{"file": "a.py"}, {"file": "b.py"}]
+        dep_graph = {"a.py": ["b.py"], "b.py": ["a.py"]}
+        ordered = _order_critical_path(steps, dep_graph)
+        self.assertEqual(len(ordered), 2)
+
+    def test_cohesion_groups_connected(self):
+        # Two disconnected components: {a,b} and {c,d}
+        steps = [
+            {"file": "a.py"}, {"file": "b.py"},
+            {"file": "c.py"}, {"file": "d.py"},
+        ]
+        dep_graph = {"b.py": ["a.py"], "d.py": ["c.py"]}
+        ordered = _order_cohesion(steps, dep_graph)
+        files = [s["file"] for s in ordered]
+        # a and b should be adjacent, c and d should be adjacent
+        a_idx, b_idx = files.index("a.py"), files.index("b.py")
+        c_idx, d_idx = files.index("c.py"), files.index("d.py")
+        self.assertEqual(abs(a_idx - b_idx), 1)
+        self.assertEqual(abs(c_idx - d_idx), 1)
+
+    def test_cohesion_largest_component_first(self):
+        steps = [
+            {"file": "a.py"}, {"file": "b.py"}, {"file": "c.py"},
+            {"file": "d.py"},
+        ]
+        dep_graph = {"b.py": ["a.py"], "c.py": ["a.py"]}
+        ordered = _order_cohesion(steps, dep_graph)
+        files = [s["file"] for s in ordered]
+        # Component {a,b,c} is size 3, {d} is size 1
+        # a/b/c should come before d
+        d_idx = files.index("d.py")
+        self.assertGreater(d_idx, files.index("a.py"))
+
+    def test_cohesion_skipped_at_end(self):
+        steps = [
+            {"file": "a.py", "status": "skipped"},
+            {"file": "b.py"},
+        ]
+        ordered = _order_cohesion(steps, {})
+        self.assertEqual(ordered[-1]["file"], "a.py")
+
+    def test_minimal_change_ascending_symbols(self):
+        steps = [
+            {"file": "a.py", "symbol_count": 5},
+            {"file": "b.py", "symbol_count": 1},
+            {"file": "c.py", "symbol_count": 3},
+        ]
+        ordered = _order_minimal_change(steps, {})
+        counts = [s["symbol_count"] for s in ordered]
+        self.assertEqual(counts, [1, 3, 5])
+
+    def test_minimal_change_skipped_at_end(self):
+        steps = [
+            {"file": "a.py", "symbol_count": 1, "status": "skipped"},
+            {"file": "b.py", "symbol_count": 2},
+        ]
+        ordered = _order_minimal_change(steps, {})
+        self.assertEqual(ordered[-1]["file"], "a.py")
+
+    def test_minimal_change_zero_symbols(self):
+        steps = [
+            {"file": "a.py", "symbol_count": 3},
+            {"file": "b.py", "symbol_count": 0},
+        ]
+        ordered = _order_minimal_change(steps, {})
+        self.assertEqual(ordered[0]["file"], "b.py")
+
+
 # ── MCP tool ─────────────────────────────────────────────────────────────────
 
 class TestListStrategiesMCP(unittest.TestCase):
@@ -154,7 +251,8 @@ class TestListStrategiesMCP(unittest.TestCase):
             result = dispatch_tool(store, "list_strategies", {})
             names = [r["name"] for r in result]
             self.assertIn("bottom_up", names)
-            self.assertEqual(len(result), 3)
+            self.assertIn("critical_path", names)
+            self.assertEqual(len(result), 6)
             self.assertIn("successes", result[0])
             self.assertIn("failures", result[0])
 

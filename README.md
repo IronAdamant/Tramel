@@ -86,7 +86,7 @@ Configure in `.claude/.mcp.json`:
 Trammel treats planning as a structured search problem:
 
 1. **Decompose** -- Analyze project imports (Python AST or TypeScript regex), build dependency graph, topological sort, generate steps with ordering rationale
-2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`)
+2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`, `critical_path`, `cohesion`, `minimal_change`)
 3. **Verify** -- Run edits in isolated temp copies, per-step or full-run; extract structured failure analysis on failure
 4. **Constrain** -- Propagate failure reasons as persistent constraints that block repetition across sessions
 5. **Remember** -- Store successful strategies as recipes, retrieved by composite scoring (text similarity + file overlap + success ratio)
@@ -96,15 +96,15 @@ Trammel treats planning as a structured search problem:
 ```
 trammel/              Importable package
   __init__.py         plan_and_execute, explore, synthesize, __version__
-  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language
+  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer (expanded), detect_language
   core.py             Planner: import analysis, toposort, beam strategies
   harness.py          ExecutionHarness: temp copy, edits, test runner
   store.py            RecipeStore: SQLite persistence (7 tables)
-  utils.py            Trigrams, cosine, failure extraction
+  utils.py            Trigrams, cosine, failure extraction, goal normalization, goal similarity
   cli.py              Argparse CLI entry point
   mcp_server.py       MCP tool schemas and dispatch (17 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (95 tests)
+tests/                stdlib unittest (129 tests)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -144,6 +144,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.2.0
+
+- **Improved recipe matching**: New `_VERB_SYNONYMS` (40+ verb variants to 9 canonical forms), `normalize_goal`, `word_jaccard`, and `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard on normalized text) in `utils.py`. `save_recipe` normalizes before trigram indexing. `retrieve_best_recipe` uses `goal_similarity`. `_backfill_trigrams` renamed to `_rebuild_trigram_index` (rebuilds with normalized text on init).
+- **New beam strategies** (6 total, 3 new): `critical_path` (longest dependency chain first — bottleneck feedback), `cohesion` (flood-fill connected components, largest first, toposort within), `minimal_change` (fewest symbols first — quick wins).
+- **TypeScript analyzer improvements**: `_TS_SYMBOL_PATTERNS` list replacing single regex (interface, enum, const enum, type alias, abstract class, decorated class, function expression). Expanded import detection (re-exports, barrel exports, type re-exports, dynamic imports). New `_TS_ALIAS_IMPORT_RE`, `_read_ts_path_aliases`, `_resolve_alias`. Added `.mts`/`.mjs` extensions.
+- **129 tests** (34 new: 10 recipe matching, 9 strategy, 15 TypeScript).
 
 ### 2.1.0
 

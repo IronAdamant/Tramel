@@ -80,6 +80,50 @@ def cosine(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b)) / (na * nb)
 
 
+# ── Goal normalization and similarity ────────────────────────────────────────
+
+_VERB_SYNONYMS: dict[str, str] = {}
+for _canonical, _variants in {
+    "restructure": ["refactor", "rewrite", "rework", "reorganize", "restructure"],
+    "fix": ["fix", "repair", "patch", "debug", "resolve"],
+    "add": ["add", "create", "implement", "introduce", "build"],
+    "remove": ["remove", "delete", "drop", "eliminate"],
+    "update": ["update", "modify", "change", "adjust"],
+    "move": ["move", "migrate", "relocate", "transfer"],
+    "rename": ["rename"],
+    "test": ["test", "verify", "validate", "check"],
+    "optimize": ["optimize", "improve", "enhance"],
+    "extract": ["extract", "split", "separate", "decouple"],
+}.items():
+    for _v in _variants:
+        _VERB_SYNONYMS[_v] = _canonical
+
+
+def normalize_goal(text: str) -> str:
+    """Lowercase text and replace coding verbs with canonical synonyms."""
+    return " ".join(_VERB_SYNONYMS.get(w, w) for w in text.lower().split())
+
+
+def word_jaccard(a: str, b: str) -> float:
+    """Word-level Jaccard similarity between two strings."""
+    wa = set(a.split())
+    wb = set(b.split())
+    if not wa and not wb:
+        return 1.0
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / len(wa | wb)
+
+
+def goal_similarity(a: str, b: str) -> float:
+    """Blended similarity: 40% trigram cosine + 60% word Jaccard on normalized text."""
+    tri = trigram_bag_cosine(a, b)
+    norm_a = normalize_goal(a)
+    norm_b = normalize_goal(b)
+    wj = word_jaccard(norm_a, norm_b)
+    return 0.4 * tri + 0.6 * wj
+
+
 # ── Database ─────────────────────────────────────────────────────────────────
 
 _BUSY_RETRIES = 5

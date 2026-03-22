@@ -7,8 +7,8 @@ import time
 from typing import Any
 
 from .utils import (
-    db_connect, dumps_json, sha256_json, transaction,
-    trigram_bag_cosine, unique_trigrams,
+    db_connect, dumps_json, goal_similarity, normalize_goal,
+    sha256_json, transaction, unique_trigrams,
 )
 
 
@@ -111,20 +111,18 @@ class RecipeStore:
                 ON recipe_files(file_path);
         """)
         self.conn.commit()
-        self._backfill_trigrams()
+        self._rebuild_trigram_index()
         self._backfill_files()
 
-    def _backfill_trigrams(self) -> None:
-        """Populate recipe_trigrams for any recipes that lack trigram entries."""
-        orphans = self.conn.execute(
-            "SELECT sig, pattern FROM recipes WHERE sig NOT IN "
-            "(SELECT DISTINCT recipe_sig FROM recipe_trigrams)"
-        ).fetchall()
-        if not orphans:
+    def _rebuild_trigram_index(self) -> None:
+        """Rebuild recipe_trigrams using normalized goal text for synonym-aware matching."""
+        rows = self.conn.execute("SELECT sig, pattern FROM recipes").fetchall()
+        if not rows:
             return
         with transaction(self.conn):
-            for sig, pattern in orphans:
-                tris = unique_trigrams(pattern)
+            self.conn.execute("DELETE FROM recipe_trigrams")
+            for sig, pattern in rows:
+                tris = unique_trigrams(normalize_goal(pattern))
                 self.conn.executemany(
                     "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
                     [(t, sig) for t in tris],
@@ -190,7 +188,7 @@ class RecipeStore:
             self.conn.execute(
                 "DELETE FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
             )
-            tris = unique_trigrams(pattern)
+            tris = unique_trigrams(normalize_goal(pattern))
             if tris:
                 self.conn.executemany(
                     "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
@@ -217,7 +215,7 @@ class RecipeStore:
         min_similarity: float = 0.3,
         context_files: set[str] | None = None,
     ) -> dict[str, Any] | None:
-        goal_tris = unique_trigrams(goal)
+        goal_tris = unique_trigrams(normalize_goal(goal))
         if not goal_tris:
             return None
         placeholders = ",".join("?" for _ in goal_tris)
@@ -238,7 +236,7 @@ class RecipeStore:
         best: dict[str, Any] | None = None
         best_score = -1.0
         for sig, pattern, strategy_str, succ, fail in cur:
-            text_sim = trigram_bag_cosine(goal, pattern)
+            text_sim = goal_similarity(goal, pattern)
             if text_sim < min_similarity:
                 continue
 
