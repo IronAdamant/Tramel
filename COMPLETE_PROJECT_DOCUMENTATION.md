@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
 **Updated:** 2026-03-23
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition (Python + TypeScript), real beam branching, incremental verification, failure constraint propagation, structural recipe matching, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server (17 tools) for LLM integration with reference system prompt.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 2.0.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 2.1.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 | `SYSTEM_PROMPT.md` | Reference orchestration guide for LLM clients: plan-verify-store loop |
 
 ## wiki-local/
@@ -30,10 +30,10 @@
 | `trammel/__main__.py` | `python -m trammel` → `cli.main()` | `cli` |
 | `trammel/analyzers.py` | `LanguageAnalyzer` protocol, `PythonAnalyzer` (AST-based), `TypeScriptAnalyzer` (regex-based), `detect_language()`, `get_analyzer()` | stdlib |
 | `trammel/cli.py` | Argparse + JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd` | `__init__` |
-| `trammel/core.py` | `Planner`: import-aware dependency analysis (delegates to language analyzers), topological step ordering, real beam branching (bottom_up/top_down/risk_first), constraint propagation via `_apply_constraints`. Pluggable strategy registry (`register_strategy`/`get_strategies`/`StrategyFn`/`StrategyEntry`); 3 built-in strategies auto-registered. `explore_trajectories` supports strategy learning via optional `store`. `_collect_python_symbols` removed (moved to `PythonAnalyzer`). | `store`, `utils`, `analyzers` |
-| `trammel/harness.py` | Temp copy, `_apply_edits`, full `run()`, `verify_step()`, `run_incremental()`, configurable `test_cmd`, failure analysis. Accepts optional `analyzer` for language-specific test commands and error patterns. | `utils` |
+| `trammel/core.py` | `Planner`: import-aware dependency analysis (delegates to language analyzers), topological step ordering, real beam branching (bottom_up/top_down/risk_first), constraint propagation via `_apply_constraints`. Pluggable strategy registry (`register_strategy`/`get_strategies`/`StrategyFn`/`StrategyEntry`); 3 built-in strategies auto-registered. `explore_trajectories` supports strategy learning via optional `store`. | `store`, `utils`, `analyzers` |
+| `trammel/harness.py` | Temp copy, `_apply_edits`, full `run()`, `verify_step()`, `run_incremental()`, configurable `test_cmd`, failure analysis. Accepts optional `analyzer` for language-specific test commands and error patterns. Falls back to `PythonAnalyzer` for default test command. | `utils`, `analyzers` |
 | `trammel/store.py` | SQLite: recipes, recipe_trigrams, recipe_files (structural matching), plans, steps, constraints, trajectories (7 tables). Context manager. Transaction wrapping. Composite scoring (text + file overlap + success ratio). `list_recipes(limit=20)`. | `utils` |
-| `trammel/utils.py` | Trigrams, cosine, `unique_trigrams`, `transaction`, `analyze_imports` (backward-compat wrapper delegating to `PythonAnalyzer`), `topological_sort`, `analyze_failure` (accepts optional `error_patterns`), `_is_ignored_dir`, `dumps_json`, `sha256_json`, `db_connect` | stdlib |
+| `trammel/utils.py` | Trigrams, cosine, `unique_trigrams`, `transaction`, `topological_sort`, `analyze_failure` (accepts optional `error_patterns`), `_is_ignored_dir`, `_ERROR_PATTERNS`, `dumps_json`, `sha256_json`, `db_connect` | stdlib |
 | `trammel/mcp_server.py` | MCP tool schemas (17 tools) + `match/case` `dispatch_tool` routing | `core`, `harness`, `store` |
 | `trammel/mcp_stdio.py` | MCP stdio server entry point (`trammel-mcp` console script) | `mcp_server`, `store`, `mcp` (optional) |
 
@@ -44,7 +44,7 @@
 | `tests/test_trammel.py` | Core: trigrams, toposort, import analysis, store (incl. trigram index), harness, plan_and_execute, explore |
 | `tests/test_trammel_extra.py` | Edges: failure analysis, step updates, constraint filtering/propagation, transactions, context manager, incremental harness, MCP dispatch, CLI |
 | `tests/test_strategies.py` | Strategy registry, strategy learning, strategy stats, beam strategies (TestBeamStrategies moved from test_trammel_extra.py) |
-| `tests/test_analyzers.py` | Language analyzers: PythonAnalyzer, TypeScriptAnalyzer, detect_language, backward compat (13 tests) |
+| `tests/test_analyzers.py` | Language analyzers: PythonAnalyzer, TypeScriptAnalyzer, detect_language (12 tests) |
 
 ## Data flow
 
@@ -68,6 +68,7 @@
 
 ## Changelog (high level)
 
+- **2.1.0:** Cleanup — removed dead `json` import from `core.py`, eliminated duplicated error patterns between `utils.py` and `PythonAnalyzer` (`PythonAnalyzer.error_patterns()` now returns shared `_ERROR_PATTERNS`), removed duplicated `_pick_test_cmd` from `harness.py` (falls back to `PythonAnalyzer.pick_test_cmd`), removed `analyze_imports` backward-compat wrapper from `utils.py` (callers use `PythonAnalyzer` directly). 95 tests (1 obsolete backward-compat test removed).
 - **2.0.0:** Reference LLM integration. New `SYSTEM_PROMPT.md` orchestration guide. New MCP tools: `update_plan_status`, `deactivate_constraint`. `status` tool includes `tools` count. 17 MCP tools total. 4 new tests; 96 total.
 - **1.9.0:** Structural recipe matching. New `recipe_files` table (7 tables total) with indexes. `save_recipe` populates file paths. `_backfill_files()` auto-migrates. `retrieve_best_recipe` accepts `context_files` for composite scoring (text 0.5, file overlap Jaccard 0.3, success ratio 0.2). Two-phase retrieval in `Planner.decompose`. New `list_recipes` MCP tool; `get_recipe` gains `context_files`. 16 MCP tools. 9 new tests; 92 total.
 - **1.8.0:** Multi-language support. New `trammel/analyzers.py`: `LanguageAnalyzer` protocol, `PythonAnalyzer`, `TypeScriptAnalyzer` (regex-based, stdlib-only), `detect_language()`, `get_analyzer()`. `Planner`/`ExecutionHarness` accept `analyzer`. `_collect_python_symbols` moved from `core.py` to `PythonAnalyzer`. `analyze_imports` wrapper in `utils.py`. `language` parameter on `plan_and_execute`/`explore`/MCP tools. `_IGNORED_DIRS` expanded. New `tests/test_analyzers.py` (13 tests). 83 total.

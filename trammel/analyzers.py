@@ -9,7 +9,7 @@ import re
 import sys
 from typing import Any, Protocol
 
-from .utils import _is_ignored_dir
+from .utils import _ERROR_PATTERNS, _is_ignored_dir
 
 
 class LanguageAnalyzer(Protocol):
@@ -91,16 +91,7 @@ class PythonAnalyzer:
         return [exe, "-m", "unittest", "discover", "-q", "-s", start, "-p", "test_*.py"]
 
     def error_patterns(self) -> list[tuple[str, str, str]]:
-        return [
-            ("ImportError", "import_error", "Check import paths and module dependencies"),
-            ("ModuleNotFoundError", "import_error", "Check import paths and module dependencies"),
-            ("AttributeError", "attribute_error", "Verify referenced attributes exist on the object"),
-            ("SyntaxError", "syntax_error", "Fix Python syntax in the referenced file"),
-            ("TypeError", "type_error", "Check argument types and function signatures"),
-            ("NameError", "name_error", "Check that referenced names are defined in scope"),
-            ("AssertionError", "assertion_error", "Test assertion failed — check expected vs actual"),
-            ("FAIL", "test_failure", "One or more test assertions failed"),
-        ]
+        return _ERROR_PATTERNS
 
     @staticmethod
     def _catalog_modules(project_root: str) -> dict[str, str]:

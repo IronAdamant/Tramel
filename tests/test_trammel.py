@@ -12,9 +12,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, explore, plan_and_execute, synthesize  # noqa: E402
+from trammel.analyzers import PythonAnalyzer  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.utils import (  # noqa: E402
-    analyze_imports,
     cosine,
     topological_sort,
     trigram_bag_cosine,
@@ -67,14 +67,14 @@ class TestImportAnalysis(unittest.TestCase):
             (pkg / "__init__.py").write_text("", encoding="utf-8")
             (pkg / "a.py").write_text("X = 1\n", encoding="utf-8")
             (pkg / "b.py").write_text("from pkg.a import X\n", encoding="utf-8")
-            graph = analyze_imports(d)
+            graph = PythonAnalyzer().analyze_imports(d)
             b_deps = graph.get(os.path.join("pkg", "b.py"), [])
             self.assertIn(os.path.join("pkg", "a.py"), b_deps)
 
     def test_ignores_external_imports(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "mod.py").write_text("import os\nimport json\n", encoding="utf-8")
-            graph = analyze_imports(d)
+            graph = PythonAnalyzer().analyze_imports(d)
             self.assertEqual(graph.get("mod.py", []), [])
 
 

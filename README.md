@@ -104,7 +104,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point
   mcp_server.py       MCP tool schemas and dispatch (17 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (96 tests)
+tests/                stdlib unittest (95 tests)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -144,6 +144,11 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.1.0
+
+- **Code cleanup**: Removed dead `json` import from `core.py`. Eliminated duplicated error patterns between `utils.py` and `PythonAnalyzer`. Removed duplicated `_pick_test_cmd` from `harness.py` (falls back to `PythonAnalyzer`). Removed `analyze_imports` backward-compat wrapper from `utils.py`.
+- **95 tests** (1 obsolete backward-compat test removed).
 
 ### 2.0.0
 

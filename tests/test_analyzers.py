@@ -17,7 +17,6 @@ from trammel.analyzers import (  # noqa: E402
     TypeScriptAnalyzer,
     detect_language,
 )
-from trammel.utils import analyze_imports  # noqa: E402
 
 
 # ── PythonAnalyzer ───────────────────────────────────────────────────────────
@@ -145,21 +144,6 @@ class TestDetectLanguage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             analyzer = detect_language(d)
             self.assertEqual(analyzer.name, "python")
-
-
-# ── Backward compat ──────────────────────────────────────────────────────────
-
-class TestBackwardCompat(unittest.TestCase):
-    def test_utils_analyze_imports_wrapper(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            pkg = pathlib.Path(d) / "pkg"
-            pkg.mkdir()
-            (pkg / "__init__.py").write_text("", encoding="utf-8")
-            (pkg / "a.py").write_text("X = 1\n", encoding="utf-8")
-            (pkg / "b.py").write_text("from pkg.a import X\n", encoding="utf-8")
-            graph = analyze_imports(d)
-            b_deps = graph.get(os.path.join("pkg", "b.py"), [])
-            self.assertIn(os.path.join("pkg", "a.py"), b_deps)
 
 
 if __name__ == "__main__":

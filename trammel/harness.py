@@ -35,15 +35,6 @@ def _apply_edits(root: str, edits: list[dict[str, Any]]) -> None:
             fp.write(content if isinstance(content, str) else str(content))
 
 
-def _pick_test_cmd(project_root: str) -> list[str]:
-    """Stdlib unittest discover (no pytest required)."""
-    tests_dir = os.path.join(project_root, "tests")
-    exe = sys.executable
-    if os.path.isdir(tests_dir):
-        return [exe, "-m", "unittest", "discover", "-q", "-s", "tests", "-p", "test_*.py"]
-    return [exe, "-m", "unittest", "discover", "-q", "-s", ".", "-p", "test_*.py"]
-
-
 def _run_tests(
     tmp: str,
     timeout_s: int,
@@ -51,7 +42,11 @@ def _run_tests(
     error_patterns: list[tuple[str, str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run tests in the given directory and return structured results."""
-    cmd = test_cmd if test_cmd else _pick_test_cmd(tmp)
+    if test_cmd:
+        cmd = test_cmd
+    else:
+        from .analyzers import PythonAnalyzer
+        cmd = PythonAnalyzer().pick_test_cmd(tmp)
     env = os.environ.copy()
     env.setdefault("PYTHONHASHSEED", "0")
     try:

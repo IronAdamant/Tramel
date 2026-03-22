@@ -118,17 +118,6 @@ def transaction(
         raise
 
 
-# ── Import analysis (backward-compatible wrapper) ────────────────────────────
-
-def analyze_imports(project_root: str) -> dict[str, list[str]]:
-    """Build a dependency graph: file -> [files it imports from] (project-internal only).
-
-    Delegates to PythonAnalyzer. Kept for backward compatibility.
-    """
-    from .analyzers import PythonAnalyzer
-    return PythonAnalyzer().analyze_imports(project_root)
-
-
 # ── Topological sort ─────────────────────────────────────────────────────────
 
 def topological_sort(deps: dict[str, list[str]]) -> list[str]:

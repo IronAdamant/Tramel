@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -112,7 +112,6 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 ## 9. Utilities (`utils.py`)
 
 - `_is_ignored_dir` — Check if a directory should be skipped (frozenset + `.egg-info` suffix). Expanded set includes `.next`, `.nuxt`, `coverage`, `.turbo`, `.parcel-cache`.
-- `analyze_imports` — Backward-compat wrapper delegating to `PythonAnalyzer`.
 - `topological_sort` — Kahn's algorithm with cycle handling (uses `deque` for O(1) queue ops).
 - `analyze_failure` — Structured error extraction from test output. Accepts optional `error_patterns` for language-specific patterns.
 - `unique_trigrams` — Distinct trigram set for index population and lookup.
