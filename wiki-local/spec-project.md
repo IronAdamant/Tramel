@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.2.0
+**Version:** 2.3.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -116,7 +116,7 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 - `analyze_failure` — Structured error extraction from test output. Accepts optional `error_patterns` for language-specific patterns.
 - `unique_trigrams` — Distinct trigram set for index population and lookup.
 - `trigram_bag_cosine` — Shared-vocabulary trigram cosine similarity.
-- `_VERB_SYNONYMS` — Dict mapping 40+ verb variants to 9 canonical forms (e.g., "refactor"/"restructure"/"reorganize" all map to "refactor").
+- `_VERB_SYNONYMS` — Dict comprehension mapping 40+ verb variants to 9 canonical forms (e.g., "refactor"/"rewrite"/"reorganize" all map to "restructure").
 - `normalize_goal(text)` — Lowercase + verb synonym replacement for goal text normalization.
 - `word_jaccard(a, b)` — Word-level Jaccard similarity between two strings.
 - `goal_similarity(a, b)` — Blended similarity: 0.4 trigram cosine + 0.6 word Jaccard on normalized text.

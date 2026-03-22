@@ -189,12 +189,20 @@ def _apply_constraints(
 
 # ── Beam strategies ──────────────────────────────────────────────────────────
 
+def _split_active_skipped(
+    steps: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Separate active steps from skipped steps."""
+    active = [s for s in steps if s.get("status") != "skipped"]
+    skipped = [s for s in steps if s.get("status") == "skipped"]
+    return active, skipped
+
+
 def _order_bottom_up(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     """Dependencies first, then dependents. Skipped steps at end."""
-    active = [s for s in steps if s.get("status") != "skipped"]
-    skipped = [s for s in steps if s.get("status") == "skipped"]
+    active, skipped = _split_active_skipped(steps)
     return active + skipped
 
 
@@ -202,8 +210,7 @@ def _order_top_down(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     """Entry points and API surface first, internals last. Skipped at end."""
-    active = [s for s in steps if s.get("status") != "skipped"]
-    skipped = [s for s in steps if s.get("status") == "skipped"]
+    active, skipped = _split_active_skipped(steps)
     return list(reversed(active)) + skipped
 
 
@@ -216,8 +223,7 @@ def _order_risk_first(
         for d in deps:
             import_counts[d] = import_counts.get(d, 0) + 1
 
-    active = [s for s in steps if s.get("status") != "skipped"]
-    skipped = [s for s in steps if s.get("status") == "skipped"]
+    active, skipped = _split_active_skipped(steps)
 
     isolated = [s for s in active if s.get("incompatible_with")]
     batchable = [s for s in active if not s.get("incompatible_with")]
@@ -250,8 +256,7 @@ def _order_critical_path(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     """Longest dependency chain first (fast feedback on bottlenecks). Skipped at end."""
-    active = [s for s in steps if s.get("status") != "skipped"]
-    skipped = [s for s in steps if s.get("status") == "skipped"]
+    active, skipped = _split_active_skipped(steps)
 
     all_files = {s.get("file", "") for s in active}
     depth: dict[str, int] = {}
@@ -278,8 +283,7 @@ def _order_cohesion(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     """Group tightly coupled files, process each group contiguously. Skipped at end."""
-    active = [s for s in steps if s.get("status") != "skipped"]
-    skipped = [s for s in steps if s.get("status") == "skipped"]
+    active, skipped = _split_active_skipped(steps)
 
     all_files = {s.get("file", "") for s in active}
     adj: dict[str, set[str]] = {f: set() for f in all_files}
@@ -334,8 +338,7 @@ def _order_minimal_change(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     """Fewest symbols first (quick wins, catch trivial failures early). Skipped at end."""
-    active = [s for s in steps if s.get("status") != "skipped"]
-    skipped = [s for s in steps if s.get("status") == "skipped"]
+    active, skipped = _split_active_skipped(steps)
     active.sort(key=lambda s: s.get("symbol_count", 0))
     return active + skipped
 

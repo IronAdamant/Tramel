@@ -82,21 +82,22 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 # ── Goal normalization and similarity ────────────────────────────────────────
 
-_VERB_SYNONYMS: dict[str, str] = {}
-for _canonical, _variants in {
-    "restructure": ["refactor", "rewrite", "rework", "reorganize", "restructure"],
-    "fix": ["fix", "repair", "patch", "debug", "resolve"],
-    "add": ["add", "create", "implement", "introduce", "build"],
-    "remove": ["remove", "delete", "drop", "eliminate"],
-    "update": ["update", "modify", "change", "adjust"],
-    "move": ["move", "migrate", "relocate", "transfer"],
-    "rename": ["rename"],
-    "test": ["test", "verify", "validate", "check"],
-    "optimize": ["optimize", "improve", "enhance"],
-    "extract": ["extract", "split", "separate", "decouple"],
-}.items():
-    for _v in _variants:
-        _VERB_SYNONYMS[_v] = _canonical
+_VERB_SYNONYMS: dict[str, str] = {
+    v: canonical
+    for canonical, variants in {
+        "restructure": ["refactor", "rewrite", "rework", "reorganize", "restructure"],
+        "fix": ["fix", "repair", "patch", "debug", "resolve"],
+        "add": ["add", "create", "implement", "introduce", "build"],
+        "remove": ["remove", "delete", "drop", "eliminate"],
+        "update": ["update", "modify", "change", "adjust"],
+        "move": ["move", "migrate", "relocate", "transfer"],
+        "rename": ["rename"],
+        "test": ["test", "verify", "validate", "check"],
+        "optimize": ["optimize", "improve", "enhance"],
+        "extract": ["extract", "split", "separate", "decouple"],
+    }.items()
+    for v in variants
+}
 
 
 def normalize_goal(text: str) -> str:

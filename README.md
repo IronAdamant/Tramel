@@ -104,7 +104,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point
   mcp_server.py       MCP tool schemas and dispatch (17 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (129 tests)
+tests/                stdlib unittest (129 tests, 4 files)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -144,6 +144,12 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.3.0
+
+- **Code cleanup**: Extracted `_split_active_skipped` helper in `core.py`, shared by all 6 beam strategy functions (eliminates duplicated active/skipped split pattern). Modernized `_VERB_SYNONYMS` in `utils.py` from imperative loop to dict comprehension (eliminates leaked module-level variables `_canonical`, `_variants`, `_v`).
+- **Documentation fixes**: Corrected canonical verb form examples in glossary and spec (was "refactor", now correctly "restructure"). Fixed `register_strategy` parameter order in glossary (`(name, description, fn)` not `(name, fn, description)`).
+- **129 tests** (unchanged).
 
 ### 2.2.0
 

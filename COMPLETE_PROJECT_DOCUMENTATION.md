@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
 **Updated:** 2026-03-23
-**Version:** 2.2.0
+**Version:** 2.3.0
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition (Python + TypeScript), real beam branching, incremental verification, failure constraint propagation, structural recipe matching, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server (17 tools) for LLM integration with reference system prompt.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 2.2.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 2.3.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 | `SYSTEM_PROMPT.md` | Reference orchestration guide for LLM clients: plan-verify-store loop |
 
 ## wiki-local/
@@ -30,10 +30,10 @@
 | `trammel/__main__.py` | `python -m trammel` → `cli.main()` | `cli` |
 | `trammel/analyzers.py` | `LanguageAnalyzer` protocol, `PythonAnalyzer` (AST-based), `TypeScriptAnalyzer` (regex-based: `_TS_SYMBOL_PATTERNS` list, expanded import/re-export detection, `_TS_ALIAS_IMPORT_RE`, `_read_ts_path_aliases`, `_resolve_alias`, `.mts`/`.mjs` extensions), `detect_language()`, `get_analyzer()` | stdlib |
 | `trammel/cli.py` | Argparse + JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd` | `__init__` |
-| `trammel/core.py` | `Planner`: import-aware dependency analysis (delegates to language analyzers), topological step ordering, real beam branching (bottom_up/top_down/risk_first/critical_path/cohesion/minimal_change), constraint propagation via `_apply_constraints`. Pluggable strategy registry (`register_strategy`/`get_strategies`/`StrategyFn`/`StrategyEntry`); 6 built-in strategies auto-registered. `explore_trajectories` supports strategy learning via optional `store`. | `store`, `utils`, `analyzers` |
+| `trammel/core.py` | `Planner`: import-aware dependency analysis (delegates to language analyzers), topological step ordering, real beam branching (bottom_up/top_down/risk_first/critical_path/cohesion/minimal_change), constraint propagation via `_apply_constraints`. Pluggable strategy registry (`register_strategy`/`get_strategies`/`StrategyFn`/`StrategyEntry`); 6 built-in strategies auto-registered; `_split_active_skipped` helper shared by all strategies. `explore_trajectories` supports strategy learning via optional `store`. | `store`, `utils`, `analyzers` |
 | `trammel/harness.py` | Temp copy, `_apply_edits`, full `run()`, `verify_step()`, `run_incremental()`, configurable `test_cmd`, failure analysis. Accepts optional `analyzer` for language-specific test commands and error patterns. Falls back to `PythonAnalyzer` for default test command. | `utils`, `analyzers` |
 | `trammel/store.py` | SQLite: recipes, recipe_trigrams, recipe_files (structural matching), plans, steps, constraints, trajectories (7 tables). Context manager. Transaction wrapping. Composite scoring (text + file overlap + success ratio). `list_recipes(limit=20)`. `save_recipe` normalizes patterns before trigram indexing. `retrieve_best_recipe` uses `goal_similarity` scoring and normalizes goals for trigram queries. `_rebuild_trigram_index` rebuilds all trigrams with normalized text on init. | `utils` |
-| `trammel/utils.py` | Trigrams, cosine, `unique_trigrams`, `transaction`, `topological_sort`, `analyze_failure` (accepts optional `error_patterns`), `_is_ignored_dir`, `_ERROR_PATTERNS`, `dumps_json`, `sha256_json`, `db_connect`, `_VERB_SYNONYMS` (40+ verb variants → 9 canonical forms), `normalize_goal`, `word_jaccard`, `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard) | stdlib |
+| `trammel/utils.py` | Trigrams, cosine, `unique_trigrams`, `transaction`, `topological_sort`, `analyze_failure` (accepts optional `error_patterns`), `_is_ignored_dir`, `_ERROR_PATTERNS`, `dumps_json`, `sha256_json`, `db_connect`, `_VERB_SYNONYMS` (dict comprehension, 40+ verb variants → 9 canonical forms), `normalize_goal`, `word_jaccard`, `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard) | stdlib |
 | `trammel/mcp_server.py` | MCP tool schemas (17 tools) + `match/case` `dispatch_tool` routing | `core`, `harness`, `store` |
 | `trammel/mcp_stdio.py` | MCP stdio server entry point (`trammel-mcp` console script) | `mcp_server`, `store`, `mcp` (optional) |
 
@@ -68,6 +68,7 @@
 
 ## Changelog (high level)
 
+- **2.3.0:** Cleanup. Extracted `_split_active_skipped` helper in `core.py` (shared by all 6 strategy functions, eliminating duplicated active/skipped split). Modernized `_VERB_SYNONYMS` in `utils.py` from imperative loop to dict comprehension (eliminates leaked module-level variables). Fixed documentation errors: corrected canonical verb form examples (was "refactor", now correctly "restructure") and `register_strategy` parameter order in glossary and spec. 129 tests (unchanged).
 - **2.2.0:** Three features. (1) Improved recipe matching — `_VERB_SYNONYMS` dict (40+ verb variants → 9 canonical forms), `normalize_goal`, `word_jaccard`, `goal_similarity` (0.4 trigram cosine + 0.6 word Jaccard on normalized text) in `utils.py`; `save_recipe` normalizes before trigram indexing; `retrieve_best_recipe` uses `goal_similarity`; `_backfill_trigrams` renamed to `_rebuild_trigram_index` (rebuilds all trigrams with normalized text on init). (2) New beam strategies (6 total, 3 new) — `critical_path` (longest dependency chain first), `cohesion` (flood-fill connected components, largest first, toposort within), `minimal_change` (fewest symbols first). (3) TypeScript analyzer improvements — `_TS_SYMBOL_PATTERNS` list replacing single regex (interface, enum, const enum, type alias, abstract class, decorated class, function expression), expanded `_TS_IMPORT_RE` (re-exports, barrel exports, type re-exports, dynamic imports), `_TS_ALIAS_IMPORT_RE`, `_read_ts_path_aliases`, `_resolve_alias`, `.mts`/`.mjs` extensions. 129 tests (34 new).
 - **2.1.0:** Cleanup — removed dead `json` import from `core.py`, eliminated duplicated error patterns between `utils.py` and `PythonAnalyzer` (`PythonAnalyzer.error_patterns()` now returns shared `_ERROR_PATTERNS`), removed duplicated `_pick_test_cmd` from `harness.py` (falls back to `PythonAnalyzer.pick_test_cmd`), removed `analyze_imports` backward-compat wrapper from `utils.py` (callers use `PythonAnalyzer` directly). 95 tests (1 obsolete backward-compat test removed).
 - **2.0.0:** Reference LLM integration. New `SYSTEM_PROMPT.md` orchestration guide. New MCP tools: `update_plan_status`, `deactivate_constraint`. `status` tool includes `tools` count. 17 MCP tools total. 4 new tests; 96 total.
