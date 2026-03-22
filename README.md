@@ -149,6 +149,11 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### 2.8.0
+
+- **Codebase cleanup**: Removed unused imports (`Any` from `analyzers.py`, `json` from `analyzers_ext.py`, `ExecutionHarness`/`dumps_json` from `test_strategies.py`). Replaced fragile lazy-import global in `analyzers_ext.py` with `functools.cache` (thread-safe, simpler). Fixed overly broad `BaseException` → `Exception` in transaction rollback (`utils.py`). Modernized `conn.commit()`/`conn.rollback()`. Optimized `_order_cohesion` set creation. Updated `SYSTEM_PROMPT.md` (tool count 17→18, added C/C++/Java/Kotlin to multi-language section).
+- **175 tests** (unchanged).
+
 ### 2.7.0
 
 - **Store module split**: Extracted recipe methods (`save_recipe`, `retrieve_best_recipe`, `list_recipes`, `prune_recipes`, `_rebuild_trigram_index`, `_backfill_files`) into `store_recipes.py` as `RecipeStoreMixin` (~210 LOC). `RecipeStore` in `store.py` now inherits from it (~342 LOC, down from 540).

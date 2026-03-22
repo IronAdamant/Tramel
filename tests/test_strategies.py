@@ -11,7 +11,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from trammel import ExecutionHarness, Planner  # noqa: E402
+from trammel import Planner  # noqa: E402
 from trammel.core import (  # noqa: E402
     _STRATEGY_REGISTRY,
     _order_bottom_up,
@@ -25,7 +25,6 @@ from trammel.core import (  # noqa: E402
 )
 from trammel.mcp_server import dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
-from trammel.utils import dumps_json  # noqa: E402
 
 
 # ── Moved from test_trammel_extra.py ─────────────────────────────────────────

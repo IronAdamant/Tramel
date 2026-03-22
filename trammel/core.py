@@ -345,8 +345,9 @@ def _order_cohesion(
         if len(comp) == 1:
             file_order.extend(comp)
         else:
+            comp_set = set(comp)
             sub_graph = {
-                f: [d for d in dep_graph.get(f, []) if d in set(comp)]
+                f: [d for d in dep_graph.get(f, []) if d in comp_set]
                 for f in comp
             }
             file_order.extend(topological_sort(sub_graph))

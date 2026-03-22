@@ -126,7 +126,7 @@ list_plans(status="failed") → find failed plans to learn from
 status()                    → summary: recipe count, active plans, constraints
 ```
 
-## Tool reference (17 tools)
+## Tool reference (18 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -140,6 +140,7 @@ status()                    → summary: recipe count, active plans, constraints
 | `save_recipe` | Store successful (or failed) strategy |
 | `get_recipe` | Retrieve best matching recipe |
 | `list_recipes` | Browse stored recipes with stats and files |
+| `prune_recipes` | Remove stale/low-quality recipes (`max_age_days`, `min_success_ratio`) |
 | `add_constraint` | Record failure constraint |
 | `get_constraints` | Query active constraints |
 | `deactivate_constraint` | Retire a constraint |
@@ -156,6 +157,8 @@ Trammel auto-detects project language from file extensions. Override with the `l
 - `"typescript"` / `"javascript"` — Regex-based analysis (functions, classes, exports, imports/requires)
 - `"go"` — Regex-based analysis (functions, types, imports; reads `go.mod` for internal import resolution)
 - `"rust"` — Regex-based analysis (functions, structs, enums, traits; resolves `use crate::` and `mod` declarations)
+- `"cpp"` / `"c"` — Regex-based analysis (class, struct, namespace, enum, function; resolves `#include "..."`)
+- `"java"` / `"kotlin"` — Regex-based analysis (class, interface, enum, function; detects source roots from `build.gradle`/`pom.xml`)
 
 ## Key principles
 

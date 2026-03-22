@@ -7,7 +7,7 @@ import json
 import os
 import re
 import sys
-from typing import Any, Callable, Protocol
+from typing import Callable, Protocol
 
 from .utils import _ERROR_PATTERNS, _is_ignored_dir
 

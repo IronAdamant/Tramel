@@ -171,9 +171,9 @@ def transaction(
             time.sleep(delay)
     try:
         yield conn
-        conn.execute("COMMIT")
-    except BaseException:
-        conn.execute("ROLLBACK")
+        conn.commit()
+    except Exception:
+        conn.rollback()
         raise
 
 

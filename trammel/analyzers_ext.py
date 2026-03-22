@@ -6,22 +6,18 @@ These are re-exported by analyzers.py and registered in its analyzer registry.
 
 from __future__ import annotations
 
-import json
+import functools
 import os
 import re
 
 from .utils import _is_ignored_dir
 
-# Lazy import to avoid circular dependency; analyzers.py imports us at the bottom.
-_collect_symbols_regex = None  # type: ignore[assignment]
 
-
+@functools.cache
 def _get_collect_symbols_regex():  # noqa: ANN202
-    global _collect_symbols_regex
-    if _collect_symbols_regex is None:
-        from .analyzers import _collect_symbols_regex as fn
-        _collect_symbols_regex = fn
-    return _collect_symbols_regex
+    """Lazy import to avoid circular dependency; analyzers.py imports us at the bottom."""
+    from .analyzers import _collect_symbols_regex as fn
+    return fn
 
 
 # ── Go ────────────────────────────────────────────────────────────────────────

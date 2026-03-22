@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
 **Updated:** 2026-03-23
-**Version:** 2.7.0
+**Version:** 2.8.0
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition (Python, TypeScript, Go, Rust, C/C++, Java/Kotlin), parallel beam execution, incremental verification, failure constraint propagation, structural recipe matching, recipe pruning, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server (18 tools) for LLM integration with reference system prompt.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 2.7.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 2.8.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 | `SYSTEM_PROMPT.md` | Reference orchestration guide for LLM clients: plan-verify-store loop |
 
 ## wiki-local/
@@ -70,6 +70,7 @@
 
 ## Changelog (high level)
 
+- **2.8.0:** Codebase cleanup. Removed unused imports: `Any` from `analyzers.py`, `json` from `analyzers_ext.py`, `ExecutionHarness` and `dumps_json` from `test_strategies.py`. Replaced fragile lazy-import global in `analyzers_ext.py` with `functools.cache` (thread-safe, simpler). Fixed overly broad `BaseException` → `Exception` in transaction rollback (`utils.py`). Modernized transaction helper to use `conn.commit()`/`conn.rollback()` instead of raw SQL. Optimized `_order_cohesion` in `core.py` by pre-computing `comp_set` outside dict comprehension. Updated `SYSTEM_PROMPT.md`: tool count 17→18 (added `prune_recipes`), added C/C++ and Java/Kotlin to multi-language section. 175 tests (unchanged).
 - **2.7.0:** Store split + expanded analyzers + MCP prune tool. Extracted recipe methods into `store_recipes.py` as `RecipeStoreMixin` (~210 LOC); `RecipeStore` in `store.py` inherits from it (~342 LOC, down from 540). `CppAnalyzer` expanded from single function pattern to 5 targeted patterns (template functions, qualified functions, operator overloading, constructors/destructors, macro-prefixed functions). New `JavaAnalyzer._detect_source_roots(project_root)` reads `build.gradle`/`build.gradle.kts`/`pom.xml` for standard source directories; `analyze_imports` walks detected roots instead of project root. New `prune_recipes` MCP tool with `max_age_days` and `min_success_ratio` parameters (18 tools total). 175 tests (9 new: 5 C++ expansion, 3 Java source roots, 2 MCP prune, minus 1 renamed).
 - **2.6.0:** Parallel beams + new analyzers + module split. `plan_and_execute` runs beams concurrently via `ProcessPoolExecutor` (falls back to sequential). New `CppAnalyzer` (`.c/.cpp/.cc/.cxx/.h/.hpp/.hxx`, class/struct/namespace/enum/typedef/function symbols, `#include "..."` resolution with comment stripping) and `JavaAnalyzer` (`.java/.kt/.kts`, class/interface/enum/fun/object/@interface symbols, package-based import resolution) in new `analyzers_ext.py`. Analyzer module split: `analyzers.py` (~370 LOC) + `analyzers_ext.py` (~400 LOC) to stay under 500 LOC per file; all existing imports preserved via re-export. New `RecipeStore.prune_recipes(max_age_days=90, min_success_ratio=0.1)` removes stale recipes with cascade deletes. New `ExecutionHarness.prepare_base(project_root)` and `run_from_base(edits, base_dir)` for base-copy caching. New `--dry-run` flag (runs `explore()` instead of `plan_and_execute()`) and `--language` flag in CLI. `_apply_constraints` decomposed into `_parse_constraints`, `_mark_avoided`, `_inject_orderings`, `_mark_incompatible`, `_add_prerequisites`. MCP language enum expanded to 9 entries. `CppAnalyzer`, `JavaAnalyzer` exported from `__init__`. 166 tests (20 new).
 - **2.5.0:** Cleanup. Removed unused `import sys` from `harness.py`. Eliminated duplicate `set(symbols) | set(dep_graph)` computation in `Planner.decompose` (`core.py`; reuses `all_files` instead of computing identical `context_files` separately). Added defensive `json.loads` error handling in `retrieve_best_recipe` (`store.py`). Made failure default explicit in `get_strategy_stats` (`store.py`). Fixed `register_strategy` parameter order in `spec-project.md` documentation (`(name, description, fn)` not `(name, fn, description)`). 146 tests (unchanged).
