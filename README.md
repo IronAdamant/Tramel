@@ -17,7 +17,7 @@ pip install trammel[mcp]       # with MCP server support
 Or install from source:
 
 ```bash
-git clone https://github.com/IronAdamant/Tramel.git
+git clone https://github.com/IronAdamant/Trammel.git
 cd Tramel
 pip install -e .               # editable install
 pip install -e '.[mcp]'        # with MCP support

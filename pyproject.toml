@@ -34,9 +34,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/IronAdamant/Tramel"
-Repository = "https://github.com/IronAdamant/Tramel"
-Issues = "https://github.com/IronAdamant/Tramel/issues"
+Homepage = "https://github.com/IronAdamant/Trammel"
+Repository = "https://github.com/IronAdamant/Trammel"
+Issues = "https://github.com/IronAdamant/Trammel/issues"
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0.0"]
