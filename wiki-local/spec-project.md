@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -82,8 +82,9 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 ## 8. Utilities (`utils.py`)
 
+- `_is_ignored_dir` — Check if a directory should be skipped (frozenset + `.egg-info` suffix).
 - `analyze_imports` — AST-based project-internal import graph.
-- `topological_sort` — Kahn's algorithm with cycle handling.
+- `topological_sort` — Kahn's algorithm with cycle handling (uses `deque` for O(1) queue ops).
 - `analyze_failure` — Structured error extraction from test output.
 - `trigram_bag_cosine` — Shared-vocabulary trigram cosine similarity.
 - `dumps_json` — Stable `sort_keys=True` JSON for hashing and persistence.

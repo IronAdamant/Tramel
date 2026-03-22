@@ -207,13 +207,6 @@ class RecipeStore:
         )
         self.conn.commit()
 
-    def advance_plan_step(self, plan_id: int, step_index: int) -> None:
-        self.conn.execute(
-            "UPDATE plans SET current_step = ?, updated = ? WHERE id = ?",
-            (step_index, time.time(), plan_id),
-        )
-        self.conn.commit()
-
     def list_plans(self, status: str | None = None) -> list[dict[str, Any]]:
         if status:
             rows = self.conn.execute(

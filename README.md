@@ -138,6 +138,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### 1.1.0
+
+- **Dead code removal**: Removed unused `advance_plan_step` method from `RecipeStore`, unused `json`/`os` imports from `mcp_server.py`, unused `json` import from tests.
+- **Consolidated ignored-dirs**: Unified hardcoded directory skip list in `harness.py` with `_IGNORED_DIRS` from `utils.py` via new `_is_ignored_dir` helper. Fixed `egg-info` pattern that could never match actual `*.egg-info` directories.
+- **Performance**: `topological_sort` uses `collections.deque` instead of `list.pop(0)` for O(1) queue operations.
+- **Simplified core**: Replaced verbose loop in `Planner.decompose` with set union for `all_files` construction.
+
 ### 1.0.0
 
 - **Dependency-aware planning**: Import analysis via AST, topological sort, steps with ordering rationale and dependencies.

@@ -8,13 +8,18 @@ import json
 import os
 import re
 import sqlite3
-from collections import Counter
+from collections import Counter, deque
 from typing import Any
 
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",
-    ".tox", ".mypy_cache", ".ruff_cache", "dist", "build", "egg-info",
+    ".tox", ".mypy_cache", ".ruff_cache", "dist", "build",
 })
+
+
+def _is_ignored_dir(name: str) -> bool:
+    """Check if a directory should be skipped during project traversal."""
+    return name in _IGNORED_DIRS or name.endswith(".egg-info")
 
 
 # ── JSON / hashing ──────────────────────────────────────────────────────────
@@ -82,7 +87,7 @@ def catalog_project_modules(project_root: str) -> dict[str, str]:
     """Map dotted module names to relative file paths for all .py files in the project."""
     modules: dict[str, str] = {}
     for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if d not in _IGNORED_DIRS]
+        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for name in files:
             if not name.endswith(".py"):
                 continue
@@ -158,13 +163,13 @@ def topological_sort(deps: dict[str, list[str]]) -> list[str]:
         for t in targets:
             rev.setdefault(t, []).append(node)
 
-    queue = sorted(n for n in all_nodes if in_count[n] == 0)
+    queue = deque(sorted(n for n in all_nodes if in_count[n] == 0))
     result: list[str] = []
 
     while queue:
-        node = queue.pop(0)
+        node = queue.popleft()
         result.append(node)
-        for dependent in sorted(rev.get(node, [])):
+        for dependent in sorted(rev[node]):
             in_count[dependent] -= 1
             if in_count[dependent] == 0:
                 queue.append(dependent)

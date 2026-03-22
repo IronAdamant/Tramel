@@ -13,17 +13,11 @@ import sys
 import tempfile
 from typing import Any
 
-from .utils import analyze_failure
+from .utils import _is_ignored_dir, analyze_failure
 
 
 def _ignore_copy(_path: str, names: list[str]) -> set[str]:
-    ignored: set[str] = set()
-    for n in names:
-        if n in (".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules"):
-            ignored.add(n)
-        elif n.endswith(".pyc"):
-            ignored.add(n)
-    return ignored
+    return {n for n in names if _is_ignored_dir(n) or n.endswith(".pyc")}
 
 
 def _apply_edits(root: str, edits: list[dict[str, Any]]) -> None:

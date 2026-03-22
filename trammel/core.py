@@ -8,7 +8,7 @@ from typing import Any
 
 from .store import RecipeStore
 from .utils import (
-    _IGNORED_DIRS,
+    _is_ignored_dir,
     analyze_imports,
     topological_sort,
     trigram_signature,
@@ -29,7 +29,7 @@ def _collect_python_symbols(
     """Collect function/class symbols grouped by relative file path."""
     symbols: dict[str, list[dict[str, Any]]] = {}
     for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if d not in _IGNORED_DIRS]
+        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for name in files:
             if not name.endswith(".py"):
                 continue
@@ -162,10 +162,7 @@ class Planner:
         symbols = _collect_python_symbols(project_root, goal)
         dep_graph = analyze_imports(project_root)
 
-        all_files = set(symbols.keys())
-        for f in list(dep_graph.keys()):
-            if f not in all_files:
-                all_files.add(f)
+        all_files = set(symbols) | set(dep_graph)
         relevant_graph = {
             f: [d for d in deps if d in all_files]
             for f, deps in dep_graph.items()

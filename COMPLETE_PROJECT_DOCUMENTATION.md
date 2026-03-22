@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
-**Updated:** 2026-03-22
-**Version:** 1.0.0
+**Updated:** 2026-03-23
+**Version:** 1.1.0
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition, real beam branching, incremental verification, failure constraint propagation, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server for LLM integration.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 1.0.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 1.1.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 
 ## wiki-local/
 
@@ -31,7 +31,7 @@
 | `trammel/core.py` | `Planner`: import-aware dependency analysis, topological step ordering, real beam branching (bottom_up/top_down/risk_first) | `store`, `utils` |
 | `trammel/harness.py` | Temp copy, `_apply_edits`, full `run()`, `verify_step()`, `run_incremental()`, failure analysis | `utils` |
 | `trammel/store.py` | SQLite: recipes (strategy + constraints + success/failure counts), plans (step tracking), steps, constraints, trajectories | `utils` |
-| `trammel/utils.py` | Trigrams, cosine, `analyze_imports`, `topological_sort`, `analyze_failure`, `dumps_json`, `sha256_json`, `db_connect` | stdlib |
+| `trammel/utils.py` | Trigrams, cosine, `analyze_imports`, `topological_sort`, `analyze_failure`, `_is_ignored_dir`, `dumps_json`, `sha256_json`, `db_connect` | stdlib |
 | `trammel/mcp_server.py` | MCP tool schemas (13 tools) + `dispatch_tool` routing | `core`, `harness`, `store` |
 | `trammel/mcp_stdio.py` | MCP stdio server entry point (`trammel-mcp` console script) | `mcp_server`, `store`, `mcp` (optional) |
 
@@ -62,6 +62,7 @@
 
 ## Changelog (high level)
 
+- **1.1.0:** Cleanup — removed dead code (`advance_plan_step`, unused imports), consolidated duplicated ignored-dirs logic via `_is_ignored_dir` helper, fixed `egg-info` pattern, modernized `topological_sort` with `deque`, simplified `Planner.decompose` set construction. 45 tests.
 - **1.0.0:** Full rework — dependency-aware planning (import analysis + toposort), real beam branching (3 strategies), incremental verification, structured failure analysis, constraint propagation, enriched 5-table schema, MCP server (13 tools), 45 tests.
 - **0.3.0:** Min similarity threshold, async def support, filtered os.walk, dead code removal.
 - **0.2.0:** Recipe similarity fix (shared-vocabulary trigram cosine), `sys.executable`, beam edits carry `path`, `foreign_keys=ON`, `dumps_json`, `__version__`/`--version`.
