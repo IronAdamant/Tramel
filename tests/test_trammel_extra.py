@@ -15,13 +15,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, plan_and_execute  # noqa: E402
-from trammel.core import Planner, _default_beam_count  # noqa: E402
+from trammel.core import Planner, _apply_constraints, _default_beam_count  # noqa: E402
 from trammel.mcp_server import _TOOL_SCHEMAS, dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.utils import (  # noqa: E402
     analyze_failure,
     sha256_json,
     topological_sort,
+    transaction,
 )
 
 
@@ -289,6 +290,168 @@ class TestCLI(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             payload = json.loads(proc.stdout)
             self.assertEqual(payload.get("status"), "ok")
+
+
+# ── Context manager ──────────────────────────────────────────────────────────
+
+class TestStoreContextManager(unittest.TestCase):
+    def test_context_manager_closes(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            with RecipeStore(os.path.join(d, "cm.db")) as store:
+                store.add_constraint("avoid", "test")
+            with self.assertRaises(Exception):
+                store.conn.execute("SELECT 1")
+
+    def test_close_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ci.db"))
+            store.close()
+            store.close()
+
+    def test_del_safety(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ds.db"))
+            store.close()
+            del store
+
+
+# ── Transactions ─────────────────────────────────────────────────────────────
+
+class TestTransactions(unittest.TestCase):
+    def test_create_plan_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "at.db"))
+            strat = {
+                "steps": [
+                    {"description": "s1", "rationale": "r1", "depends_on": []},
+                    {"description": "s2", "rationale": "r2", "depends_on": [0]},
+                ],
+            }
+            pid = store.create_plan("atomic goal", strat)
+            plan = store.get_plan(pid)
+            self.assertEqual(len(plan["steps"]), 2)
+
+    def test_transaction_rollback_on_error(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "rb.db"))
+            try:
+                with transaction(store.conn):
+                    store.conn.execute(
+                        "INSERT INTO constraints "
+                        "(plan_id, step_id, constraint_type, description, context, active, created) "
+                        "VALUES (NULL, NULL, 'avoid', 'rollback test', '{}', 1, 0)",
+                    )
+                    raise ValueError("force rollback")
+            except ValueError:
+                pass
+            rows = store.conn.execute("SELECT COUNT(*) FROM constraints").fetchone()
+            self.assertEqual(rows[0], 0)
+
+    def test_transaction_commits_on_success(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "tc.db"))
+            with transaction(store.conn):
+                store.conn.execute(
+                    "INSERT INTO constraints "
+                    "(plan_id, step_id, constraint_type, description, context, active, created) "
+                    "VALUES (NULL, NULL, 'avoid', 'commit test', '{}', 1, 0)",
+                )
+            rows = store.conn.execute("SELECT COUNT(*) FROM constraints").fetchone()
+            self.assertEqual(rows[0], 1)
+
+
+# ── Constraint propagation ──────────────────────────────────────────────────
+
+class TestConstraintPropagation(unittest.TestCase):
+    def _make_steps(self) -> list[dict]:
+        return [
+            {"step_index": 0, "file": "a.py", "symbols": ["foo"], "depends_on": []},
+            {"step_index": 1, "file": "b.py", "symbols": ["bar"], "depends_on": [0]},
+            {"step_index": 2, "file": "c.py", "symbols": ["baz"], "depends_on": []},
+        ]
+
+    def test_avoid_skips_file(self) -> None:
+        constraints = [{"type": "avoid", "description": "skip b", "context": {"file": "b.py"}}]
+        result, applied = _apply_constraints(self._make_steps(), constraints)
+        b_step = next(s for s in result if s["file"] == "b.py")
+        self.assertEqual(b_step["status"], "skipped")
+        self.assertEqual(len(applied), 1)
+
+    def test_dependency_adds_ordering(self) -> None:
+        constraints = [{"type": "dependency", "description": "c before a",
+                        "context": {"before": "c.py", "after": "a.py"}}]
+        result, applied = _apply_constraints(self._make_steps(), constraints)
+        a_step = next(s for s in result if s["file"] == "a.py")
+        c_idx = next(i for i, s in enumerate(result) if s["file"] == "c.py")
+        self.assertIn(c_idx, a_step["depends_on"])
+        self.assertEqual(len(applied), 1)
+
+    def test_requires_adds_step(self) -> None:
+        constraints = [{"type": "requires", "description": "need d",
+                        "context": {"file": "d.py"}}]
+        result, applied = _apply_constraints(self._make_steps(), constraints)
+        files = [s["file"] for s in result]
+        self.assertIn("d.py", files)
+        self.assertEqual(len(applied), 1)
+
+    def test_incompatible_metadata(self) -> None:
+        constraints = [{"type": "incompatible", "description": "a and c clash",
+                        "context": {"file_a": "a.py", "file_b": "c.py"}}]
+        result, applied = _apply_constraints(self._make_steps(), constraints)
+        a_step = next(s for s in result if s["file"] == "a.py")
+        self.assertIn("c.py", a_step.get("incompatible_with", []))
+        self.assertEqual(len(applied), 1)
+
+    def test_constraints_applied_in_decompose(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "cp.db"))
+            store.add_constraint("avoid", "skip a", context={"file": "a.py"})
+            planner = Planner(store=store)
+            strat = planner.decompose("task", d)
+            self.assertIn("constraints_applied", strat)
+
+
+# ── Beam strategy enhancement ───────────────────────────────────────────────
+
+class TestBeamStrategies(unittest.TestCase):
+    def test_skipped_excluded_from_edits(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            pathlib.Path(d, "b.py").write_text("def bar():\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "bs.db"))
+            store.add_constraint("avoid", "skip b", context={"file": "b.py"})
+            planner = Planner(store=store)
+            strat = planner.decompose("task", d)
+            beams = planner.explore_trajectories(strat, num_beams=3)
+            for beam in beams:
+                edit_paths = [e.get("path") for e in beam["edits"]]
+                self.assertNotIn("b.py", edit_paths)
+                self.assertIn("skipped", beam)
+
+    def test_bottom_up_skipped_at_end(self) -> None:
+        from trammel.core import _order_bottom_up
+        steps = [
+            {"file": "a.py", "status": "skipped"},
+            {"file": "b.py"},
+            {"file": "c.py"},
+        ]
+        ordered = _order_bottom_up(steps)
+        self.assertEqual(ordered[-1]["file"], "a.py")
+        self.assertEqual(ordered[-1].get("status"), "skipped")
+
+    def test_risk_first_isolates_incompatible(self) -> None:
+        from trammel.core import _order_risk_first
+        steps = [
+            {"file": "a.py", "incompatible_with": ["c.py"]},
+            {"file": "b.py"},
+            {"file": "c.py"},
+        ]
+        dep_graph = {"b.py": ["a.py"], "c.py": ["a.py"]}
+        ordered = _order_risk_first(steps, dep_graph)
+        active_files = [s["file"] for s in ordered if s.get("status") != "skipped"]
+        a_idx = active_files.index("a.py")
+        self.assertEqual(a_idx, 0)
 
 
 if __name__ == "__main__":

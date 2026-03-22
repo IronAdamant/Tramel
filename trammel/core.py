@@ -109,31 +109,148 @@ def _step_rationale(filepath: str, dep_files: list[str], sym_names: list[str]) -
     return "; ".join(parts)
 
 
+# ── Constraint enforcement ────────────────────────────────────────────────────
+
+def _apply_constraints(
+    steps: list[dict[str, Any]],
+    constraints: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Enforce active constraints on steps.
+
+    Returns (modified_steps, applied_constraints).
+    """
+    if not constraints:
+        return steps, []
+
+    applied: list[dict[str, Any]] = []
+    avoid_files: set[str] = set()
+    required_orderings: list[tuple[str, str]] = []
+    incompatible_pairs: list[tuple[str, str]] = []
+    required_files: list[str] = []
+
+    for c in constraints:
+        ctx = c.get("context", {})
+        ctype = c.get("type", "")
+        if ctype == "avoid" and ctx.get("file"):
+            avoid_files.add(ctx["file"])
+            applied.append(c)
+        elif ctype == "dependency":
+            before = ctx.get("before") or ctx.get("dependency")
+            after = ctx.get("after") or ctx.get("dependent")
+            if before and after:
+                required_orderings.append((before, after))
+                applied.append(c)
+        elif ctype == "incompatible":
+            file_a = ctx.get("file_a") or ctx.get("file")
+            file_b = ctx.get("file_b") or ctx.get("other")
+            if file_a and file_b:
+                incompatible_pairs.append((file_a, file_b))
+                applied.append(c)
+        elif ctype == "requires" and (ctx.get("file") or ctx.get("prerequisite")):
+            required_files.append(ctx.get("file") or ctx["prerequisite"])
+            applied.append(c)
+
+    # Mark avoided files as skipped
+    filtered: list[dict[str, Any]] = []
+    for step in steps:
+        f = step.get("file", "")
+        if f in avoid_files:
+            skipped = dict(step)
+            skipped["status"] = "skipped"
+            skipped["skip_reason"] = f"constraint: avoid {f}"
+            filtered.append(skipped)
+        else:
+            filtered.append(step)
+
+    # Inject dependency orderings
+    file_to_idx = {s.get("file"): i for i, s in enumerate(filtered)}
+    for before, after in required_orderings:
+        if before in file_to_idx and after in file_to_idx:
+            after_step = filtered[file_to_idx[after]]
+            deps = list(after_step.get("depends_on", []))
+            before_idx = file_to_idx[before]
+            if before_idx not in deps:
+                after_step["depends_on"] = deps + [before_idx]
+
+    # Record incompatible pairs as metadata
+    for file_a, file_b in incompatible_pairs:
+        for step in filtered:
+            f = step.get("file", "")
+            if f == file_a:
+                step.setdefault("incompatible_with", []).append(file_b)
+            elif f == file_b:
+                step.setdefault("incompatible_with", []).append(file_a)
+
+    # Ensure required prerequisite steps exist
+    existing_files = {s.get("file") for s in filtered}
+    for prereq in required_files:
+        if prereq not in existing_files:
+            filtered.append({
+                "step_index": len(filtered),
+                "file": prereq,
+                "symbols": [],
+                "symbol_count": 0,
+                "description": f"Required prerequisite: {prereq}",
+                "rationale": "Added by 'requires' constraint",
+                "depends_on": [],
+            })
+
+    return filtered, applied
+
+
 # ── Beam strategies ──────────────────────────────────────────────────────────
 
 def _order_bottom_up(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Dependencies first, then dependents. This is the default topological order."""
-    return list(steps)
+    """Dependencies first, then dependents. Skipped steps at end."""
+    active = [s for s in steps if s.get("status") != "skipped"]
+    skipped = [s for s in steps if s.get("status") == "skipped"]
+    return active + skipped
 
 
 def _order_top_down(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Entry points and API surface first, internals last."""
-    return list(reversed(steps))
+    """Entry points and API surface first, internals last. Skipped at end."""
+    active = [s for s in steps if s.get("status") != "skipped"]
+    skipped = [s for s in steps if s.get("status") == "skipped"]
+    return list(reversed(active)) + skipped
 
 
 def _order_risk_first(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]]
 ) -> list[dict[str, Any]]:
-    """Most-imported (highest coupling) files first."""
+    """Most-imported files first. Incompatible steps isolated, skipped at end."""
     import_counts: dict[str, int] = {}
     for deps in dep_graph.values():
         for d in deps:
             import_counts[d] = import_counts.get(d, 0) + 1
-    return sorted(
-        steps,
-        key=lambda s: import_counts.get(s.get("file", ""), 0),
+
+    active = [s for s in steps if s.get("status") != "skipped"]
+    skipped = [s for s in steps if s.get("status") == "skipped"]
+
+    isolated = [s for s in active if s.get("incompatible_with")]
+    batchable = [s for s in active if not s.get("incompatible_with")]
+
+    isolated.sort(
+        key=lambda s: import_counts.get(s.get("file", ""), 0), reverse=True,
+    )
+
+    pkg_groups: dict[str, list[dict[str, Any]]] = {}
+    for s in batchable:
+        pkg = os.path.dirname(s.get("file", "")) or "__root__"
+        pkg_groups.setdefault(pkg, []).append(s)
+    sorted_groups = sorted(
+        pkg_groups.values(),
+        key=lambda g: max(import_counts.get(s.get("file", ""), 0) for s in g),
         reverse=True,
     )
+
+    result: list[dict[str, Any]] = list(isolated)
+    for group in sorted_groups:
+        group.sort(
+            key=lambda s: import_counts.get(s.get("file", ""), 0), reverse=True,
+        )
+        result.extend(group)
+    result.extend(skipped)
+    return result
 
 
 _BEAM_STRATEGIES: list[tuple[str, str]] = [
@@ -174,12 +291,14 @@ class Planner:
                 file_order.append(f)
 
         steps = _generate_steps(file_order, symbols, relevant_graph, goal)
+        steps, applied = _apply_constraints(steps, active_constraints)
 
         return {
             "goal": goal,
             "steps": steps,
             "dependency_graph": relevant_graph,
             "constraints": [c["description"] for c in active_constraints],
+            "constraints_applied": [c["description"] for c in applied],
             "goal_fingerprint": trigram_signature(goal)[:8],
         }
 
@@ -199,6 +318,8 @@ class Planner:
         beams: list[dict[str, Any]] = []
         for i in range(n):
             variant_name, variant_desc, ordered = ordered_variants[i % len(ordered_variants)]
+            active = [s for s in ordered if s.get("status") != "skipped"]
+            skipped = [s for s in ordered if s.get("status") == "skipped"]
             beam: dict[str, Any] = {
                 "beam_id": i,
                 "variant": variant_name,
@@ -206,8 +327,9 @@ class Planner:
                 "steps": ordered,
                 "edits": [
                     {"step_index": s.get("step_index", j), "path": s.get("file"), "task": s}
-                    for j, s in enumerate(ordered)
+                    for j, s in enumerate(active)
                 ],
+                "skipped": skipped,
             }
             beams.append(beam)
 

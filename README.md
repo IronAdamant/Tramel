@@ -101,7 +101,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point
   mcp_server.py       MCP tool schemas and dispatch
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (45 tests)
+tests/                stdlib unittest (62 tests)
 wiki-local/           Spec, glossary, and wiki index
 pyproject.toml        Package metadata
 ```
@@ -111,6 +111,7 @@ pyproject.toml        Package metadata
 | Table | Purpose |
 |-------|---------|
 | `recipes` | Successful strategies keyed by SHA-256, with pattern, constraints, success/failure counts |
+| `recipe_trigrams` | Inverted trigram index for fast recipe retrieval (trigram → recipe sig) |
 | `plans` | Goal + strategy snapshot with step progress tracking |
 | `steps` | Individual work units with dependencies, rationale, verification results |
 | `constraints` | Failure records (dependency/incompatible/requires/avoid) that prevent known-bad repetition |
@@ -138,6 +139,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 1.5.0
+
+- **Concurrent write protection**: All mutating `RecipeStore` methods wrapped in explicit `BEGIN IMMEDIATE` transactions with exponential backoff retry on `SQLITE_BUSY`. Multi-statement operations like `create_plan` are now atomic. `db_connect` sets `timeout=5.0`.
+- **Recipe retrieval at scale**: Inverted trigram index (`recipe_trigrams` table with B-tree index). `retrieve_best_recipe` now queries candidate recipes by shared trigrams before computing exact cosine, avoiding full table scans. Existing databases auto-backfill on schema init.
+- **Constraint propagation**: New `_apply_constraints` enforces active constraints during decomposition — `avoid` skips files, `dependency` injects ordering, `incompatible` marks conflict metadata, `requires` adds prerequisite steps. Strategy output now includes `constraints_applied`.
+- **Constraint-aware beam strategies**: `_order_bottom_up` and `_order_top_down` place skipped steps at end. `_order_risk_first` isolates incompatible steps and batches by package directory. `explore_trajectories` excludes skipped steps from beam edits.
+- **RecipeStore context manager**: Added `close()`, `__enter__`/`__exit__`, and `__del__` safety net. All public API functions and MCP server use `with RecipeStore(...)`.
 
 ### 1.4.0
 

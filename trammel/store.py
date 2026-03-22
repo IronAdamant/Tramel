@@ -6,7 +6,10 @@ import json
 import time
 from typing import Any
 
-from .utils import db_connect, dumps_json, sha256_json, trigram_bag_cosine
+from .utils import (
+    db_connect, dumps_json, sha256_json, transaction,
+    trigram_bag_cosine, unique_trigrams,
+)
 
 
 class RecipeStore:
@@ -14,6 +17,22 @@ class RecipeStore:
         self.db_path = db_path
         self.conn = db_connect(db_path)
         self._init_schema()
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self.conn.close()
+
+    def __enter__(self) -> RecipeStore:
+        return self
+
+    def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.conn.close()
+        except Exception:
+            pass
 
     def _init_schema(self) -> None:
         self.conn.executescript("""
@@ -74,8 +93,32 @@ class RecipeStore:
                 created REAL NOT NULL,
                 FOREIGN KEY (plan_id) REFERENCES plans(id)
             );
+            CREATE TABLE IF NOT EXISTS recipe_trigrams (
+                trigram TEXT NOT NULL,
+                recipe_sig TEXT NOT NULL,
+                FOREIGN KEY (recipe_sig) REFERENCES recipes(sig)
+            );
+            CREATE INDEX IF NOT EXISTS idx_recipe_trigrams_tri
+                ON recipe_trigrams(trigram);
         """)
         self.conn.commit()
+        self._backfill_trigrams()
+
+    def _backfill_trigrams(self) -> None:
+        """Populate recipe_trigrams for any recipes that lack trigram entries."""
+        orphans = self.conn.execute(
+            "SELECT sig, pattern FROM recipes WHERE sig NOT IN "
+            "(SELECT DISTINCT recipe_sig FROM recipe_trigrams)"
+        ).fetchall()
+        if not orphans:
+            return
+        with transaction(self.conn):
+            for sig, pattern in orphans:
+                tris = unique_trigrams(pattern)
+                self.conn.executemany(
+                    "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
+                    [(t, sig) for t in tris],
+                )
 
     # ── Recipes ──────────────────────────────────────────────────────────────
 
@@ -91,34 +134,58 @@ class RecipeStore:
         strat_json = dumps_json(strategy)
         const_json = dumps_json(constraints or [])
         now = time.time()
-        if outcome:
+        with transaction(self.conn):
+            if outcome:
+                self.conn.execute(
+                    """INSERT INTO recipes (sig, pattern, strategy, constraints, successes, created, updated)
+                       VALUES (?, ?, ?, ?, 1, ?, ?)
+                       ON CONFLICT(sig) DO UPDATE SET
+                           successes = recipes.successes + 1,
+                           pattern = excluded.pattern,
+                           constraints = excluded.constraints,
+                           updated = excluded.updated""",
+                    (sig, pattern, strat_json, const_json, now, now),
+                )
+            else:
+                self.conn.execute(
+                    """INSERT INTO recipes (sig, pattern, strategy, constraints, failures, created, updated)
+                       VALUES (?, ?, ?, ?, 1, ?, ?)
+                       ON CONFLICT(sig) DO UPDATE SET
+                           failures = recipes.failures + 1,
+                           pattern = excluded.pattern,
+                           updated = excluded.updated""",
+                    (sig, pattern, strat_json, const_json, now, now),
+                )
             self.conn.execute(
-                """INSERT INTO recipes (sig, pattern, strategy, constraints, successes, created, updated)
-                   VALUES (?, ?, ?, ?, 1, ?, ?)
-                   ON CONFLICT(sig) DO UPDATE SET
-                       successes = recipes.successes + 1,
-                       pattern = excluded.pattern,
-                       constraints = excluded.constraints,
-                       updated = excluded.updated""",
-                (sig, pattern, strat_json, const_json, now, now),
+                "DELETE FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
             )
-        else:
-            self.conn.execute(
-                """INSERT INTO recipes (sig, pattern, strategy, constraints, failures, created, updated)
-                   VALUES (?, ?, ?, ?, 1, ?, ?)
-                   ON CONFLICT(sig) DO UPDATE SET
-                       failures = recipes.failures + 1,
-                       pattern = excluded.pattern,
-                       updated = excluded.updated""",
-                (sig, pattern, strat_json, const_json, now, now),
-            )
-        self.conn.commit()
+            tris = unique_trigrams(pattern)
+            if tris:
+                self.conn.executemany(
+                    "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
+                    [(t, sig) for t in tris],
+                )
 
     def retrieve_best_recipe(
         self, goal: str, min_similarity: float = 0.3
     ) -> dict[str, Any] | None:
+        goal_tris = unique_trigrams(goal)
+        if not goal_tris:
+            return None
+        placeholders = ",".join("?" for _ in goal_tris)
+        candidate_sigs = self.conn.execute(
+            f"SELECT DISTINCT recipe_sig FROM recipe_trigrams "
+            f"WHERE trigram IN ({placeholders})",
+            tuple(goal_tris),
+        ).fetchall()
+        if not candidate_sigs:
+            return None
+        sig_tuple = tuple(row[0] for row in candidate_sigs)
+        sig_ph = ",".join("?" for _ in sig_tuple)
         cur = self.conn.execute(
-            "SELECT pattern, strategy, successes, failures FROM recipes"
+            f"SELECT pattern, strategy, successes, failures FROM recipes "
+            f"WHERE sig IN ({sig_ph})",
+            sig_tuple,
         )
         best: dict[str, Any] | None = None
         best_score = -1.0
@@ -140,27 +207,27 @@ class RecipeStore:
     def create_plan(self, goal: str, strategy: dict[str, Any]) -> int:
         now = time.time()
         plan_steps = strategy.get("steps", [])
-        cur = self.conn.execute(
-            "INSERT INTO plans (goal, strategy, status, current_step, total_steps, created, updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (goal, dumps_json(strategy), "pending", 0, len(plan_steps), now, now),
-        )
-        plan_id = int(cur.lastrowid)
-        for i, step in enumerate(plan_steps):
-            self.conn.execute(
-                "INSERT INTO steps (plan_id, step_index, description, rationale, depends_on, status, created) "
+        with transaction(self.conn):
+            cur = self.conn.execute(
+                "INSERT INTO plans (goal, strategy, status, current_step, total_steps, created, updated) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    plan_id,
-                    i,
-                    step.get("description", ""),
-                    step.get("rationale", ""),
-                    dumps_json(step.get("depends_on", [])),
-                    "pending",
-                    now,
-                ),
+                (goal, dumps_json(strategy), "pending", 0, len(plan_steps), now, now),
             )
-        self.conn.commit()
+            plan_id = int(cur.lastrowid)
+            for i, step in enumerate(plan_steps):
+                self.conn.execute(
+                    "INSERT INTO steps (plan_id, step_index, description, rationale, depends_on, status, created) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        plan_id,
+                        i,
+                        step.get("description", ""),
+                        step.get("rationale", ""),
+                        dumps_json(step.get("depends_on", [])),
+                        "pending",
+                        now,
+                    ),
+                )
         return plan_id
 
     def get_plan(self, plan_id: int) -> dict[str, Any] | None:
@@ -203,11 +270,11 @@ class RecipeStore:
         }
 
     def update_plan_status(self, plan_id: int, status: str) -> None:
-        self.conn.execute(
-            "UPDATE plans SET status = ?, updated = ? WHERE id = ?",
-            (status, time.time(), plan_id),
-        )
-        self.conn.commit()
+        with transaction(self.conn):
+            self.conn.execute(
+                "UPDATE plans SET status = ?, updated = ? WHERE id = ?",
+                (status, time.time(), plan_id),
+            )
 
     def list_plans(self, status: str | None = None) -> list[dict[str, Any]]:
         if status:
@@ -252,10 +319,10 @@ class RecipeStore:
             updates.append("constraints_found = ?")
             params.append(dumps_json(constraints_found))
         params.append(step_id)
-        self.conn.execute(
-            f"UPDATE steps SET {', '.join(updates)} WHERE id = ?", tuple(params)
-        )
-        self.conn.commit()
+        with transaction(self.conn):
+            self.conn.execute(
+                f"UPDATE steps SET {', '.join(updates)} WHERE id = ?", tuple(params)
+            )
 
     def get_step(self, step_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
@@ -285,12 +352,12 @@ class RecipeStore:
         plan_id: int | None = None,
         step_id: int | None = None,
     ) -> int:
-        cur = self.conn.execute(
-            "INSERT INTO constraints (plan_id, step_id, constraint_type, description, context, created) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (plan_id, step_id, constraint_type, description, dumps_json(context or {}), time.time()),
-        )
-        self.conn.commit()
+        with transaction(self.conn):
+            cur = self.conn.execute(
+                "INSERT INTO constraints (plan_id, step_id, constraint_type, description, context, created) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (plan_id, step_id, constraint_type, description, dumps_json(context or {}), time.time()),
+            )
         return int(cur.lastrowid)
 
     def get_active_constraints(
@@ -316,10 +383,10 @@ class RecipeStore:
         ]
 
     def deactivate_constraint(self, constraint_id: int) -> None:
-        self.conn.execute(
-            "UPDATE constraints SET active = 0 WHERE id = ?", (constraint_id,)
-        )
-        self.conn.commit()
+        with transaction(self.conn):
+            self.conn.execute(
+                "UPDATE constraints SET active = 0 WHERE id = ?", (constraint_id,)
+            )
 
     # ── Trajectories ─────────────────────────────────────────────────────────
 
@@ -332,14 +399,14 @@ class RecipeStore:
         outcome: dict[str, Any],
         failure_reason: str | None = None,
     ) -> None:
-        self.conn.execute(
-            "INSERT INTO trajectories "
-            "(plan_id, beam_id, strategy_variant, steps_completed, outcome, failure_reason, created) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (plan_id, beam_id, strategy_variant, steps_completed,
-             dumps_json(outcome), failure_reason, time.time()),
-        )
-        self.conn.commit()
+        with transaction(self.conn):
+            self.conn.execute(
+                "INSERT INTO trajectories "
+                "(plan_id, beam_id, strategy_variant, steps_completed, outcome, failure_reason, created) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (plan_id, beam_id, strategy_variant, steps_completed,
+                 dumps_json(outcome), failure_reason, time.time()),
+            )
 
     def get_trajectories(self, plan_id: int) -> list[dict[str, Any]]:
         rows = self.conn.execute(

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import hashlib
 import json
 import os
+import random
 import re
 import sqlite3
+import time
 from collections import Counter, deque
-from typing import Any
+from typing import Any, Generator
 
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",
@@ -50,6 +53,11 @@ def trigram_signature(text: str) -> list[float]:
     return [x / norm for x in vec]
 
 
+def unique_trigrams(text: str) -> set[str]:
+    """Return the set of distinct trigrams in text (lowercased)."""
+    return set(_trigram_list(text))
+
+
 def trigram_bag_cosine(a: str, b: str) -> float:
     """Cosine similarity over bag-of-trigrams with a shared vocabulary."""
     ca = Counter(_trigram_list(a))
@@ -74,11 +82,40 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 # ── Database ─────────────────────────────────────────────────────────────────
 
+_BUSY_RETRIES = 5
+_BUSY_BASE_DELAY = 0.05
+
+
 def db_connect(path: str = "trammel.db") -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+@contextlib.contextmanager
+def transaction(
+    conn: sqlite3.Connection, immediate: bool = True,
+) -> Generator[sqlite3.Connection, None, None]:
+    """Execute a block inside an explicit transaction with SQLITE_BUSY retry."""
+    mode = "BEGIN IMMEDIATE" if immediate else "BEGIN"
+    for attempt in range(_BUSY_RETRIES):
+        try:
+            conn.execute(mode)
+            break
+        except sqlite3.OperationalError as exc:
+            if "database is locked" not in str(exc):
+                raise
+            if attempt == _BUSY_RETRIES - 1:
+                raise
+            delay = _BUSY_BASE_DELAY * (2 ** attempt) + random.uniform(0, _BUSY_BASE_DELAY)
+            time.sleep(delay)
+    try:
+        yield conn
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
 
 
 # ── Import analysis ──────────────────────────────────────────────────────────

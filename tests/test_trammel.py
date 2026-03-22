@@ -136,6 +136,48 @@ class TestStore(unittest.TestCase):
             self.assertEqual(len(trajs), 1)
             self.assertEqual(trajs[0]["strategy_variant"], "bottom_up")
 
+    def test_trigram_index_populated(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "t.db"))
+            strat = {"steps": [{"file": "a.py"}]}
+            store.save_recipe("refactor auth module", strat, True)
+            from trammel.utils import sha256_json
+            sig = sha256_json(strat)
+            rows = store.conn.execute(
+                "SELECT trigram FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
+            ).fetchall()
+            self.assertGreater(len(rows), 0)
+
+    def test_retrieve_uses_index(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "t.db"))
+            for i in range(50):
+                store.save_recipe(f"goal number {i} unique", {"steps": [], "id": i}, True)
+            target = {"steps": [{"file": "target.py"}]}
+            store.save_recipe("refactor auth module", target, True)
+            got = store.retrieve_best_recipe("refactor authentication module")
+            self.assertIsNotNone(got)
+            self.assertIn("target.py", str(got))
+
+    def test_backfill_on_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "t.db"))
+            from trammel.utils import sha256_json, dumps_json
+            import time as _time
+            sig = sha256_json({"manual": True})
+            now = _time.time()
+            store.conn.execute(
+                "INSERT INTO recipes (sig, pattern, strategy, constraints, successes, created, updated) "
+                "VALUES (?, ?, ?, ?, 1, ?, ?)",
+                (sig, "manual test goal", dumps_json({"manual": True}), "[]", now, now),
+            )
+            store.conn.commit()
+            store._backfill_trigrams()
+            rows = store.conn.execute(
+                "SELECT trigram FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
+            ).fetchall()
+            self.assertGreater(len(rows), 0)
+
 
 class TestHarness(unittest.TestCase):
     def test_runs_passing_project(self) -> None:

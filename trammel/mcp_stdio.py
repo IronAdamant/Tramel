@@ -67,17 +67,16 @@ def _configure_server(store: RecipeStore) -> Server:
 async def _run_server() -> None:
     """Start the stdio MCP server and run until the client disconnects."""
     db_path = os.environ.get("TRAMMEL_DB_PATH", "trammel.db")
-    store = RecipeStore(db_path)
+    with RecipeStore(db_path) as store:
+        server = _configure_server(store)
+        logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 
-    server = _configure_server(store)
-    logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
-
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
-        )
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options(),
+            )
 
 
 def main() -> None:

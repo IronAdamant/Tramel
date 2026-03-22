@@ -19,5 +19,8 @@
 | **Bottom-up** | Beam strategy: modify dependencies first, then dependents. Safest ordering. |
 | **Top-down** | Beam strategy: modify API surface and entry points first, then internals. |
 | **Risk-first** | Beam strategy: modify most-imported (highest coupling) files first. |
-| **trammel.db** | Default SQLite path for recipes, plans, steps, constraints, and trajectories (override with `db_path`/`--db`). |
+| **Inverted trigram index** | The `recipe_trigrams` table mapping individual trigrams to recipe signatures. Enables sub-linear recipe retrieval by narrowing candidates before exact cosine computation. |
+| **Transaction** | Explicit `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` block with exponential backoff retry on `SQLITE_BUSY`. Ensures atomicity for multi-statement mutations and agent isolation. |
+| **Constraint enforcement** | `_apply_constraints` in `core.py` that acts on active constraints: `avoid` skips steps, `dependency` injects ordering, `incompatible` marks conflict metadata, `requires` adds prerequisite steps. |
+| **trammel.db** | Default SQLite path for recipes, plans, steps, constraints, trajectories, and recipe_trigrams (override with `db_path`/`--db`). |
 | **MCP server** | Trammel exposed as 13 tools via Model Context Protocol stdio transport. Works standalone; cooperates with Stele and Chisel when co-installed. |

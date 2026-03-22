@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 1.4.0
+**Version:** 1.5.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -49,17 +49,26 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 ## 6. Store (`store.py`)
 
-**SQLite tables (5)**
+**SQLite tables (6)**
 
 - `recipes(sig PK, pattern, strategy, constraints, successes, failures, created, updated)` — sig = SHA-256 of canonical JSON strategy.
+- `recipe_trigrams(trigram, recipe_sig FK)` — inverted index for fast recipe retrieval. Indexed on `trigram`. Populated on `save_recipe`, auto-backfilled on schema init.
 - `plans(id, goal, strategy, status, current_step, total_steps, created, updated)`.
 - `steps(id, plan_id FK, step_index, description, rationale, depends_on, status, edits_json, verification, constraints_found)`.
 - `constraints(id, plan_id FK, step_id FK, constraint_type, description, context, active)` — types: dependency, incompatible, requires, avoid.
 - `trajectories(id, plan_id FK, beam_id, strategy_variant, steps_completed, outcome, failure_reason)`.
 
-**Recipe retrieval**: `trigram_bag_cosine(goal, pattern)` with minimum threshold 0.3; tie-break on `successes`.
+**Recipe retrieval**: Two-phase indexed lookup — query `recipe_trigrams` for candidates sharing trigrams with goal, then compute exact `trigram_bag_cosine` on candidates only. Minimum threshold 0.3; tie-break on `successes`.
 
-**Constraint propagation**: Active constraints are loaded during `decompose()` and included in the strategy. Constraints persist across sessions until deactivated.
+**Constraint propagation**: Active constraints enforced during `decompose()` via `_apply_constraints`:
+- `avoid` + `context.file` → step marked `status: "skipped"` with `skip_reason`
+- `dependency` + `context.before/after` → ordering injected into `depends_on`
+- `incompatible` + `context.file_a/file_b` → `incompatible_with` metadata on steps
+- `requires` + `context.file` → placeholder step added for missing prerequisite
+
+Strategy output includes both `constraints` (all active) and `constraints_applied` (those that matched).
+
+**Concurrency**: All mutating store methods wrapped in `BEGIN IMMEDIATE` transactions with exponential backoff retry on `SQLITE_BUSY`. `RecipeStore` implements context manager protocol (`with` blocks). `db_connect` sets `timeout=5.0`.
 
 ## 7. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
@@ -87,14 +96,18 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 - `analyze_imports` — AST-based project-internal import graph.
 - `topological_sort` — Kahn's algorithm with cycle handling (uses `deque` for O(1) queue ops).
 - `analyze_failure` — Structured error extraction from test output.
+- `unique_trigrams` — Distinct trigram set for index population and lookup.
 - `trigram_bag_cosine` — Shared-vocabulary trigram cosine similarity.
+- `transaction` — Context manager for explicit SQLite transactions with BUSY retry.
 - `dumps_json` — Stable `sort_keys=True` JSON for hashing and persistence.
 - `sha256_json` — Content-addressed recipe ID.
-- `db_connect` — WAL + foreign keys.
+- `db_connect` — WAL + foreign keys + `timeout=5.0`.
 
 ## 9. Extension points
 
 - Pass `test_cmd` to `ExecutionHarness` for pytest or a custom runner.
 - Emit real `content` in edits from an LLM (the primary integration point).
 - Add richer beam strategies beyond the current three.
+- Add constraint types beyond the four built-in (avoid/dependency/incompatible/requires).
+- Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.
 - Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.
