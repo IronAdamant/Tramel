@@ -23,4 +23,6 @@
 | **Transaction** | Explicit `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` block with exponential backoff retry on `SQLITE_BUSY`. Ensures atomicity for multi-statement mutations and agent isolation. |
 | **Constraint enforcement** | `_apply_constraints` in `core.py` that acts on active constraints: `avoid` skips steps, `dependency` injects ordering, `incompatible` marks conflict metadata, `requires` adds prerequisite steps. |
 | **trammel.db** | Default SQLite path for recipes, plans, steps, constraints, trajectories, and recipe_trigrams (override with `db_path`/`--db`). |
-| **MCP server** | Trammel exposed as 13 tools via Model Context Protocol stdio transport. Works standalone; cooperates with Stele and Chisel when co-installed. |
+| **Strategy registry** | Pluggable registry in `core.py` for beam strategies. `register_strategy(name, fn, description)` adds new strategies; `get_strategies()` returns all registered `StrategyEntry` items. Three built-in strategies auto-registered at module load. Strategy functions use unified signature `(steps, dep_graph) -> steps`. |
+| **Strategy learning** | When `explore_trajectories` receives an optional `store`, it calls `get_strategy_stats()` to aggregate trajectory outcomes by strategy variant, then sorts strategies by historical success rate. Strategies that have succeeded more often are tried first. |
+| **MCP server** | Trammel exposed as 14 tools via Model Context Protocol stdio transport. Works standalone; cooperates with Stele and Chisel when co-installed. |

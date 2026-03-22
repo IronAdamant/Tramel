@@ -2,51 +2,46 @@
 
 from __future__ import annotations
 
-import ast
+import json
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 from .store import RecipeStore
-from .utils import (
-    _is_ignored_dir,
-    analyze_imports,
-    topological_sort,
-    trigram_signature,
-)
+from .utils import topological_sort, trigram_signature
+
+if TYPE_CHECKING:
+    from .analyzers import LanguageAnalyzer
+
+# ── Strategy registry ────────────────────────────────────────────────────────
+
+StrategyFn = Callable[[list[dict[str, Any]], dict[str, list[str]]], list[dict[str, Any]]]
+
+
+class StrategyEntry(NamedTuple):
+    name: str
+    description: str
+    fn: StrategyFn
+
+
+_STRATEGY_REGISTRY: dict[str, StrategyEntry] = {}
+
+
+def register_strategy(name: str, description: str, fn: StrategyFn) -> None:
+    """Register a beam strategy by name. Raises ValueError on duplicate."""
+    if name in _STRATEGY_REGISTRY:
+        raise ValueError(f"Strategy {name!r} is already registered")
+    _STRATEGY_REGISTRY[name] = StrategyEntry(name, description, fn)
+
+
+def get_strategies() -> list[str]:
+    """Return the names of all registered beam strategies."""
+    return list(_STRATEGY_REGISTRY)
 
 
 def _default_beam_count(requested: int) -> int:
     cores = os.cpu_count() or 4
     cap = min(12, max(3, cores))
     return min(requested, cap)
-
-
-# ── Symbol collection ────────────────────────────────────────────────────────
-
-def _collect_python_symbols(project_root: str) -> dict[str, list[str]]:
-    """Collect function/class symbol names grouped by relative file path."""
-    symbols: dict[str, list[str]] = {}
-    for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-        for name in files:
-            if not name.endswith(".py"):
-                continue
-            path = os.path.join(root, name)
-            rel = os.path.relpath(path, project_root)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
-                tree = ast.parse(src, filename=path)
-            except (OSError, SyntaxError):
-                continue
-            file_symbols: list[str] = [
-                node.name
-                for node in ast.walk(tree)
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            ]
-            if file_symbols:
-                symbols[rel] = file_symbols
-    return symbols
 
 
 # ── Step generation ──────────────────────────────────────────────────────────
@@ -195,14 +190,18 @@ def _apply_constraints(
 
 # ── Beam strategies ──────────────────────────────────────────────────────────
 
-def _order_bottom_up(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _order_bottom_up(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
     """Dependencies first, then dependents. Skipped steps at end."""
     active = [s for s in steps if s.get("status") != "skipped"]
     skipped = [s for s in steps if s.get("status") == "skipped"]
     return active + skipped
 
 
-def _order_top_down(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _order_top_down(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
     """Entry points and API surface first, internals last. Skipped at end."""
     active = [s for s in steps if s.get("status") != "skipped"]
     skipped = [s for s in steps if s.get("status") == "skipped"]
@@ -210,7 +209,7 @@ def _order_top_down(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _order_risk_first(
-    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]]
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     """Most-imported files first. Incompatible steps isolated, skipped at end."""
     import_counts: dict[str, int] = {}
@@ -248,11 +247,29 @@ def _order_risk_first(
     return result
 
 
+# ── Register built-in strategies ──────────────────────────────────────────────
+
+register_strategy("bottom_up", "Modify dependencies first, then dependents (safest)", _order_bottom_up)
+register_strategy("top_down", "Modify API surface first, then internals", _order_top_down)
+register_strategy("risk_first", "Modify most-imported files first (highest impact)", _order_risk_first)
+
+
 # ── Planner ──────────────────────────────────────────────────────────────────
 
 class Planner:
-    def __init__(self, store: RecipeStore | None = None) -> None:
+    def __init__(
+        self,
+        store: RecipeStore | None = None,
+        analyzer: LanguageAnalyzer | None = None,
+    ) -> None:
         self.store = store or RecipeStore()
+        self._analyzer = analyzer
+
+    def _get_analyzer(self, project_root: str) -> LanguageAnalyzer:
+        if self._analyzer is not None:
+            return self._analyzer
+        from .analyzers import detect_language
+        return detect_language(project_root)
 
     def decompose(self, goal: str, project_root: str) -> dict[str, Any]:
         recipe = self.store.retrieve_best_recipe(goal)
@@ -261,8 +278,9 @@ class Planner:
 
         active_constraints = self.store.get_active_constraints()
 
-        symbols = _collect_python_symbols(project_root)
-        dep_graph = analyze_imports(project_root)
+        analyzer = self._get_analyzer(project_root)
+        symbols = analyzer.collect_symbols(project_root)
+        dep_graph = analyzer.analyze_imports(project_root)
 
         all_files = set(symbols) | set(dep_graph)
         relevant_graph = {
@@ -291,16 +309,31 @@ class Planner:
         }
 
     def explore_trajectories(
-        self, strategy: dict[str, Any], num_beams: int = 3
+        self,
+        strategy: dict[str, Any],
+        num_beams: int = 3,
+        store: RecipeStore | None = None,
     ) -> list[dict[str, Any]]:
         n = _default_beam_count(num_beams)
         steps = strategy.get("steps", [])
         dep_graph = strategy.get("dependency_graph", {})
 
-        ordered_variants: list[tuple[str, str, list[dict[str, Any]]]] = [
-            ("bottom_up", "Modify dependencies first, then dependents (safest)", _order_bottom_up(steps)),
-            ("top_down", "Modify API surface first, then internals", _order_top_down(steps)),
-            ("risk_first", "Modify most-imported files first (highest impact)", _order_risk_first(steps, dep_graph)),
+        # Build ordered variants from registry
+        entries = list(_STRATEGY_REGISTRY.values())
+
+        # If store available, sort strategies by historical success rate
+        if store is not None:
+            stats = store.get_strategy_stats()
+            def _success_rate(entry: StrategyEntry) -> float:
+                pair = stats.get(entry.name)
+                if pair is None:
+                    return -1.0  # no history: keep registration order
+                succ, fail = pair
+                return succ / (succ + fail + 1)
+            entries = sorted(entries, key=_success_rate, reverse=True)
+
+        ordered_variants = [
+            (e.name, e.description, e.fn(steps, dep_graph)) for e in entries
         ]
 
         beams: list[dict[str, Any]] = []

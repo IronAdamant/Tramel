@@ -5,7 +5,8 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version as _meta_version
 from typing import Any
 
-from .core import Planner
+from .analyzers import PythonAnalyzer, TypeScriptAnalyzer, detect_language
+from .core import Planner, get_strategies, register_strategy
 from .harness import ExecutionHarness
 from .store import RecipeStore
 
@@ -21,16 +22,19 @@ def plan_and_execute(
     num_beams: int = 3,
     db_path: str = "trammel.db",
     test_cmd: list[str] | None = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     """Decompose goal, explore beam strategies, verify, and store recipe on success."""
+    from .analyzers import get_analyzer
+    analyzer = get_analyzer(language) if language else None
     with RecipeStore(db_path) as store:
-        planner = Planner(store=store)
+        planner = Planner(store=store, analyzer=analyzer)
         strategy = planner.decompose(goal, project_root)
         plan_id = store.create_plan(goal, strategy)
         store.update_plan_status(plan_id, "running")
 
-        beams = planner.explore_trajectories(strategy, num_beams=num_beams)
-        harness = ExecutionHarness(test_cmd=test_cmd)
+        beams = planner.explore_trajectories(strategy, num_beams=num_beams, store=store)
+        harness = ExecutionHarness(test_cmd=test_cmd, analyzer=analyzer)
         best: dict[str, Any] | None = None
         best_score = -1.0
 
@@ -64,12 +68,15 @@ def explore(
     project_root: str,
     num_beams: int = 3,
     db_path: str = "trammel.db",
+    language: str | None = None,
 ) -> dict[str, Any]:
     """Return decomposition + beam variants without running the harness."""
+    from .analyzers import get_analyzer
+    analyzer = get_analyzer(language) if language else None
     with RecipeStore(db_path) as store:
-        planner = Planner(store=store)
+        planner = Planner(store=store, analyzer=analyzer)
         strategy = planner.decompose(goal, project_root)
-        beams = planner.explore_trajectories(strategy, num_beams=num_beams)
+        beams = planner.explore_trajectories(strategy, num_beams=num_beams, store=store)
         return {"strategy": strategy, "beams": beams}
 
 
@@ -82,9 +89,14 @@ def synthesize(goal: str, strategy: dict[str, Any], db_path: str = "trammel.db")
 __all__ = [
     "ExecutionHarness",
     "Planner",
+    "PythonAnalyzer",
     "RecipeStore",
+    "TypeScriptAnalyzer",
     "__version__",
+    "detect_language",
     "explore",
+    "get_strategies",
     "plan_and_execute",
+    "register_strategy",
     "synthesize",
 ]

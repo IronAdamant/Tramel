@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 1.6.0
+**Version:** 1.7.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -29,7 +29,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
 | CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd` |
-| MCP `trammel-mcp` | 13 tools over stdio transport |
+| MCP `trammel-mcp` | 14 tools over stdio transport |
 
 ## 4. Planner (`core.py`)
 
@@ -38,6 +38,8 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 - **Topological sort**: Kahn's algorithm orders files so dependencies come first. Cycles are appended at end.
 - **Step generation**: Each file with symbols becomes a step with `description`, `rationale`, `depends_on` (indices of prior steps this depends on).
 - **Beam strategies**: `bottom_up` (dependencies first — safest), `top_down` (API surface first), `risk_first` (most-imported files first — highest coupling impact).
+- **Strategy registry**: Pluggable via `register_strategy(name, fn, description)`. Three built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
+- **Strategy learning**: `explore_trajectories` accepts optional `store`. When provided, `get_strategy_stats()` aggregates trajectory outcomes by variant (success/failure counts) and strategies are sorted by historical success rate.
 
 ## 5. Harness (`harness.py`)
 
@@ -72,7 +74,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 ## 7. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
-13 tools exposed via stdio JSON-RPC:
+14 tools exposed via stdio JSON-RPC:
 
 | Tool | Purpose |
 |------|---------|
@@ -89,6 +91,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 | `list_plans` | List plans by status |
 | `history` | Trajectory history for a plan |
 | `status` | Summary counts |
+| `list_strategies` | Registered strategy names with success/failure stats |
 
 ## 8. Utilities (`utils.py`)
 
@@ -107,6 +110,6 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 - Pass `test_cmd` to `ExecutionHarness` for pytest or a custom runner.
 - Emit real `content` in edits from an LLM (the primary integration point).
-- Add richer beam strategies beyond the current three.
+- Register custom beam strategies via `register_strategy()` beyond the three built-in.
 - Add constraint types beyond the four built-in (avoid/dependency/incompatible/requires).
 - Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.

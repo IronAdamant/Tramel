@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .core import Planner
+from .core import Planner, get_strategies
 from .harness import ExecutionHarness
 from .store import RecipeStore
 
@@ -30,6 +30,11 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "project_root": {
                     "type": "string",
                     "description": "Absolute path to the project root directory.",
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "typescript", "javascript"],
+                    "description": "Project language (auto-detected if omitted).",
                 },
             },
             "required": ["goal", "project_root"],
@@ -56,6 +61,11 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "num_beams": {
                     "type": "integer",
                     "description": "Number of beam variants to generate (default: 3, max: 12).",
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "typescript", "javascript"],
+                    "description": "Project language (auto-detected if omitted).",
                 },
             },
             "required": ["goal", "project_root"],
@@ -299,6 +309,18 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "required": [],
         },
     },
+    "list_strategies": {
+        "name": "list_strategies",
+        "description": (
+            "List all registered beam strategies with their historical "
+            "success/failure rates from trajectory data."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 }
 
 
@@ -306,17 +328,21 @@ def dispatch_tool(
     store: RecipeStore, tool_name: str, arguments: dict[str, Any]
 ) -> Any:
     """Route an MCP tool call to the appropriate Trammel logic."""
+    from .analyzers import get_analyzer
+    lang = arguments.get("language")
+    analyzer = get_analyzer(lang) if lang else None
+
     match tool_name:
         case "decompose":
-            return Planner(store=store).decompose(
+            return Planner(store=store, analyzer=analyzer).decompose(
                 arguments["goal"], arguments["project_root"],
             )
 
         case "explore":
-            planner = Planner(store=store)
+            planner = Planner(store=store, analyzer=analyzer)
             strategy = planner.decompose(arguments["goal"], arguments["project_root"])
             beams = planner.explore_trajectories(
-                strategy, num_beams=arguments.get("num_beams", 3),
+                strategy, num_beams=arguments.get("num_beams", 3), store=store,
             )
             return {"strategy": strategy, "beams": beams}
 
@@ -386,6 +412,17 @@ def dispatch_tool(
                 "plans_active": active,
                 "constraints_active": constraints,
             }
+
+        case "list_strategies":
+            stats = store.get_strategy_stats()
+            return [
+                {
+                    "name": name,
+                    "successes": stats.get(name, (0, 0))[0],
+                    "failures": stats.get(name, (0, 0))[1],
+                }
+                for name in get_strategies()
+            ]
 
         case _:
             raise ValueError(

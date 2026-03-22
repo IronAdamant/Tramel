@@ -11,9 +11,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .utils import _is_ignored_dir, analyze_failure
+
+if TYPE_CHECKING:
+    from .analyzers import LanguageAnalyzer
 
 
 def _ignore_copy(_path: str, names: list[str]) -> set[str]:
@@ -42,7 +45,10 @@ def _pick_test_cmd(project_root: str) -> list[str]:
 
 
 def _run_tests(
-    tmp: str, timeout_s: int, test_cmd: list[str] | None = None,
+    tmp: str,
+    timeout_s: int,
+    test_cmd: list[str] | None = None,
+    error_patterns: list[tuple[str, str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run tests in the given directory and return structured results."""
     cmd = test_cmd if test_cmd else _pick_test_cmd(tmp)
@@ -68,16 +74,32 @@ def _run_tests(
         "score": 1.0 if success else 0.0,
     }
     if not success:
-        outcome["failure_analysis"] = analyze_failure(err, out)
+        outcome["failure_analysis"] = analyze_failure(err, out, error_patterns)
     return outcome
 
 
 class ExecutionHarness:
     def __init__(
-        self, timeout_s: int = 60, test_cmd: list[str] | None = None,
+        self,
+        timeout_s: int = 60,
+        test_cmd: list[str] | None = None,
+        analyzer: LanguageAnalyzer | None = None,
     ) -> None:
         self.timeout_s = timeout_s
         self.test_cmd = test_cmd
+        self._analyzer = analyzer
+
+    def _effective_test_cmd(self, project_root: str) -> list[str] | None:
+        if self.test_cmd is not None:
+            return self.test_cmd
+        if self._analyzer is not None:
+            return self._analyzer.pick_test_cmd(project_root)
+        return None
+
+    def _effective_error_patterns(self) -> list[tuple[str, str, str]] | None:
+        if self._analyzer is not None:
+            return self._analyzer.error_patterns()
+        return None
 
     def run(self, edits: list[dict[str, Any]], project_root: str) -> dict[str, Any]:
         """Full verification: apply all edits, run tests once."""
@@ -87,7 +109,11 @@ class ExecutionHarness:
                 project_root, tmp, dirs_exist_ok=True, ignore=_ignore_copy,
             )
             _apply_edits(tmp, edits)
-            return _run_tests(tmp, self.timeout_s, self.test_cmd)
+            return _run_tests(
+                tmp, self.timeout_s,
+                self._effective_test_cmd(project_root),
+                self._effective_error_patterns(),
+            )
 
     def verify_step(
         self,
@@ -107,7 +133,11 @@ class ExecutionHarness:
             if prior_edits:
                 _apply_edits(tmp, prior_edits)
             _apply_edits(tmp, edits)
-            return _run_tests(tmp, self.timeout_s, self.test_cmd)
+            return _run_tests(
+                tmp, self.timeout_s,
+                self._effective_test_cmd(project_root),
+                self._effective_error_patterns(),
+            )
 
     def run_incremental(
         self,
@@ -129,7 +159,11 @@ class ExecutionHarness:
                 )
                 _apply_edits(tmp, accumulated)
                 _apply_edits(tmp, edits)
-                result = _run_tests(tmp, self.timeout_s, self.test_cmd)
+                result = _run_tests(
+                    tmp, self.timeout_s,
+                    self._effective_test_cmd(project_root),
+                    self._effective_error_patterns(),
+                )
 
             if not result["success"]:
                 return {

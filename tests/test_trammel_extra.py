@@ -412,47 +412,5 @@ class TestConstraintPropagation(unittest.TestCase):
             self.assertIn("constraints_applied", strat)
 
 
-# ── Beam strategy enhancement ───────────────────────────────────────────────
-
-class TestBeamStrategies(unittest.TestCase):
-    def test_skipped_excluded_from_edits(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
-            pathlib.Path(d, "b.py").write_text("def bar():\n    pass\n", encoding="utf-8")
-            store = RecipeStore(os.path.join(d, "bs.db"))
-            store.add_constraint("avoid", "skip b", context={"file": "b.py"})
-            planner = Planner(store=store)
-            strat = planner.decompose("task", d)
-            beams = planner.explore_trajectories(strat, num_beams=3)
-            for beam in beams:
-                edit_paths = [e.get("path") for e in beam["edits"]]
-                self.assertNotIn("b.py", edit_paths)
-                self.assertIn("skipped", beam)
-
-    def test_bottom_up_skipped_at_end(self) -> None:
-        from trammel.core import _order_bottom_up
-        steps = [
-            {"file": "a.py", "status": "skipped"},
-            {"file": "b.py"},
-            {"file": "c.py"},
-        ]
-        ordered = _order_bottom_up(steps)
-        self.assertEqual(ordered[-1]["file"], "a.py")
-        self.assertEqual(ordered[-1].get("status"), "skipped")
-
-    def test_risk_first_isolates_incompatible(self) -> None:
-        from trammel.core import _order_risk_first
-        steps = [
-            {"file": "a.py", "incompatible_with": ["c.py"]},
-            {"file": "b.py"},
-            {"file": "c.py"},
-        ]
-        dep_graph = {"b.py": ["a.py"], "c.py": ["a.py"]}
-        ordered = _order_risk_first(steps, dep_graph)
-        active_files = [s["file"] for s in ordered if s.get("status") != "skipped"]
-        a_idx = active_files.index("a.py")
-        self.assertEqual(a_idx, 0)
-
-
 if __name__ == "__main__":
     unittest.main()

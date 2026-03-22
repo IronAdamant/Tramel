@@ -77,7 +77,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (13):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`
+**MCP tools (14):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`
 
 ## Architecture
 
@@ -101,7 +101,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point
   mcp_server.py       MCP tool schemas and dispatch
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (62 tests)
+tests/                stdlib unittest (70 tests)
 wiki-local/           Spec, glossary, and wiki index
 pyproject.toml        Package metadata
 ```
@@ -139,6 +139,15 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 1.7.0
+
+- **Pluggable strategy registry**: New `register_strategy()` and `get_strategies()` API in `core.py` with `StrategyFn` and `StrategyEntry` types. Three built-in strategies (`bottom_up`, `top_down`, `risk_first`) auto-registered at module load. Strategy functions use unified signature `(steps, dep_graph) -> steps`.
+- **Strategy learning**: `explore_trajectories` accepts optional `store` for learning feedback. When provided, strategies sorted by historical success rate from trajectory data. `plan_and_execute` and `explore` pass store to enable learning.
+- **Strategy stats**: `RecipeStore.get_strategy_stats()` aggregates trajectory outcomes by variant (success/failure counts per strategy).
+- **New MCP tool**: `list_strategies` returns registered strategy names with success/failure stats. Tool count 13 → 14.
+- **New exports**: `register_strategy` and `get_strategies` exported from `trammel.__init__`.
+- **Test reorganization**: New `tests/test_strategies.py` with 8 strategy-focused tests. `TestBeamStrategies` moved from `test_trammel_extra.py`. Test count 62 → 70.
 
 ### 1.6.0
 

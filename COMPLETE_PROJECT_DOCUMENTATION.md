@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
 **Updated:** 2026-03-23
-**Version:** 1.6.0
+**Version:** 1.7.0
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition, real beam branching, incremental verification, failure constraint propagation, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server for LLM integration.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 1.6.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 1.7.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 
 ## wiki-local/
 
@@ -28,11 +28,11 @@
 | `trammel/__init__.py` | `__version__` (from `importlib.metadata`), `plan_and_execute`, `explore`, `synthesize`; wires Planner, ExecutionHarness, RecipeStore | `core`, `harness`, `store` |
 | `trammel/__main__.py` | `python -m trammel` → `cli.main()` | `cli` |
 | `trammel/cli.py` | Argparse + JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd` | `__init__` |
-| `trammel/core.py` | `Planner`: import-aware dependency analysis, topological step ordering, real beam branching (bottom_up/top_down/risk_first), constraint propagation via `_apply_constraints`. Symbol collection returns name strings; beam descriptions inlined. | `store`, `utils` |
+| `trammel/core.py` | `Planner`: import-aware dependency analysis, topological step ordering, real beam branching (bottom_up/top_down/risk_first), constraint propagation via `_apply_constraints`. Pluggable strategy registry (`register_strategy`/`get_strategies`/`StrategyFn`/`StrategyEntry`); 3 built-in strategies auto-registered. `explore_trajectories` supports strategy learning via optional `store`. | `store`, `utils` |
 | `trammel/harness.py` | Temp copy, `_apply_edits`, full `run()`, `verify_step()`, `run_incremental()`, configurable `test_cmd`, failure analysis | `utils` |
 | `trammel/store.py` | SQLite: recipes (strategy + constraints + success/failure counts), plans (step tracking), steps, constraints, trajectories, recipe_trigrams index. Context manager. Transaction wrapping. | `utils` |
 | `trammel/utils.py` | Trigrams, cosine, `unique_trigrams`, `transaction`, `analyze_imports`, `topological_sort`, `analyze_failure`, `_is_ignored_dir`, `dumps_json`, `sha256_json`, `db_connect` | stdlib |
-| `trammel/mcp_server.py` | MCP tool schemas (13 tools) + `match/case` `dispatch_tool` routing | `core`, `harness`, `store` |
+| `trammel/mcp_server.py` | MCP tool schemas (14 tools) + `match/case` `dispatch_tool` routing | `core`, `harness`, `store` |
 | `trammel/mcp_stdio.py` | MCP stdio server entry point (`trammel-mcp` console script) | `mcp_server`, `store`, `mcp` (optional) |
 
 ## Tests
@@ -40,13 +40,14 @@
 | Path | Purpose |
 |------|---------|
 | `tests/test_trammel.py` | Core: trigrams, toposort, import analysis, store (incl. trigram index), harness, plan_and_execute, explore |
-| `tests/test_trammel_extra.py` | Edges: failure analysis, step updates, constraint filtering/propagation, beam strategies, transactions, context manager, incremental harness, MCP dispatch, CLI |
+| `tests/test_trammel_extra.py` | Edges: failure analysis, step updates, constraint filtering/propagation, transactions, context manager, incremental harness, MCP dispatch, CLI |
+| `tests/test_strategies.py` | Strategy registry, strategy learning, strategy stats, beam strategies (TestBeamStrategies moved from test_trammel_extra.py) |
 
 ## Data flow
 
 1. `plan_and_execute` → `RecipeStore.retrieve_best_recipe` (indexed trigram lookup → candidate cosine, min 0.3) → optional cached strategy.
 2. Else `Planner.decompose` scans `.py` AST for symbols, `analyze_imports` builds dependency graph, `topological_sort` orders files → steps with rationale + depends_on. Active constraints enforced via `_apply_constraints` (avoid/dependency/incompatible/requires).
-3. `explore_trajectories` emits beams with constraint-aware strategies: `bottom_up` (dependencies first, skipped at end), `top_down` (API first, skipped at end), `risk_first` (highest coupling first, incompatible isolated, package batching). Skipped steps excluded from beam edits.
+3. `explore_trajectories` emits beams from the strategy registry (pluggable via `register_strategy`). When `store` provided, strategies sorted by historical success rate via `get_strategy_stats()`. Constraint-aware strategies: `bottom_up` (dependencies first, skipped at end), `top_down` (API first, skipped at end), `risk_first` (highest coupling first, incompatible isolated, package batching). Skipped steps excluded from beam edits.
 4. `ExecutionHarness.run` copies tree, applies content edits, runs `unittest discover`. `verify_step` does single-step verification. `run_incremental` verifies step-by-step, aborting on first failure with structured `failure_analysis`.
 5. Success → `save_recipe` (strategy + constraints + trigram index); failure → `add_constraint` (type, description, context). All mutations wrapped in `BEGIN IMMEDIATE` transactions with BUSY retry. Plans/steps/trajectories logged in SQLite.
 
@@ -63,6 +64,7 @@
 
 ## Changelog (high level)
 
+- **1.7.0:** Pluggable strategy registry — `register_strategy()`/`get_strategies()`/`StrategyFn`/`StrategyEntry` in `core.py`, 3 built-in strategies auto-registered, unified signature `(steps, dep_graph) -> steps`. Strategy learning — `explore_trajectories` accepts optional `store`, strategies sorted by historical success rate. `get_strategy_stats()` on `RecipeStore`. New `list_strategies` MCP tool (14 total). `register_strategy`/`get_strategies` exported from `__init__`. New `tests/test_strategies.py` (8 tests, `TestBeamStrategies` moved from `test_trammel_extra.py`). 70 tests.
 - **1.6.0:** Cleanup — simplified `_collect_python_symbols` to return name strings (removed unused dict fields), removed dead `filepath` parameter from `_step_rationale`, inlined `_BEAM_STRATEGIES` descriptions (eliminated fragile index coupling), fixed duplicated line in spec-project.md. 62 tests.
 - **1.5.0:** Concurrent write protection (explicit transactions with BUSY retry), inverted trigram index for recipe retrieval at scale, constraint propagation (`_apply_constraints` enforcing avoid/dependency/incompatible/requires), constraint-aware beam strategies (skip/isolate/batch), RecipeStore context manager. 6 tables. 62 tests.
 - **1.4.0:** Cleanup — converted `mcp_stdio.py` from absolute to relative imports for package consistency, removed unreachable `UnicodeDecodeError` from `_collect_python_symbols` except clause (files opened with `errors="replace"`), added `.chisel` to `_IGNORED_DIRS`. 45 tests.

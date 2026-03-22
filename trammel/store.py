@@ -408,6 +408,24 @@ class RecipeStore:
                  dumps_json(outcome), failure_reason, time.time()),
             )
 
+    def get_strategy_stats(self) -> dict[str, tuple[int, int]]:
+        """Return {variant_name: (successes, failures)} aggregated from all trajectories."""
+        rows = self.conn.execute(
+            "SELECT strategy_variant, outcome FROM trajectories"
+        ).fetchall()
+        stats: dict[str, list[int]] = {}
+        for variant, outcome_str in rows:
+            pair = stats.setdefault(variant, [0, 0])
+            try:
+                outcome = json.loads(outcome_str)
+                if outcome.get("success"):
+                    pair[0] += 1
+                else:
+                    pair[1] += 1
+            except (json.JSONDecodeError, TypeError):
+                pair[1] += 1
+        return {k: (v[0], v[1]) for k, v in stats.items()}
+
     def get_trajectories(self, plan_id: int) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT id, beam_id, strategy_variant, steps_completed, outcome, failure_reason, created "

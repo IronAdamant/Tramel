@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import contextlib
 import hashlib
 import json
@@ -17,6 +16,7 @@ from typing import Any, Generator
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",
     ".tox", ".mypy_cache", ".ruff_cache", ".chisel", "dist", "build",
+    ".next", ".nuxt", "coverage", ".turbo", ".parcel-cache",
 })
 
 
@@ -118,70 +118,15 @@ def transaction(
         raise
 
 
-# ── Import analysis ──────────────────────────────────────────────────────────
-
-def catalog_project_modules(project_root: str) -> dict[str, str]:
-    """Map dotted module names to relative file paths for all .py files in the project."""
-    modules: dict[str, str] = {}
-    for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-        for name in files:
-            if not name.endswith(".py"):
-                continue
-            path = os.path.join(root, name)
-            rel = os.path.relpath(path, project_root)
-            mod = rel.replace(os.sep, ".").removesuffix(".py")
-            if mod.endswith(".__init__"):
-                mod = mod.removesuffix(".__init__")
-            modules[mod] = rel
-    return modules
-
+# ── Import analysis (backward-compatible wrapper) ────────────────────────────
 
 def analyze_imports(project_root: str) -> dict[str, list[str]]:
-    """Build a dependency graph: file -> [files it imports from] (project-internal only)."""
-    modules = catalog_project_modules(project_root)
-    module_set = set(modules.keys())
-    graph: dict[str, list[str]] = {}
+    """Build a dependency graph: file -> [files it imports from] (project-internal only).
 
-    for mod, rel in modules.items():
-        path = os.path.join(project_root, rel)
-        try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                tree = ast.parse(f.read(), filename=path)
-        except (OSError, SyntaxError):
-            continue
-
-        deps: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    _resolve_import(alias.name, module_set, modules, deps)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                _resolve_import(node.module, module_set, modules, deps)
-
-        deps.discard(rel)
-        if deps:
-            graph[rel] = sorted(deps)
-
-    return graph
-
-
-def _resolve_import(
-    name: str,
-    module_set: set[str],
-    modules: dict[str, str],
-    deps: set[str],
-) -> None:
-    """Try to match an import name to a project-internal module."""
-    if name in module_set:
-        deps.add(modules[name])
-        return
-    parts = name.split(".")
-    for i in range(len(parts), 0, -1):
-        prefix = ".".join(parts[:i])
-        if prefix in module_set:
-            deps.add(modules[prefix])
-            return
+    Delegates to PythonAnalyzer. Kept for backward compatibility.
+    """
+    from .analyzers import PythonAnalyzer
+    return PythonAnalyzer().analyze_imports(project_root)
 
 
 # ── Topological sort ─────────────────────────────────────────────────────────
@@ -234,7 +179,11 @@ _ERROR_PATTERNS: list[tuple[str, str, str]] = [
 ]
 
 
-def analyze_failure(stderr: str, stdout: str) -> dict[str, Any]:
+def analyze_failure(
+    stderr: str,
+    stdout: str,
+    error_patterns: list[tuple[str, str, str]] | None = None,
+) -> dict[str, Any]:
     """Extract structured failure information from test output."""
     combined = stderr + "\n" + stdout
     analysis: dict[str, Any] = {
@@ -245,7 +194,8 @@ def analyze_failure(stderr: str, stdout: str) -> dict[str, Any]:
         "suggestion": "",
     }
 
-    for marker, etype, suggestion in _ERROR_PATTERNS:
+    patterns = error_patterns if error_patterns is not None else _ERROR_PATTERNS
+    for marker, etype, suggestion in patterns:
         if marker in combined:
             analysis["error_type"] = etype
             analysis["suggestion"] = suggestion
