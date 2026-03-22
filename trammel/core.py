@@ -100,17 +100,13 @@ def _step_rationale(dep_files: list[str], sym_names: list[str]) -> str:
 
 # ── Constraint enforcement ────────────────────────────────────────────────────
 
-def _apply_constraints(
-    steps: list[dict[str, Any]],
+def _parse_constraints(
     constraints: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Enforce active constraints on steps.
+) -> tuple[set[str], list[tuple[str, str]], list[tuple[str, str]], list[str], list[dict[str, Any]]]:
+    """Categorize constraints by type.
 
-    Returns (modified_steps, applied_constraints).
+    Returns (avoid_files, required_orderings, incompatible_pairs, required_files, applied).
     """
-    if not constraints:
-        return steps, []
-
     applied: list[dict[str, Any]] = []
     avoid_files: set[str] = set()
     required_orderings: list[tuple[str, str]] = []
@@ -139,43 +135,54 @@ def _apply_constraints(
             required_files.append(ctx.get("file") or ctx["prerequisite"])
             applied.append(c)
 
-    # Mark avoided files as skipped
-    filtered: list[dict[str, Any]] = []
+    return avoid_files, required_orderings, incompatible_pairs, required_files, applied
+
+
+def _mark_avoided(steps: list[dict[str, Any]], avoid_files: set[str]) -> list[dict[str, Any]]:
+    """Mark steps targeting avoided files as skipped."""
+    result: list[dict[str, Any]] = []
     for step in steps:
         f = step.get("file", "")
         if f in avoid_files:
             skipped = dict(step)
             skipped["status"] = "skipped"
             skipped["skip_reason"] = f"constraint: avoid {f}"
-            filtered.append(skipped)
+            result.append(skipped)
         else:
-            filtered.append(step)
+            result.append(step)
+    return result
 
-    # Inject dependency orderings
-    file_to_idx = {s.get("file"): i for i, s in enumerate(filtered)}
-    for before, after in required_orderings:
+
+def _inject_orderings(steps: list[dict[str, Any]], orderings: list[tuple[str, str]]) -> None:
+    """Inject dependency edges from ordering constraints (mutates steps in place)."""
+    file_to_idx = {s.get("file"): i for i, s in enumerate(steps)}
+    for before, after in orderings:
         if before in file_to_idx and after in file_to_idx:
-            after_step = filtered[file_to_idx[after]]
+            after_step = steps[file_to_idx[after]]
             deps = list(after_step.get("depends_on", []))
             before_idx = file_to_idx[before]
             if before_idx not in deps:
                 after_step["depends_on"] = deps + [before_idx]
 
-    # Record incompatible pairs as metadata
-    for file_a, file_b in incompatible_pairs:
-        for step in filtered:
+
+def _mark_incompatible(steps: list[dict[str, Any]], pairs: list[tuple[str, str]]) -> None:
+    """Record incompatible-pair metadata on steps (mutates steps in place)."""
+    for file_a, file_b in pairs:
+        for step in steps:
             f = step.get("file", "")
             if f == file_a:
                 step.setdefault("incompatible_with", []).append(file_b)
             elif f == file_b:
                 step.setdefault("incompatible_with", []).append(file_a)
 
-    # Ensure required prerequisite steps exist
-    existing_files = {s.get("file") for s in filtered}
+
+def _add_prerequisites(steps: list[dict[str, Any]], required_files: list[str]) -> None:
+    """Append placeholder steps for missing prerequisite files (mutates list)."""
+    existing = {s.get("file") for s in steps}
     for prereq in required_files:
-        if prereq not in existing_files:
-            filtered.append({
-                "step_index": len(filtered),
+        if prereq not in existing:
+            steps.append({
+                "step_index": len(steps),
                 "file": prereq,
                 "symbols": [],
                 "symbol_count": 0,
@@ -184,6 +191,23 @@ def _apply_constraints(
                 "depends_on": [],
             })
 
+
+def _apply_constraints(
+    steps: list[dict[str, Any]],
+    constraints: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Enforce active constraints on steps.
+
+    Returns (modified_steps, applied_constraints).
+    """
+    if not constraints:
+        return steps, []
+
+    avoid_files, orderings, incompat, prereqs, applied = _parse_constraints(constraints)
+    filtered = _mark_avoided(steps, avoid_files)
+    _inject_orderings(filtered, orderings)
+    _mark_incompatible(filtered, incompat)
+    _add_prerequisites(filtered, prereqs)
     return filtered, applied
 
 

@@ -13,7 +13,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel.analyzers import (  # noqa: E402
+    CppAnalyzer,
     GoAnalyzer,
+    JavaAnalyzer,
     PythonAnalyzer,
     RustAnalyzer,
     TypeScriptAnalyzer,
@@ -455,6 +457,159 @@ class TestDetectLanguageExpanded(unittest.TestCase):
             pathlib.Path(d, "utils.rs").write_text("", encoding="utf-8")
             analyzer = detect_language(d)
             self.assertEqual(analyzer.name, "rust")
+
+
+# ── CppAnalyzer ──────────────────────────────────────────────────────────────
+
+class TestCppAnalyzer(unittest.TestCase):
+    def test_collect_symbols_cpp(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.cpp").write_text(
+                "class Server {};\n\n"
+                "struct Config {};\n\n"
+                "namespace Net {\n  int init() { return 0; }\n}\n\n"
+                "enum class Color { Red, Green };\n",
+                encoding="utf-8",
+            )
+            symbols = CppAnalyzer().collect_symbols(d)
+            self.assertIn("main.cpp", symbols)
+            names = symbols["main.cpp"]
+            self.assertIn("Server", names)
+            self.assertIn("Config", names)
+            self.assertIn("Net", names)
+            self.assertIn("Color", names)
+
+    def test_header_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "types.h").write_text(
+                "struct Point { int x; int y; };\n", encoding="utf-8",
+            )
+            symbols = CppAnalyzer().collect_symbols(d)
+            self.assertIn("types.h", symbols)
+            self.assertIn("Point", symbols["types.h"])
+
+    def test_analyze_imports_cpp(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "utils.h").write_text(
+                "int helper();\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.cpp").write_text(
+                '#include "utils.h"\n\nint main() { return helper(); }\n',
+                encoding="utf-8",
+            )
+            graph = CppAnalyzer().analyze_imports(d)
+            self.assertIn("main.cpp", graph)
+            self.assertIn("utils.h", graph["main.cpp"])
+
+    def test_pick_test_cmd_cmake(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "CMakeLists.txt").write_text("", encoding="utf-8")
+            cmd = CppAnalyzer().pick_test_cmd(d)
+            self.assertIn("ctest", cmd)
+
+    def test_error_patterns_cpp(self) -> None:
+        markers = [p[0] for p in CppAnalyzer().error_patterns()]
+        self.assertIn("error:", markers)
+
+    def test_commented_include_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "utils.h").write_text("int x;\n", encoding="utf-8")
+            pathlib.Path(d, "main.cpp").write_text(
+                '// #include "utils.h"\nint main() {}\n', encoding="utf-8",
+            )
+            graph = CppAnalyzer().analyze_imports(d)
+            self.assertNotIn("main.cpp", graph)
+
+
+# ── JavaAnalyzer ─────────────────────────────────────────────────────────────
+
+class TestJavaAnalyzer(unittest.TestCase):
+    def test_collect_symbols_java(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "App.java").write_text(
+                "package com.example;\n\n"
+                "public class App {\n"
+                "  public interface Service {}\n"
+                "  public enum Status { OK, ERR }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            symbols = JavaAnalyzer().collect_symbols(d)
+            self.assertIn("App.java", symbols)
+            names = symbols["App.java"]
+            self.assertIn("App", names)
+            self.assertIn("Service", names)
+            self.assertIn("Status", names)
+
+    def test_collect_symbols_kotlin(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Main.kt").write_text(
+                "package com.example\n\n"
+                "data class User(val name: String)\n\n"
+                "fun greet(u: User): String = \"Hello ${u.name}\"\n\n"
+                "object Config {}\n",
+                encoding="utf-8",
+            )
+            symbols = JavaAnalyzer().collect_symbols(d)
+            self.assertIn("Main.kt", symbols)
+            names = symbols["Main.kt"]
+            self.assertIn("User", names)
+            self.assertIn("greet", names)
+            self.assertIn("Config", names)
+
+    def test_analyze_imports_java(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pkg = pathlib.Path(d) / "com" / "example"
+            pkg.mkdir(parents=True)
+            (pkg / "Utils.java").write_text(
+                "package com.example;\n\npublic class Utils {}\n", encoding="utf-8",
+            )
+            (pkg / "App.java").write_text(
+                "package com.example;\n\nimport com.example.Utils;\n\n"
+                "public class App {}\n",
+                encoding="utf-8",
+            )
+            graph = JavaAnalyzer().analyze_imports(d)
+            app_key = os.path.join("com", "example", "App.java")
+            utils_key = os.path.join("com", "example", "Utils.java")
+            self.assertIn(app_key, graph)
+            self.assertIn(utils_key, graph[app_key])
+
+    def test_pick_test_cmd_gradle(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "gradlew").write_text("#!/bin/sh\n", encoding="utf-8")
+            cmd = JavaAnalyzer().pick_test_cmd(d)
+            self.assertIn("gradlew", cmd[0])
+
+    def test_pick_test_cmd_maven(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "pom.xml").write_text("<project/>", encoding="utf-8")
+            cmd = JavaAnalyzer().pick_test_cmd(d)
+            self.assertEqual(cmd, ["mvn", "test"])
+
+    def test_error_patterns_java(self) -> None:
+        markers = [p[0] for p in JavaAnalyzer().error_patterns()]
+        self.assertIn("FAILURE", markers)
+
+
+# ── Detection (C++ / Java) ──────────────────────────────────────────────────
+
+class TestDetectLanguageCppJava(unittest.TestCase):
+    def test_cpp_project(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.cpp").write_text("", encoding="utf-8")
+            pathlib.Path(d, "utils.h").write_text("", encoding="utf-8")
+            pathlib.Path(d, "lib.cpp").write_text("", encoding="utf-8")
+            analyzer = detect_language(d)
+            self.assertEqual(analyzer.name, "cpp")
+
+    def test_java_project(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "App.java").write_text("", encoding="utf-8")
+            pathlib.Path(d, "Utils.java").write_text("", encoding="utf-8")
+            pathlib.Path(d, "Model.java").write_text("", encoding="utf-8")
+            analyzer = detect_language(d)
+            self.assertEqual(analyzer.name, "java")
 
 
 if __name__ == "__main__":

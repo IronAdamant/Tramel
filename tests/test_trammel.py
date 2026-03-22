@@ -230,6 +230,56 @@ class TestRecipeMatching(unittest.TestCase):
             self.assertIsNone(got)
 
 
+class TestRecipePruning(unittest.TestCase):
+    def test_prune_removes_old_low_quality(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "pr.db"))
+            strat = {"steps": [{"file": "a.py", "description": "old bad"}]}
+            store.save_recipe("old bad goal", strat, False)
+            # Backdate the recipe to 100 days ago
+            from trammel.utils import sha256_json
+            sig = sha256_json(strat)
+            old_time = __import__("time").time() - (100 * 86400)
+            store.conn.execute(
+                "UPDATE recipes SET updated = ?, created = ? WHERE sig = ?",
+                (old_time, old_time, sig),
+            )
+            store.conn.commit()
+            pruned = store.prune_recipes(max_age_days=90, min_success_ratio=0.1)
+            self.assertEqual(pruned, 1)
+            # Verify cascaded deletes
+            tris = store.conn.execute(
+                "SELECT COUNT(*) FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
+            ).fetchone()[0]
+            self.assertEqual(tris, 0)
+
+    def test_prune_keeps_recent(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "pr2.db"))
+            strat = {"steps": [{"file": "b.py"}]}
+            store.save_recipe("recent goal", strat, False)
+            pruned = store.prune_recipes(max_age_days=90, min_success_ratio=0.1)
+            self.assertEqual(pruned, 0)
+
+    def test_prune_keeps_old_successful(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "pr3.db"))
+            strat = {"steps": [{"file": "c.py"}]}
+            # Save as success multiple times to build up ratio
+            for _ in range(5):
+                store.save_recipe("good old goal", strat, True)
+            from trammel.utils import sha256_json
+            sig = sha256_json(strat)
+            old_time = __import__("time").time() - (100 * 86400)
+            store.conn.execute(
+                "UPDATE recipes SET updated = ?, created = ? WHERE sig = ?",
+                (old_time, old_time, sig),
+            )
+            store.conn.commit()
+            pruned = store.prune_recipes(max_age_days=90, min_success_ratio=0.1)
+            self.assertEqual(pruned, 0)
+
+
 class TestHarness(unittest.TestCase):
     def test_runs_passing_project(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -275,6 +325,41 @@ class TestHarness(unittest.TestCase):
             r = h.run([], d)
             self.assertFalse(r["success"])
             self.assertIn("failure_analysis", r)
+
+
+class TestHarnessBaseCache(unittest.TestCase):
+    def test_run_from_base(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            tdir = pathlib.Path(d) / "tests"
+            tdir.mkdir()
+            (tdir / "test_x.py").write_text(
+                "import unittest\nclass T(unittest.TestCase):\n"
+                "    def test_t(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            h = ExecutionHarness(timeout_s=30)
+            import shutil
+            base = h.prepare_base(d)
+            try:
+                r = h.run_from_base([], base)
+                self.assertTrue(r["success"])
+            finally:
+                shutil.rmtree(base, ignore_errors=True)
+
+    def test_base_excludes_ignored_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            nm = pathlib.Path(d) / "node_modules"
+            nm.mkdir()
+            (nm / "pkg.js").write_text("", encoding="utf-8")
+            pathlib.Path(d, "app.py").write_text("x = 1\n", encoding="utf-8")
+            h = ExecutionHarness(timeout_s=30)
+            import shutil
+            base = h.prepare_base(d)
+            try:
+                self.assertFalse(os.path.isdir(os.path.join(base, "node_modules")))
+                self.assertTrue(os.path.isfile(os.path.join(base, "app.py")))
+            finally:
+                shutil.rmtree(base, ignore_errors=True)
 
 
 class TestPlanAndExecute(unittest.TestCase):

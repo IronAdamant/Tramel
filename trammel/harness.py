@@ -95,6 +95,24 @@ class ExecutionHarness:
             return self._analyzer.error_patterns()
         return None
 
+    def prepare_base(self, project_root: str) -> str:
+        """Create a filtered base copy of the project. Caller must clean up."""
+        project_root = os.path.abspath(project_root)
+        base_dir = tempfile.mkdtemp(prefix="trammel_base_")
+        shutil.copytree(project_root, base_dir, dirs_exist_ok=True, ignore=_ignore_copy)
+        return base_dir
+
+    def run_from_base(self, edits: list[dict[str, Any]], base_dir: str) -> dict[str, Any]:
+        """Run verification using a pre-prepared base copy (avoids re-filtering)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            shutil.copytree(base_dir, tmp, dirs_exist_ok=True)
+            _apply_edits(tmp, edits)
+            return _run_tests(
+                tmp, self.timeout_s,
+                self._effective_test_cmd(base_dir),
+                self._effective_error_patterns(),
+            )
+
     def run(self, edits: list[dict[str, Any]], project_root: str) -> dict[str, Any]:
         """Full verification: apply all edits, run tests once."""
         project_root = os.path.abspath(project_root)

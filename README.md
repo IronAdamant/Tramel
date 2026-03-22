@@ -52,6 +52,8 @@ Use from the CLI:
 python -m trammel --version
 python -m trammel "refactor X to Y" --root /path/to/project --beams 3 --db ./trammel.db
 python -m trammel "fix tests" --test-cmd pytest -x -q
+python -m trammel "explore auth" --dry-run                  # explore only, no verification
+python -m trammel "fix tests" --language python
 echo '{"goal":"fix tests"}' | python -m trammel
 ```
 
@@ -85,8 +87,8 @@ Configure in `.claude/.mcp.json`:
 
 Trammel treats planning as a structured search problem:
 
-1. **Decompose** -- Analyze project imports (Python AST; TypeScript, Go, Rust regex), build dependency graph, topological sort, generate steps with ordering rationale
-2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`, `critical_path`, `cohesion`, `minimal_change`)
+1. **Decompose** -- Analyze project imports (Python AST; TypeScript, Go, Rust, C/C++, Java/Kotlin regex), build dependency graph, topological sort, generate steps with ordering rationale
+2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`, `critical_path`, `cohesion`, `minimal_change`), executed in parallel via `ProcessPoolExecutor`
 3. **Verify** -- Run edits in isolated temp copies, per-step or full-run; extract structured failure analysis on failure
 4. **Constrain** -- Propagate failure reasons as persistent constraints that block repetition across sessions
 5. **Remember** -- Store successful strategies as recipes, retrieved by composite scoring (text similarity + file overlap + success ratio)
@@ -96,15 +98,16 @@ Trammel treats planning as a structured search problem:
 ```
 trammel/              Importable package
   __init__.py         plan_and_execute, explore, synthesize, __version__
-  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, GoAnalyzer, RustAnalyzer, detect_language
+  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language (~370 LOC)
+  analyzers_ext.py    GoAnalyzer, RustAnalyzer, CppAnalyzer, JavaAnalyzer (~400 LOC)
   core.py             Planner: import analysis, toposort, beam strategies
-  harness.py          ExecutionHarness: temp copy, edits, test runner
-  store.py            RecipeStore: SQLite persistence (7 tables)
+  harness.py          ExecutionHarness: temp copy, edits, test runner, base-copy caching
+  store.py            RecipeStore: SQLite persistence (7 tables), recipe pruning
   utils.py            Trigrams, cosine, failure extraction, goal normalization, goal similarity
-  cli.py              Argparse CLI entry point
+  cli.py              Argparse CLI entry point (--dry-run, --language)
   mcp_server.py       MCP tool schemas and dispatch (17 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (146 tests, 4 modules)
+tests/                stdlib unittest (166 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -144,6 +147,17 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.6.0
+
+- **Parallel beam execution**: `plan_and_execute` runs beams concurrently via `concurrent.futures.ProcessPoolExecutor` (stdlib). Falls back to sequential on systems where process spawning fails.
+- **C/C++ and Java/Kotlin analyzers**: New `CppAnalyzer` (`.c/.cpp/.cc/.cxx/.h/.hpp/.hxx`, class/struct/namespace/enum/typedef/function symbols, `#include "..."` resolution) and `JavaAnalyzer` (`.java/.kt/.kts`, class/interface/enum/fun/object/@interface symbols, package-based import resolution) in `analyzers_ext.py`. MCP language enum expanded to 9 entries.
+- **Analyzer module split**: `analyzers.py` split into `analyzers.py` (~370 LOC) + `analyzers_ext.py` (~400 LOC) to stay under 500 LOC per file. All existing imports preserved via re-export.
+- **Recipe pruning**: New `RecipeStore.prune_recipes(max_age_days=90, min_success_ratio=0.1)` removes stale, low-quality recipes with cascade deletes to `recipe_trigrams` and `recipe_files`.
+- **Harness base-copy caching**: New `prepare_base(project_root)` and `run_from_base(edits, base_dir)` create one filtered base copy; beams copy from it instead of re-filtering per beam.
+- **`--dry-run` and `--language` CLI flags**: `--dry-run` runs `explore()` instead of `plan_and_execute()`.
+- **Decomposed `_apply_constraints`**: 85-line function in `core.py` split into `_parse_constraints`, `_mark_avoided`, `_inject_orderings`, `_mark_incompatible`, `_add_prerequisites`.
+- **166 tests** (20 new).
 
 ### 2.5.0
 

@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.5.0
+**Version:** 2.6.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -28,19 +28,23 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `explore(goal, project_root, num_beams=3, db_path="trammel.db", language=None)` | Decompose + beams only (no harness) |
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
-| CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd` |
+| CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language` |
 | MCP `trammel-mcp` | 17 tools over stdio transport |
 
-## 4. Language Analyzers (`analyzers.py`)
+## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
+
+Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, registry, and detection. `analyzers_ext.py` (~400 LOC) holds Go, Rust, C/C++, and Java/Kotlin. All existing imports preserved via re-export from `analyzers.py`.
 
 - **`LanguageAnalyzer` protocol**: Defines `collect_symbols(root) -> dict[str, list[str]]`, `analyze_imports(root) -> dict[str, list[str]]`, `test_command() -> list[str]`, `error_patterns() -> list[str]`.
 - **`PythonAnalyzer`**: AST-based symbol collection and import analysis (moved from `core.py` and `utils.py`).
 - **`TypeScriptAnalyzer`**: Regex-based, stdlib-only analysis for `.ts`/`.tsx`/`.js`/`.jsx`/`.mts`/`.mjs` files. Symbol detection via `_TS_SYMBOL_PATTERNS` list (interface, enum, const enum, type alias, abstract class, decorated class, function expression, namespace). `_strip_js_comments` strips comments before symbol/import detection. Import detection via expanded `_TS_IMPORT_RE` (standard imports, re-exports `export { } from`, barrel exports `export * from`, type re-exports `export type { } from`, dynamic imports `import()`). `_TS_ALIAS_IMPORT_RE` detects non-relative alias imports. `_read_ts_path_aliases(root)` reads `compilerOptions.paths` + `baseUrl` from `tsconfig.json`. `_resolve_alias()` resolves alias-based import paths.
 - **`GoAnalyzer`**: Regex-based analysis for `.go` files. Reads `go.mod` for module path. Resolves internal imports (imports matching the module path) to project-relative file paths.
 - **`RustAnalyzer`**: Regex-based analysis for `.rs` files. Resolves `use crate::` imports and `mod` declarations to project-relative file paths.
-- **Shared `_collect_symbols_regex` helper**: Common symbol collection logic used by `TypeScriptAnalyzer`, `GoAnalyzer`, and `RustAnalyzer` (regex-based analyzers).
-- **`detect_language(root)`**: Heuristic detection by file extension prevalence. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, and `.rs` files.
-- **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 5 languages: python, typescript, javascript, go, rust.
+- **`CppAnalyzer`**: Regex-based analysis for `.c/.cpp/.cc/.cxx/.h/.hpp/.hxx` files. Symbol detection for class, struct, namespace, enum, typedef, and function declarations. `#include "..."` import resolution with comment stripping. Registered as "cpp" and "c".
+- **`JavaAnalyzer`**: Regex-based analysis for `.java/.kt/.kts` files. Symbol detection for class, interface, enum, fun, object, and @interface declarations. Package-based import resolution. Registered as "java" and "kotlin".
+- **Shared `_collect_symbols_regex` helper**: Common symbol collection logic used by `TypeScriptAnalyzer`, `GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, and `JavaAnalyzer` (regex-based analyzers).
+- **`detect_language(root)`**: Heuristic detection by file extension prevalence. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, and `.java`/`.kt` files.
+- **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 9 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin.
 
 ## 5. Planner (`core.py`)
 
@@ -56,6 +60,8 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 - **`__init__(timeout_s=60, test_cmd=None, analyzer=None)`**: Configure timeout, optional custom test command, and optional language analyzer for language-specific test commands and error patterns. Defaults to `unittest discover`.
 - **`run(edits, project_root)`**: Copy project to temp dir, apply all edits, run tests. Returns structured result.
+- **`prepare_base(project_root)`**: Create one filtered base copy of the project (applies ignored-dir filtering once). Returns the base directory path.
+- **`run_from_base(edits, base_dir)`**: Copy from an existing base directory, apply edits, run tests. Avoids re-filtering ignored dirs per beam.
 - **`verify_step(edits, project_root, prior_edits)`**: Verify a single step in isolation. Applies prior_edits first, then current edits.
 - **`run_incremental(step_edits, project_root)`**: Verify step-by-step. Stops at first failure with `failed_at_step` index and `failure_analysis`.
 - **`analyze_failure(stderr, stdout, error_patterns=None)`**: Extracts error_type, message, file, line, suggestion from test output via regex patterns. Accepts optional `error_patterns` for language-specific patterns.
@@ -76,7 +82,9 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 **`list_recipes(limit=20)`**: Returns recent recipes ordered by update time.
 
-**Constraint propagation**: Active constraints enforced during `decompose()` via `_apply_constraints`:
+**`prune_recipes(max_age_days=90, min_success_ratio=0.1)`**: Removes stale, low-quality recipes. Cascade deletes to `recipe_trigrams` and `recipe_files`.
+
+**Constraint propagation**: Active constraints enforced during `decompose()` via decomposed constraint functions (`_parse_constraints` -> `_mark_avoided` -> `_inject_orderings` -> `_mark_incompatible` -> `_add_prerequisites`):
 - `avoid` + `context.file` → step marked `status: "skipped"` with `skip_reason`
 - `dependency` + `context.before/after` → ordering injected into `depends_on`
 - `incompatible` + `context.file_a/file_b` → `incompatible_with` metadata on steps
@@ -135,6 +143,6 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 - Emit real `content` in edits from an LLM (the primary integration point).
 - Register custom beam strategies via `register_strategy()` beyond the six built-in.
 - Add constraint types beyond the four built-in (avoid/dependency/incompatible/requires).
-- Implement `LanguageAnalyzer` protocol for additional languages beyond the five built-in (Python, TypeScript, JavaScript, Go, Rust).
+- Implement `LanguageAnalyzer` protocol for additional languages beyond the nine built-in (Python, TypeScript, JavaScript, Go, Rust, C/C++, Java, Kotlin).
 - Use `SYSTEM_PROMPT.md` as a reference for building LLM client orchestration loops.
 - Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.

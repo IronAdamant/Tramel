@@ -23,6 +23,8 @@ def main() -> None:
         "--test-cmd", nargs="+", default=None,
         help="Custom test command (default: unittest discover)",
     )
+    parser.add_argument("--language", default=None, help="Project language (auto-detected if omitted)")
+    parser.add_argument("--dry-run", action="store_true", help="Preview decomposition without running tests")
     args = parser.parse_args()
 
     if args.goal is None:
@@ -34,7 +36,14 @@ def main() -> None:
     else:
         goal = args.goal
 
-    result = plan_and_execute(
-        goal, args.root, num_beams=args.beams, db_path=args.db, test_cmd=args.test_cmd,
-    )
+    if args.dry_run:
+        from . import explore
+        result = explore(
+            goal, args.root, num_beams=args.beams, db_path=args.db, language=args.language,
+        )
+    else:
+        result = plan_and_execute(
+            goal, args.root, num_beams=args.beams, db_path=args.db,
+            test_cmd=args.test_cmd, language=args.language,
+        )
     print(json.dumps(result, indent=2))

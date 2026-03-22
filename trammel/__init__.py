@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+from concurrent.futures import ProcessPoolExecutor
 from importlib.metadata import PackageNotFoundError, version as _meta_version
 from typing import Any
 
-from .analyzers import GoAnalyzer, PythonAnalyzer, RustAnalyzer, TypeScriptAnalyzer, detect_language
+from .analyzers import (
+    CppAnalyzer, GoAnalyzer, JavaAnalyzer, PythonAnalyzer,
+    RustAnalyzer, TypeScriptAnalyzer, detect_language,
+)
 from .core import Planner, get_strategies, register_strategy
 from .harness import ExecutionHarness
 from .store import RecipeStore
@@ -14,6 +20,33 @@ try:
     __version__ = _meta_version("trammel")
 except PackageNotFoundError:
     __version__ = "dev"
+
+
+def _run_beam(args: tuple[dict[str, Any], str, list[str] | None, str | None]) -> dict[str, Any]:
+    """Run a single beam in a subprocess (top-level for pickling)."""
+    beam, base_dir, test_cmd, analyzer_name = args
+    from .analyzers import get_analyzer as _get
+    a = _get(analyzer_name) if analyzer_name else None
+    h = ExecutionHarness(test_cmd=test_cmd, analyzer=a)
+    return h.run_from_base(beam.get("edits") or [], base_dir)
+
+
+def _run_beams_parallel(
+    beams: list[dict[str, Any]],
+    base_dir: str,
+    test_cmd: list[str] | None,
+    analyzer: object | None,
+) -> list[dict[str, Any]]:
+    """Run beams concurrently via ProcessPoolExecutor, with sequential fallback."""
+    analyzer_name = getattr(analyzer, "name", None)
+    args_list = [(b, base_dir, test_cmd, analyzer_name) for b in beams]
+    try:
+        workers = min(len(beams), os.cpu_count() or 4)
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(_run_beam, args_list))
+    except (OSError, RuntimeError):
+        # Fallback to sequential if process spawning fails
+        return [_run_beam(a) for a in args_list]
 
 
 def plan_and_execute(
@@ -38,9 +71,13 @@ def plan_and_execute(
         best: dict[str, Any] | None = None
         best_score = -1.0
 
-        for beam in beams:
-            edits = beam.get("edits") or []
-            outcome = harness.run(edits, project_root)
+        base_dir = harness.prepare_base(project_root)
+        try:
+            outcomes = _run_beams_parallel(beams, base_dir, test_cmd, analyzer)
+        finally:
+            shutil.rmtree(base_dir, ignore_errors=True)
+
+        for beam, outcome in zip(beams, outcomes):
             store.log_trajectory(
                 plan_id,
                 beam["beam_id"],
@@ -87,8 +124,10 @@ def synthesize(goal: str, strategy: dict[str, Any], db_path: str = "trammel.db")
 
 
 __all__ = [
+    "CppAnalyzer",
     "ExecutionHarness",
     "GoAnalyzer",
+    "JavaAnalyzer",
     "Planner",
     "PythonAnalyzer",
     "RecipeStore",

@@ -559,5 +559,24 @@ class TestNewMCPTools(unittest.TestCase):
             self.assertEqual(schema["name"], name)
 
 
+# ── CLI dry-run ──────────────────────────────────────────────────────────────
+
+class TestCLIDryRun(unittest.TestCase):
+    def test_dry_run_returns_explore_output(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            db = os.path.join(d, "dr.db")
+            result = subprocess.run(
+                [sys.executable, "-m", "trammel", "test goal",
+                 "--root", d, "--db", db, "--dry-run"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            import json
+            out = json.loads(result.stdout)
+            self.assertIn("strategy", out)
+            self.assertIn("beams", out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -289,6 +289,27 @@ class RecipeStore:
             })
         return result
 
+    def prune_recipes(self, max_age_days: int = 90, min_success_ratio: float = 0.1) -> int:
+        """Remove stale, low-quality recipes. Returns count of pruned recipes."""
+        cutoff = time.time() - (max_age_days * 86400)
+        candidates = self.conn.execute(
+            "SELECT sig, successes, failures FROM recipes WHERE updated < ?",
+            (cutoff,),
+        ).fetchall()
+        pruned: list[str] = []
+        for sig, succ, fail in candidates:
+            total = succ + fail
+            if total == 0 or (succ / total) < min_success_ratio:
+                pruned.append(sig)
+        if not pruned:
+            return 0
+        ph = ",".join("?" for _ in pruned)
+        with transaction(self.conn):
+            self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(pruned))
+            self.conn.execute(f"DELETE FROM recipe_files WHERE recipe_sig IN ({ph})", tuple(pruned))
+            self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(pruned))
+        return len(pruned)
+
     # ── Plans ────────────────────────────────────────────────────────────────
 
     def create_plan(self, goal: str, strategy: dict[str, Any]) -> int:
