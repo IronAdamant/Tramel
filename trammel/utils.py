@@ -116,13 +116,27 @@ def word_jaccard(a: str, b: str) -> float:
     return len(wa & wb) / len(wa | wb)
 
 
+def word_substring_score(a: str, b: str) -> float:
+    """Partial credit when words are substrings of each other."""
+    wa = a.lower().split()
+    wb = b.lower().split()
+    if not wa or not wb:
+        return 0.0
+    matches = sum(
+        1 for w_a in wa
+        if any(w_a in w_b or w_b in w_a for w_b in wb)
+    )
+    return matches / len(wa)
+
+
 def goal_similarity(a: str, b: str) -> float:
-    """Blended similarity: 40% trigram cosine + 60% word Jaccard on normalized text."""
+    """Blended similarity: trigram cosine + word Jaccard + substring on normalized text."""
     tri = trigram_bag_cosine(a, b)
     norm_a = normalize_goal(a)
     norm_b = normalize_goal(b)
     wj = word_jaccard(norm_a, norm_b)
-    return 0.4 * tri + 0.6 * wj
+    ws = word_substring_score(norm_a, norm_b)
+    return 0.3 * tri + 0.4 * wj + 0.3 * ws
 
 
 # ── Database ─────────────────────────────────────────────────────────────────

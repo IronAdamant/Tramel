@@ -5,7 +5,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version as _meta_version
 from typing import Any
 
-from .analyzers import PythonAnalyzer, TypeScriptAnalyzer, detect_language
+from .analyzers import GoAnalyzer, PythonAnalyzer, RustAnalyzer, TypeScriptAnalyzer, detect_language
 from .core import Planner, get_strategies, register_strategy
 from .harness import ExecutionHarness
 from .store import RecipeStore
@@ -88,9 +88,11 @@ def synthesize(goal: str, strategy: dict[str, Any], db_path: str = "trammel.db")
 
 __all__ = [
     "ExecutionHarness",
+    "GoAnalyzer",
     "Planner",
     "PythonAnalyzer",
     "RecipeStore",
+    "RustAnalyzer",
     "TypeScriptAnalyzer",
     "__version__",
     "detect_language",

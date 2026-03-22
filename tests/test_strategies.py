@@ -19,6 +19,7 @@ from trammel.core import (  # noqa: E402
     _order_critical_path,
     _order_minimal_change,
     _order_risk_first,
+    _order_top_down,
     get_strategies,
     register_strategy,
 )
@@ -255,6 +256,30 @@ class TestListStrategiesMCP(unittest.TestCase):
             self.assertEqual(len(result), 6)
             self.assertIn("successes", result[0])
             self.assertIn("failures", result[0])
+
+
+class TestEnhancedStrategies(unittest.TestCase):
+    def test_bottom_up_sorts_by_deps(self) -> None:
+        steps = [
+            {"file": "a.py"},
+            {"file": "b.py"},
+            {"file": "c.py"},
+        ]
+        dep_graph = {"b.py": ["a.py", "c.py"], "c.py": ["a.py"]}
+        ordered = _order_bottom_up(steps, dep_graph)
+        files = [s["file"] for s in ordered if s.get("status") != "skipped"]
+        self.assertEqual(files, ["a.py", "c.py", "b.py"])
+
+    def test_top_down_sorts_by_deps(self) -> None:
+        steps = [
+            {"file": "a.py"},
+            {"file": "b.py"},
+            {"file": "c.py"},
+        ]
+        dep_graph = {"b.py": ["a.py", "c.py"], "c.py": ["a.py"]}
+        ordered = _order_top_down(steps, dep_graph)
+        files = [s["file"] for s in ordered if s.get("status") != "skipped"]
+        self.assertEqual(files, ["b.py", "c.py", "a.py"])
 
 
 if __name__ == "__main__":

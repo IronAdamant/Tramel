@@ -154,6 +154,8 @@ Trammel auto-detects project language from file extensions. Override with the `l
 
 - `"python"` — AST-based analysis (functions, classes, imports)
 - `"typescript"` / `"javascript"` — Regex-based analysis (functions, classes, exports, imports/requires)
+- `"go"` — Regex-based analysis (functions, types, imports; reads `go.mod` for internal import resolution)
+- `"rust"` — Regex-based analysis (functions, structs, enums, traits; resolves `use crate::` and `mod` declarations)
 
 ## Key principles
 

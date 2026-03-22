@@ -13,7 +13,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel.analyzers import (  # noqa: E402
+    GoAnalyzer,
     PythonAnalyzer,
+    RustAnalyzer,
     TypeScriptAnalyzer,
     detect_language,
 )
@@ -313,6 +315,146 @@ class TestTsConfig(unittest.TestCase):
             pathlib.Path(d, "tsconfig.json").write_text("not json!", encoding="utf-8")
             graph = TypeScriptAnalyzer().analyze_imports(d)
             self.assertIn("main.ts", graph)
+
+
+# ── GoAnalyzer ────────────────────────────────────────────────────────────────
+
+class TestGoAnalyzer(unittest.TestCase):
+    def test_collect_symbols_go(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.go").write_text(
+                "package main\n\n"
+                "func Greet() {}\n\n"
+                "type Server struct {}\n",
+                encoding="utf-8",
+            )
+            analyzer = GoAnalyzer()
+            symbols = analyzer.collect_symbols(d)
+            self.assertIn("main.go", symbols)
+            self.assertIn("Greet", symbols["main.go"])
+            self.assertIn("Server", symbols["main.go"])
+
+    def test_analyze_imports_go(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "go.mod").write_text(
+                "module example.com/proj\n\ngo 1.21\n", encoding="utf-8",
+            )
+            pkg = pathlib.Path(d) / "pkg"
+            pkg.mkdir()
+            (pkg / "utils.go").write_text(
+                "package pkg\n\nfunc Helper() {}\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.go").write_text(
+                'package main\n\nimport "example.com/proj/pkg"\n\n'
+                "func main() { pkg.Helper() }\n",
+                encoding="utf-8",
+            )
+            analyzer = GoAnalyzer()
+            graph = analyzer.analyze_imports(d)
+            main_deps = graph.get("main.go", [])
+            self.assertTrue(
+                any("pkg" in dep for dep in main_deps),
+                f"Expected pkg dependency in main.go deps: {main_deps}",
+            )
+
+    def test_pick_test_cmd_go(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            analyzer = GoAnalyzer()
+            cmd = analyzer.pick_test_cmd(d)
+            self.assertEqual(cmd, ["go", "test", "./..."])
+
+    def test_error_patterns_go(self) -> None:
+        analyzer = GoAnalyzer()
+        patterns = analyzer.error_patterns()
+        markers = [p[0] for p in patterns]
+        self.assertIn("FAIL", markers)
+
+
+# ── RustAnalyzer ──────────────────────────────────────────────────────────────
+
+class TestRustAnalyzer(unittest.TestCase):
+    def test_collect_symbols_rust(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "lib.rs").write_text(
+                "fn greet() {}\n\n"
+                "pub struct Server {}\n\n"
+                "enum Color { Red, Green, Blue }\n",
+                encoding="utf-8",
+            )
+            analyzer = RustAnalyzer()
+            symbols = analyzer.collect_symbols(d)
+            self.assertIn("lib.rs", symbols)
+            self.assertIn("greet", symbols["lib.rs"])
+            self.assertIn("Server", symbols["lib.rs"])
+            self.assertIn("Color", symbols["lib.rs"])
+
+    def test_analyze_imports_rust(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "lib.rs").write_text(
+                "mod utils;\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "utils.rs").write_text(
+                "pub fn helper() {}\n", encoding="utf-8",
+            )
+            analyzer = RustAnalyzer()
+            graph = analyzer.analyze_imports(d)
+            lib_deps = graph.get("lib.rs", [])
+            self.assertTrue(
+                any("utils" in dep for dep in lib_deps),
+                f"Expected utils dependency in lib.rs deps: {lib_deps}",
+            )
+
+    def test_pick_test_cmd_rust(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            analyzer = RustAnalyzer()
+            cmd = analyzer.pick_test_cmd(d)
+            self.assertEqual(cmd, ["cargo", "test"])
+
+
+# ── TS Enhancements ──────────────────────────────────────────────────────────
+
+class TestTSEnhancements(unittest.TestCase):
+    def test_namespace_symbol(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "api.ts").write_text(
+                "export namespace API {\n"
+                "  export function getUser() { return null; }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            symbols = TypeScriptAnalyzer().collect_symbols(d)
+            self.assertIn("API", symbols.get("api.ts", []))
+
+    def test_commented_import_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "utils.ts").write_text(
+                "export function foo() { return 1; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.ts").write_text(
+                "// import { foo } from './utils'\n", encoding="utf-8",
+            )
+            graph = TypeScriptAnalyzer().analyze_imports(d)
+            self.assertNotIn("main.ts", graph)
+
+
+# ── Detection (expanded) ─────────────────────────────────────────────────────
+
+class TestDetectLanguageExpanded(unittest.TestCase):
+    def test_go_project(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.go").write_text("", encoding="utf-8")
+            pathlib.Path(d, "server.go").write_text("", encoding="utf-8")
+            pathlib.Path(d, "handler.go").write_text("", encoding="utf-8")
+            analyzer = detect_language(d)
+            self.assertEqual(analyzer.name, "go")
+
+    def test_rust_project(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.rs").write_text("", encoding="utf-8")
+            pathlib.Path(d, "lib.rs").write_text("", encoding="utf-8")
+            pathlib.Path(d, "utils.rs").write_text("", encoding="utf-8")
+            analyzer = detect_language(d)
+            self.assertEqual(analyzer.name, "rust")
 
 
 if __name__ == "__main__":

@@ -85,7 +85,7 @@ Configure in `.claude/.mcp.json`:
 
 Trammel treats planning as a structured search problem:
 
-1. **Decompose** -- Analyze project imports (Python AST or TypeScript regex), build dependency graph, topological sort, generate steps with ordering rationale
+1. **Decompose** -- Analyze project imports (Python AST; TypeScript, Go, Rust regex), build dependency graph, topological sort, generate steps with ordering rationale
 2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`, `critical_path`, `cohesion`, `minimal_change`)
 3. **Verify** -- Run edits in isolated temp copies, per-step or full-run; extract structured failure analysis on failure
 4. **Constrain** -- Propagate failure reasons as persistent constraints that block repetition across sessions
@@ -96,7 +96,7 @@ Trammel treats planning as a structured search problem:
 ```
 trammel/              Importable package
   __init__.py         plan_and_execute, explore, synthesize, __version__
-  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer (expanded), detect_language
+  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, GoAnalyzer, RustAnalyzer, detect_language
   core.py             Planner: import analysis, toposort, beam strategies
   harness.py          ExecutionHarness: temp copy, edits, test runner
   store.py            RecipeStore: SQLite persistence (7 tables)
@@ -104,7 +104,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point
   mcp_server.py       MCP tool schemas and dispatch (17 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (129 tests, 4 files)
+tests/                stdlib unittest (146 tests, 4 files)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -144,6 +144,16 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.4.0
+
+- **Go and Rust support**: New `GoAnalyzer` (regex-based, reads `go.mod` for module path, resolves internal imports) and `RustAnalyzer` (regex-based, resolves `use crate::` and `mod` declarations). Shared `_collect_symbols_regex` helper for regex-based analyzers. `detect_language` expanded to count `.go`/`.rs` files. Registry now supports 5 languages.
+- **TypeScript enhancements**: `_strip_js_comments` for comment stripping before symbol/import detection. Namespace pattern added to `_TS_SYMBOL_PATTERNS`.
+- **Improved beam strategies**: `_order_bottom_up` stable-sorts by ascending dependency count (files with fewer deps first). `_order_top_down` stable-sorts by descending dependency count (most consumer-facing files first). Both now genuinely use the `dep_graph` parameter.
+- **Better recipe matching**: New `word_substring_score(a, b)` for partial word matching. `goal_similarity` reweighted: 0.3 trigram cosine + 0.4 word Jaccard + 0.3 substring (was 0.4/0.6).
+- **Store improvements**: Merged duplicated SQL branches in `save_recipe`, `list_plans`, `get_active_constraints`. Composite scoring gains recency weighting (30-day half-life). New weights: text 0.4, files 0.25, success 0.15, recency 0.2. File trimmed from 534 to 516 lines.
+- **MCP server refactor**: `_schema()` and `_prop()` helpers reduce from 507 to 255 lines. Added "go" and "rust" to language enums.
+- **146 tests** (17 new: 4 Go, 3 Rust, 2 TS enhancement, 2 detection, 2 strategy, 4 matching).
 
 ### 2.3.0
 

@@ -201,17 +201,19 @@ def _split_active_skipped(
 def _order_bottom_up(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
-    """Dependencies first, then dependents. Skipped steps at end."""
+    """Dependencies first, then dependents. Stable sort by dep count ascending."""
     active, skipped = _split_active_skipped(steps)
+    active.sort(key=lambda s: len(dep_graph.get(s.get("file", ""), [])))
     return active + skipped
 
 
 def _order_top_down(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
-    """Entry points and API surface first, internals last. Skipped at end."""
+    """Entry points first (most dependencies), internals last. Skipped at end."""
     active, skipped = _split_active_skipped(steps)
-    return list(reversed(active)) + skipped
+    active.sort(key=lambda s: len(dep_graph.get(s.get("file", ""), [])), reverse=True)
+    return active + skipped
 
 
 def _order_risk_first(

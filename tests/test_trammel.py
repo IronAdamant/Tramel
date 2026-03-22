@@ -22,6 +22,7 @@ from trammel.utils import (  # noqa: E402
     trigram_bag_cosine,
     trigram_signature,
     word_jaccard,
+    word_substring_score,
 )
 
 
@@ -310,6 +311,31 @@ class TestPlanAndExecute(unittest.TestCase):
             synthesize("integration goal", strat, db_path=db)
             ex = explore("integration goal similar", d, num_beams=1, db_path=db)
             self.assertIn("steps", ex["strategy"])
+
+
+class TestEnhancedMatching(unittest.TestCase):
+    def test_word_substring_score_full(self) -> None:
+        self.assertAlmostEqual(word_substring_score("auth module", "auth module"), 1.0, places=5)
+
+    def test_word_substring_score_partial(self) -> None:
+        score = word_substring_score("auth", "authentication module")
+        self.assertGreater(score, 0.0)
+
+    def test_word_substring_score_disjoint(self) -> None:
+        self.assertAlmostEqual(word_substring_score("abc", "xyz"), 0.0, places=5)
+
+    def test_goal_similarity_substring_boost(self) -> None:
+        # "auth" is a substring of "authentication", so word_substring_score
+        # contributes positively; the blended similarity should exceed what
+        # we'd get from trigram + word_jaccard alone (i.e. with ws=0).
+        sim = goal_similarity("auth migration", "authentication migration")
+        tri = trigram_bag_cosine("auth migration", "authentication migration")
+        wj = word_jaccard(
+            normalize_goal("auth migration"),
+            normalize_goal("authentication migration"),
+        )
+        no_substr = 0.3 * tri + 0.4 * wj
+        self.assertGreater(sim, no_substr)
 
 
 if __name__ == "__main__":

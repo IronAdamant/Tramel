@@ -7,9 +7,50 @@ import json
 import os
 import re
 import sys
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from .utils import _ERROR_PATTERNS, _is_ignored_dir
+
+
+def _collect_symbols_regex(
+    project_root: str,
+    extensions: tuple[str, ...],
+    patterns: list[re.Pattern[str]],
+    preprocess: Callable[[str], str] | None = None,
+) -> dict[str, list[str]]:
+    """Shared symbol collection for regex-based analyzers."""
+    symbols: dict[str, list[str]] = {}
+    for root, dirs, files in os.walk(project_root):
+        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+        for fname in files:
+            if not any(fname.endswith(ext) for ext in extensions):
+                continue
+            path = os.path.join(root, fname)
+            rel = os.path.relpath(path, project_root)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fp:
+                    src = fp.read()
+            except OSError:
+                continue
+            if preprocess:
+                src = preprocess(src)
+            names: list[str] = []
+            for pat in patterns:
+                for m in pat.finditer(src):
+                    name = m.group(1)
+                    if name and name not in names:
+                        names.append(name)
+            if names:
+                symbols[rel] = names
+    return symbols
+
+
+_JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
+
+
+def _strip_js_comments(src: str) -> str:
+    """Remove JS/TS line and block comments."""
+    return _JS_COMMENT_RE.sub("", src)
 
 
 class LanguageAnalyzer(Protocol):
@@ -143,6 +184,8 @@ _TS_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\("),
     # function expression assignment
     re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function"),
+    # namespace
+    re.compile(r"(?:^|\n)\s*(?:export\s+)?namespace\s+(\w+)"),
 ]
 
 # Relative imports (start with .)
@@ -171,28 +214,9 @@ class TypeScriptAnalyzer:
     extensions = _TS_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        symbols: dict[str, list[str]] = {}
-        for root, dirs, files in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in files:
-                if not any(fname.endswith(ext) for ext in _TS_EXTENSIONS):
-                    continue
-                path = os.path.join(root, fname)
-                rel = os.path.relpath(path, project_root)
-                try:
-                    with open(path, encoding="utf-8", errors="replace") as fp:
-                        src = fp.read()
-                except OSError:
-                    continue
-                names: list[str] = []
-                for pat in _TS_SYMBOL_PATTERNS:
-                    for m in pat.finditer(src):
-                        name = m.group(1)
-                        if name and name not in names:
-                            names.append(name)
-                if names:
-                    symbols[rel] = names
-        return symbols
+        return _collect_symbols_regex(
+            project_root, _TS_EXTENSIONS, _TS_SYMBOL_PATTERNS, _strip_js_comments,
+        )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = self._collect_files(project_root)
@@ -203,7 +227,7 @@ class TypeScriptAnalyzer:
             path = os.path.join(project_root, rel)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
+                    src = _strip_js_comments(fp.read())
             except OSError:
                 continue
 
@@ -331,12 +355,184 @@ class TypeScriptAnalyzer:
         return None
 
 
+# ── Go ────────────────────────────────────────────────────────────────────────
+
+_GO_EXTENSIONS = (".go",)
+
+_GO_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"(?:^|\n)\s*func\s+(?:\([^)]+\)\s+)?(\w+)"),
+    re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+"),
+    re.compile(r"(?:^|\n)\s*(?:var|const)\s+(\w+)\s"),
+]
+
+_GO_IMPORT_SINGLE_RE = re.compile(r'import\s+"([^"]+)"')
+_GO_IMPORT_BLOCK_RE = re.compile(r"import\s*\((.*?)\)", re.DOTALL)
+_GO_IMPORT_LINE_RE = re.compile(r'"([^"]+)"')
+_GO_MOD_RE = re.compile(r"module\s+(\S+)")
+
+
+class GoAnalyzer:
+    """Go code analysis via regex (stdlib-only)."""
+
+    name = "go"
+    extensions = _GO_EXTENSIONS
+
+    def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
+        return _collect_symbols_regex(project_root, _GO_EXTENSIONS, _GO_SYMBOL_PATTERNS)
+
+    def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
+        module_path = self._read_go_mod(project_root)
+        if not module_path:
+            return {}
+        prefix = module_path + "/"
+        dir_files: dict[str, list[str]] = {}
+        for root, dirs, files in os.walk(project_root):
+            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+            go_files = [f for f in files if f.endswith(".go") and not f.endswith("_test.go")]
+            if go_files:
+                rel_dir = os.path.relpath(root, project_root)
+                if rel_dir == ".":
+                    rel_dir = ""
+                dir_files[rel_dir] = [
+                    os.path.relpath(os.path.join(root, f), project_root) for f in go_files
+                ]
+        graph: dict[str, list[str]] = {}
+        for root, dirs, files in os.walk(project_root):
+            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+            for fname in files:
+                if not fname.endswith(".go"):
+                    continue
+                path = os.path.join(root, fname)
+                rel = os.path.relpath(path, project_root)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fp:
+                        src = fp.read()
+                except OSError:
+                    continue
+                deps: set[str] = set()
+                for imp in self._extract_imports(src):
+                    if not imp.startswith(prefix):
+                        continue
+                    rel_pkg = imp[len(prefix):]
+                    for dep_file in dir_files.get(rel_pkg, []):
+                        if dep_file != rel:
+                            deps.add(dep_file)
+                if deps:
+                    graph[rel] = sorted(deps)
+        return graph
+
+    def pick_test_cmd(self, project_root: str) -> list[str]:
+        return ["go", "test", "./..."]
+
+    def error_patterns(self) -> list[tuple[str, str, str]]:
+        return [
+            ("cannot find package", "import_error", "Check import paths"),
+            ("undefined:", "name_error", "Check that names are defined"),
+            ("syntax error", "syntax_error", "Fix Go syntax"),
+            ("FAIL", "test_failure", "One or more tests failed"),
+        ]
+
+    @staticmethod
+    def _read_go_mod(project_root: str) -> str | None:
+        go_mod = os.path.join(project_root, "go.mod")
+        if not os.path.isfile(go_mod):
+            return None
+        try:
+            with open(go_mod, encoding="utf-8") as fp:
+                m = _GO_MOD_RE.search(fp.read())
+                return m.group(1) if m else None
+        except OSError:
+            return None
+
+    @staticmethod
+    def _extract_imports(src: str) -> list[str]:
+        imports: list[str] = []
+        for m in _GO_IMPORT_SINGLE_RE.finditer(src):
+            imports.append(m.group(1))
+        for block in _GO_IMPORT_BLOCK_RE.finditer(src):
+            for m in _GO_IMPORT_LINE_RE.finditer(block.group(1)):
+                imports.append(m.group(1))
+        return imports
+
+
+# ── Rust ──────────────────────────────────────────────────────────────────────
+
+_RUST_EXTENSIONS = (".rs",)
+
+_RUST_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)"),
+    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)"),
+    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)"),
+    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?trait\s+(\w+)"),
+    re.compile(r"(?:^|\n)\s*impl(?:<[^>]*>)?\s+(\w+)"),
+    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)"),
+]
+
+
+class RustAnalyzer:
+    """Rust code analysis via regex (stdlib-only)."""
+
+    name = "rust"
+    extensions = _RUST_EXTENSIONS
+
+    def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
+        return _collect_symbols_regex(project_root, _RUST_EXTENSIONS, _RUST_SYMBOL_PATTERNS)
+
+    def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
+        file_set: set[str] = set()
+        for root, dirs, files in os.walk(project_root):
+            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+            for fname in files:
+                if fname.endswith(".rs"):
+                    file_set.add(os.path.relpath(os.path.join(root, fname), project_root))
+        graph: dict[str, list[str]] = {}
+        for rel in file_set:
+            path = os.path.join(project_root, rel)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fp:
+                    src = fp.read()
+            except OSError:
+                continue
+            deps: set[str] = set()
+            for m in re.finditer(r"use\s+crate::(\w+(?:::\w+)*)", src):
+                mod_path = m.group(1).split("::")[0]
+                for candidate in (mod_path + ".rs", os.path.join(mod_path, "mod.rs")):
+                    if candidate in file_set and candidate != rel:
+                        deps.add(candidate)
+            file_dir = os.path.dirname(rel)
+            for m in re.finditer(r"(?:^|\n)\s*mod\s+(\w+)\s*;", src):
+                mod_name = m.group(1)
+                base = file_dir if file_dir else ""
+                for candidate in (
+                    os.path.join(base, mod_name + ".rs") if base else mod_name + ".rs",
+                    os.path.join(base, mod_name, "mod.rs") if base else os.path.join(mod_name, "mod.rs"),
+                ):
+                    if candidate in file_set and candidate != rel:
+                        deps.add(candidate)
+            if deps:
+                graph[rel] = sorted(deps)
+        return graph
+
+    def pick_test_cmd(self, project_root: str) -> list[str]:
+        return ["cargo", "test"]
+
+    def error_patterns(self) -> list[tuple[str, str, str]]:
+        return [
+            ("cannot find", "import_error", "Check use/mod paths"),
+            ("expected", "syntax_error", "Fix Rust syntax"),
+            ("test result: FAILED", "test_failure", "One or more tests failed"),
+            ("error[E", "compile_error", "Check compiler error code"),
+        ]
+
+
 # ── Registry + detection ─────────────────────────────────────────────────────
 
 _ANALYZER_REGISTRY: dict[str, type] = {
     "python": PythonAnalyzer,
     "typescript": TypeScriptAnalyzer,
     "javascript": TypeScriptAnalyzer,
+    "go": GoAnalyzer,
+    "rust": RustAnalyzer,
 }
 
 
@@ -348,15 +544,19 @@ def get_analyzer(name: str) -> LanguageAnalyzer:
 
 def detect_language(project_root: str) -> LanguageAnalyzer:
     """Auto-detect dominant language by counting file extensions."""
-    py_count = 0
-    ts_count = 0
+    counts: dict[str, int] = {"python": 0, "typescript": 0, "go": 0, "rust": 0}
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for fname in files:
             if fname.endswith(".py"):
-                py_count += 1
+                counts["python"] += 1
             elif any(fname.endswith(ext) for ext in _TS_EXTENSIONS):
-                ts_count += 1
-    if ts_count > py_count:
-        return TypeScriptAnalyzer()
-    return PythonAnalyzer()
+                counts["typescript"] += 1
+            elif fname.endswith(".go"):
+                counts["go"] += 1
+            elif fname.endswith(".rs"):
+                counts["rust"] += 1
+    best = max(counts, key=lambda k: counts[k])
+    if counts[best] == 0:
+        return PythonAnalyzer()
+    return get_analyzer(best)

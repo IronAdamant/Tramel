@@ -163,28 +163,18 @@ class RecipeStore:
         strat_json = dumps_json(strategy)
         const_json = dumps_json(constraints or [])
         now = time.time()
+        col = "successes" if outcome else "failures"
+        extra = ", constraints = excluded.constraints" if outcome else ""
         with transaction(self.conn):
-            if outcome:
-                self.conn.execute(
-                    """INSERT INTO recipes (sig, pattern, strategy, constraints, successes, created, updated)
-                       VALUES (?, ?, ?, ?, 1, ?, ?)
-                       ON CONFLICT(sig) DO UPDATE SET
-                           successes = recipes.successes + 1,
-                           pattern = excluded.pattern,
-                           constraints = excluded.constraints,
-                           updated = excluded.updated""",
-                    (sig, pattern, strat_json, const_json, now, now),
-                )
-            else:
-                self.conn.execute(
-                    """INSERT INTO recipes (sig, pattern, strategy, constraints, failures, created, updated)
-                       VALUES (?, ?, ?, ?, 1, ?, ?)
-                       ON CONFLICT(sig) DO UPDATE SET
-                           failures = recipes.failures + 1,
-                           pattern = excluded.pattern,
-                           updated = excluded.updated""",
-                    (sig, pattern, strat_json, const_json, now, now),
-                )
+            self.conn.execute(
+                f"""INSERT INTO recipes (sig, pattern, strategy, constraints, {col}, created, updated)
+                    VALUES (?, ?, ?, ?, 1, ?, ?)
+                    ON CONFLICT(sig) DO UPDATE SET
+                        {col} = recipes.{col} + 1,
+                        pattern = excluded.pattern{extra},
+                        updated = excluded.updated""",
+                (sig, pattern, strat_json, const_json, now, now),
+            )
             self.conn.execute(
                 "DELETE FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
             )
@@ -205,9 +195,11 @@ class RecipeStore:
                     [(sig, f) for f in files],
                 )
 
-    _W_TEXT = 0.5
-    _W_FILES = 0.3
-    _W_SUCCESS = 0.2
+    _W_TEXT = 0.4
+    _W_FILES = 0.25
+    _W_SUCCESS = 0.15
+    _W_RECENCY = 0.2
+    _RECENCY_HALF_LIFE = 30 * 86400  # 30 days in seconds
 
     def retrieve_best_recipe(
         self,
@@ -229,40 +221,40 @@ class RecipeStore:
         sig_tuple = tuple(row[0] for row in candidate_sigs)
         sig_ph = ",".join("?" for _ in sig_tuple)
         cur = self.conn.execute(
-            f"SELECT sig, pattern, strategy, successes, failures FROM recipes "
+            f"SELECT sig, pattern, strategy, successes, failures, updated FROM recipes "
             f"WHERE sig IN ({sig_ph})",
             sig_tuple,
         )
         best: dict[str, Any] | None = None
         best_score = -1.0
-        for sig, pattern, strategy_str, succ, fail in cur:
+        now = time.time()
+        for sig, pattern, strategy_str, succ, fail, updated in cur:
             text_sim = goal_similarity(goal, pattern)
             if text_sim < min_similarity:
                 continue
 
             if context_files is not None:
-                # Composite scoring
+                # Composite scoring with file overlap, success ratio, recency
                 recipe_file_rows = self.conn.execute(
                     "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
                 ).fetchall()
                 recipe_files = {r[0] for r in recipe_file_rows}
                 if recipe_files and context_files:
-                    intersection = context_files & recipe_files
-                    union = context_files | recipe_files
-                    file_overlap = len(intersection) / len(union)
+                    file_overlap = len(context_files & recipe_files) / len(context_files | recipe_files)
                 else:
                     file_overlap = 0.0
 
                 total = succ + fail
                 success_ratio = succ / total if total > 0 else 0.5
+                recency = 0.5 ** ((now - updated) / self._RECENCY_HALF_LIFE)
 
                 score = (
                     self._W_TEXT * text_sim
                     + self._W_FILES * file_overlap
                     + self._W_SUCCESS * success_ratio
+                    + self._W_RECENCY * recency
                 )
             else:
-                # Backward-compatible text-only scoring
                 score = text_sim
 
             if score > best_score:
@@ -369,17 +361,13 @@ class RecipeStore:
             )
 
     def list_plans(self, status: str | None = None) -> list[dict[str, Any]]:
+        query = ("SELECT id, goal, status, current_step, total_steps, created, updated "
+                 "FROM plans")
+        params: tuple[str, ...] = ()
         if status:
-            rows = self.conn.execute(
-                "SELECT id, goal, status, current_step, total_steps, created, updated "
-                "FROM plans WHERE status = ? ORDER BY id DESC",
-                (status,),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT id, goal, status, current_step, total_steps, created, updated "
-                "FROM plans ORDER BY id DESC"
-            ).fetchall()
+            query += " WHERE status = ?"
+            params = (status,)
+        rows = self.conn.execute(query + " ORDER BY id DESC", params).fetchall()
         return [
             {
                 "id": r[0], "goal": r[1], "status": r[2],
@@ -455,17 +443,13 @@ class RecipeStore:
     def get_active_constraints(
         self, constraint_type: str | None = None
     ) -> list[dict[str, Any]]:
+        query = ("SELECT id, plan_id, step_id, constraint_type, description, context, created "
+                 "FROM constraints WHERE active = 1")
+        params: tuple[str, ...] = ()
         if constraint_type:
-            rows = self.conn.execute(
-                "SELECT id, plan_id, step_id, constraint_type, description, context, created "
-                "FROM constraints WHERE active = 1 AND constraint_type = ?",
-                (constraint_type,),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT id, plan_id, step_id, constraint_type, description, context, created "
-                "FROM constraints WHERE active = 1"
-            ).fetchall()
+            query += " AND constraint_type = ?"
+            params = (constraint_type,)
+        rows = self.conn.execute(query, params).fetchall()
         return [
             {
                 "id": r[0], "plan_id": r[1], "step_id": r[2], "type": r[3],
@@ -508,15 +492,13 @@ class RecipeStore:
         stats: dict[str, list[int]] = {}
         for variant, outcome_str in rows:
             pair = stats.setdefault(variant, [0, 0])
+            success = False
             try:
-                outcome = json.loads(outcome_str)
-                if outcome.get("success"):
-                    pair[0] += 1
-                else:
-                    pair[1] += 1
+                success = json.loads(outcome_str).get("success", False)
             except (json.JSONDecodeError, TypeError):
-                pair[1] += 1
-        return {k: (v[0], v[1]) for k, v in stats.items()}
+                pass
+            pair[0 if success else 1] += 1
+        return {k: tuple(v) for k, v in stats.items()}
 
     def get_trajectories(self, plan_id: int) -> list[dict[str, Any]]:
         rows = self.conn.execute(
