@@ -1,4 +1,4 @@
-"""Core tests for Forge: utils, store, harness, planner, public API."""
+"""Core tests for Trammel: utils, store, harness, planner, public API."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Extended Forge tests: edge cases, planner internals, MCP dispatch, incremental harness."""
+"""Extended Trammel tests: edge cases, planner internals, MCP dispatch, incremental harness."""
 
 from __future__ import annotations
 

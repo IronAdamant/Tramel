@@ -39,8 +39,8 @@
 
 | Path | Purpose |
 |------|---------|
-| `tests/test_forge.py` | Core: trigrams, toposort, import analysis, store, harness, plan_and_execute, explore |
-| `tests/test_forge_extra.py` | Edges: failure analysis, step updates, constraint filtering, beam variants, incremental harness, MCP dispatch, CLI |
+| `tests/test_trammel.py` | Core: trigrams, toposort, import analysis, store, harness, plan_and_execute, explore |
+| `tests/test_trammel_extra.py` | Edges: failure analysis, step updates, constraint filtering, beam variants, incremental harness, MCP dispatch, CLI |
 
 ## Data flow
 
