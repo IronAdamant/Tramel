@@ -254,15 +254,13 @@ def _order_test_adjacent(
 
     all_files = {s.get("file", "") for s in active}
 
+    all_basenames = {os.path.splitext(os.path.basename(f))[0] for f in all_files}
+
     def has_test(s: dict[str, Any]) -> int:
         f = s.get("file", "")
         base = os.path.splitext(os.path.basename(f))[0]
-        test_patterns = [f"test_{base}", f"{base}_test", f"{base}_spec"]
-        for af in all_files:
-            af_base = os.path.splitext(os.path.basename(af))[0]
-            if af_base in test_patterns:
-                return 1
-        return 0
+        test_names = {f"test_{base}", f"{base}_test", f"{base}_spec"}
+        return 1 if test_names & all_basenames else 0
 
     active.sort(key=has_test, reverse=True)
     return active + skipped

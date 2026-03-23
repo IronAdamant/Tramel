@@ -164,7 +164,7 @@ class RecipeStoreMixin:
                     continue
                 best_score = score
                 best = candidate
-                if context_files is None and text_sim == 1.0:
+                if context_files is None and text_sim >= 0.9999:
                     break
 
         if best is not None:
@@ -180,20 +180,29 @@ class RecipeStoreMixin:
             "FROM recipes ORDER BY updated DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        result: list[dict[str, Any]] = []
-        for sig, pattern, succ, fail, updated in rows:
-            file_rows = self.conn.execute(
-                "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
-            ).fetchall()
-            result.append({
+        if not rows:
+            return []
+        # Batch-fetch all file paths for the returned recipes
+        sigs = [r[0] for r in rows]
+        ph = ",".join("?" for _ in sigs)
+        file_rows = self.conn.execute(
+            f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig IN ({ph})",
+            tuple(sigs),
+        ).fetchall()
+        sig_files: dict[str, list[str]] = {}
+        for sig, fpath in file_rows:
+            sig_files.setdefault(sig, []).append(fpath)
+        return [
+            {
                 "sig": sig[:12],
                 "pattern": pattern,
                 "successes": succ,
                 "failures": fail,
-                "files": [r[0] for r in file_rows],
+                "files": sig_files.get(sig, []),
                 "updated": updated,
-            })
-        return result
+            }
+            for sig, pattern, succ, fail, updated in rows
+        ]
 
     def prune_recipes(self, max_age_days: int = 90, min_success_ratio: float = 0.1) -> int:
         """Remove stale, low-quality recipes. Returns count of pruned recipes."""
@@ -247,7 +256,7 @@ class RecipeStoreMixin:
             ph = ",".join("?" for _ in invalidated)
             with transaction(self.conn):
                 self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(invalidated))
-                self.conn.execute(f"DELETE FROM recipe_files WHERE recipe_sig IN ({ph})", tuple(invalidated))
+                # recipe_files already deleted per-file above; clean up remaining entries
                 self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(invalidated))
         return {
             "recipes_checked": len(rows),

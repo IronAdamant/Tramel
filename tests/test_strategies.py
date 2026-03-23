@@ -148,7 +148,7 @@ class TestStrategyStats(unittest.TestCase):
             pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
             planner = Planner(store=store)
             strat = planner.decompose("task", d)
-            beams = planner.explore_trajectories(strat, num_beams=3, store=store)
+            beams = planner.explore_trajectories(strat, num_beams=3)
             # risk_first should come first (highest success rate)
             self.assertEqual(beams[0]["variant"], "risk_first")
 

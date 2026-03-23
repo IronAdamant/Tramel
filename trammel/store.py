@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 import time
 from typing import Any
 
@@ -26,12 +28,6 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
 
     def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> None:
         self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.conn.close()
-        except Exception:
-            pass
 
     _SCHEMA_RECIPE_TABLES = """
         CREATE TABLE IF NOT EXISTS recipes (
@@ -149,7 +145,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         for col, default in [("claimed_by TEXT", "NULL"), ("claimed_at REAL", "NULL")]:
             try:
                 self.conn.execute(f"ALTER TABLE steps ADD COLUMN {col} DEFAULT {default}")
-            except Exception:
+            except sqlite3.OperationalError:
                 pass  # column already exists
         self.conn.commit()
         self._rebuild_trigram_index()
@@ -214,7 +210,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         query = ("SELECT id, goal, status, current_step, total_steps, created, updated "
                  "FROM plans")
         params: tuple[str, ...] = ()
-        if status:
+        if status is not None:
             query += " WHERE status = ?"
             params = (status,)
         rows = self.conn.execute(query + " ORDER BY id DESC", params).fetchall()
@@ -377,7 +373,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             except (json.JSONDecodeError, TypeError):
                 success = False
             pair[0 if success else 1] += 1
-        return {k: tuple(v) for k, v in stats.items()}
+        return {k: (v[0], v[1]) for k, v in stats.items()}
 
     def get_trajectories(self, plan_id: int) -> list[dict[str, Any]]:
         rows = self.conn.execute(
@@ -433,8 +429,8 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         """Get failure patterns, optionally filtered by file. Sorted by frequency."""
         query = ("SELECT file_path, error_type, error_message, test_file, "
                  "occurrences, last_resolution, first_seen, last_seen FROM failure_patterns")
-        params: tuple = (limit,)
-        if file_path:
+        params: tuple[Any, ...] = (limit,)
+        if file_path is not None:
             query += " WHERE file_path = ?"
             params = (file_path, limit)
         rows = self.conn.execute(query + " ORDER BY occurrences DESC LIMIT ?", params).fetchall()
@@ -443,6 +439,25 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
              "occurrences": r[4], "last_resolution": r[5], "first_seen": r[6], "last_seen": r[7]}
             for r in rows
         ]
+
+    # ── Status summary ─────────────────────────────────────────────────────
+
+    def get_status_summary(self) -> dict[str, Any]:
+        """Return a summary of current state: recipe, plan, and constraint counts."""
+        recipes = self.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+        plans = self.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
+        active = self.conn.execute(
+            "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
+        ).fetchone()[0]
+        constraints = self.conn.execute(
+            "SELECT COUNT(*) FROM constraints WHERE active = 1"
+        ).fetchone()[0]
+        return {
+            "recipes": recipes,
+            "plans_total": plans,
+            "plans_active": active,
+            "constraints_active": constraints,
+        }
 
     # ── Telemetry ───────────────────────────────────────────────────────────
 
@@ -455,7 +470,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             )
             self.conn.commit()
         except Exception:
-            pass  # telemetry must never break core functionality
+            logging.getLogger(__name__).debug("telemetry write failed", exc_info=True)
 
     def get_usage_stats(self, days: int = 30) -> dict[str, Any]:
         """Aggregate usage telemetry over the given window."""

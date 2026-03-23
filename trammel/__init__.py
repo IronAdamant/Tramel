@@ -10,7 +10,7 @@ from typing import Any
 
 from .analyzers import (
     CppAnalyzer, GoAnalyzer, JavaAnalyzer, PythonAnalyzer,
-    RustAnalyzer, TypeScriptAnalyzer, detect_language,
+    RustAnalyzer, TypeScriptAnalyzer, detect_language, get_analyzer,
 )
 from .analyzers_ext2 import (
     CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
@@ -29,8 +29,7 @@ except PackageNotFoundError:
 def _run_beam(args: tuple[dict[str, Any], str, list[str] | None, str | None]) -> dict[str, Any]:
     """Run a single beam in a subprocess (top-level for pickling)."""
     beam, base_dir, test_cmd, analyzer_name = args
-    from .analyzers import get_analyzer as _get
-    a = _get(analyzer_name) if analyzer_name else None
+    a = get_analyzer(analyzer_name) if analyzer_name else None
     h = ExecutionHarness(test_cmd=test_cmd, analyzer=a)
     return h.run_from_base(beam.get("edits") or [], base_dir)
 
@@ -39,7 +38,7 @@ def _run_beams_parallel(
     beams: list[dict[str, Any]],
     base_dir: str,
     test_cmd: list[str] | None,
-    analyzer: object | None,
+    analyzer: Any,
 ) -> list[dict[str, Any]]:
     """Run beams concurrently via ProcessPoolExecutor, with sequential fallback."""
     analyzer_name = getattr(analyzer, "name", None)
@@ -63,7 +62,6 @@ def plan_and_execute(
     scope: str | None = None,
 ) -> dict[str, Any]:
     """Decompose goal, explore beam strategies, verify, and store recipe on success."""
-    from .analyzers import get_analyzer
     analyzer = get_analyzer(language) if language else None
     with RecipeStore(db_path) as store:
         planner = Planner(store=store, analyzer=analyzer)
@@ -71,7 +69,7 @@ def plan_and_execute(
         plan_id = store.create_plan(goal, strategy)
         store.update_plan_status(plan_id, "running")
 
-        beams = planner.explore_trajectories(strategy, num_beams=num_beams, store=store)
+        beams = planner.explore_trajectories(strategy, num_beams=num_beams)
         harness = ExecutionHarness(test_cmd=test_cmd, analyzer=analyzer)
         best: dict[str, Any] | None = None
         best_score = -1.0
@@ -114,12 +112,11 @@ def explore(
     scope: str | None = None,
 ) -> dict[str, Any]:
     """Return decomposition + beam variants without running the harness."""
-    from .analyzers import get_analyzer
     analyzer = get_analyzer(language) if language else None
     with RecipeStore(db_path) as store:
         planner = Planner(store=store, analyzer=analyzer)
         strategy = planner.decompose(goal, project_root, scope=scope)
-        beams = planner.explore_trajectories(strategy, num_beams=num_beams, store=store)
+        beams = planner.explore_trajectories(strategy, num_beams=num_beams)
         return {"strategy": strategy, "beams": beams}
 
 

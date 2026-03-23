@@ -13,15 +13,8 @@ from .utils import (
     _ERROR_PATTERNS, _collect_project_files, _collect_symbols_regex,
     _collect_typed_symbols_regex, _is_ignored_dir,
     _read_workspace_packages, _resolve_workspace_import,
+    _strip_c_comments,
 )
-
-
-_JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
-
-
-def _strip_js_comments(src: str) -> str:
-    """Remove JS/TS line and block comments."""
-    return _JS_COMMENT_RE.sub("", src)
 
 
 class LanguageAnalyzer(Protocol):
@@ -196,12 +189,12 @@ class TypeScriptAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _collect_symbols_regex(
-            project_root, _TS_EXTENSIONS, _TS_SYMBOL_PATTERNS, _strip_js_comments,
+            project_root, _TS_EXTENSIONS, _TS_SYMBOL_PATTERNS, _strip_c_comments,
         )
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
         return _collect_typed_symbols_regex(
-            project_root, _TS_EXTENSIONS, _TS_TYPED_PATTERNS, _strip_js_comments,
+            project_root, _TS_EXTENSIONS, _TS_TYPED_PATTERNS, _strip_c_comments,
         )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
@@ -214,7 +207,7 @@ class TypeScriptAnalyzer:
             path = os.path.join(project_root, rel)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = _strip_js_comments(fp.read())
+                    src = _strip_c_comments(fp.read())
             except OSError:
                 continue
 
@@ -356,7 +349,7 @@ from .analyzers_ext2 import (
     CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
 )
 
-_ANALYZER_REGISTRY: dict[str, type] = {
+_ANALYZER_REGISTRY: dict[str, type[LanguageAnalyzer]] = {
     "python": PythonAnalyzer,
     "typescript": TypeScriptAnalyzer,
     "javascript": TypeScriptAnalyzer,
@@ -437,35 +430,36 @@ def _detect_from_config(project_root: str) -> str | None:
     return None
 
 
+_LANG_EXTENSIONS: list[tuple[str, tuple[str, ...]]] = [
+    ("python", (".py",)),
+    ("typescript", _TS_EXTENSIONS),
+    ("go", (".go",)),
+    ("rust", (".rs",)),
+    ("cpp", CppAnalyzer.extensions),
+    ("java", JavaAnalyzer.extensions),
+    ("csharp", (".cs",)),
+    ("ruby", (".rb",)),
+    ("php", (".php",)),
+    ("swift", (".swift",)),
+    ("dart", (".dart",)),
+    ("zig", (".zig",)),
+]
+
+
 def detect_language(project_root: str) -> LanguageAnalyzer:
     """Auto-detect project language from config files, falling back to extension counting."""
     config_lang = _detect_from_config(project_root)
     if config_lang:
         return get_analyzer(config_lang)
-    # Map language -> extensions for file counting (use tuples for shared analyzers)
-    _LANG_EXTENSIONS: list[tuple[str, tuple[str, ...]]] = [
-        ("python", (".py",)),
-        ("typescript", _TS_EXTENSIONS),
-        ("go", (".go",)),
-        ("rust", (".rs",)),
-        ("cpp", CppAnalyzer.extensions),
-        ("java", JavaAnalyzer.extensions),
-        ("csharp", (".cs",)),
-        ("ruby", (".rb",)),
-        ("php", (".php",)),
-        ("swift", (".swift",)),
-        ("dart", (".dart",)),
-        ("zig", (".zig",)),
-    ]
     counts: dict[str, int] = {lang: 0 for lang, _ in _LANG_EXTENSIONS}
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for fname in files:
             for lang, exts in _LANG_EXTENSIONS:
-                if any(fname.endswith(ext) for ext in exts):
+                if fname.endswith(exts):
                     counts[lang] += 1
                     break
-    best = max(counts, key=counts.get)
+    best = max(counts, key=lambda k: counts[k])
     if counts[best] == 0:
         return PythonAnalyzer()
     return get_analyzer(best)

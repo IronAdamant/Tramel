@@ -62,6 +62,7 @@ class CSharpAnalyzer:
                         src = fp.read()
                 except OSError:
                     continue
+                src = _strip_c_comments(src)
                 file_sources[rel] = src
                 m = _CSHARP_NAMESPACE_RE.search(src)
                 if m:
@@ -139,6 +140,7 @@ class RubyAnalyzer:
                     src = fp.read()
             except OSError:
                 continue
+            src = _strip_hash_comments(src)
             deps: set[str] = set()
             for m in _RUBY_REQUIRE_RE.finditer(src):
                 req = m.group(1)
@@ -173,8 +175,8 @@ _PHP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*trait\s+(\w+)"), "trait"),
     (re.compile(r"(?:^|\n)\s*enum\s+(\w+)"), "enum"),
     (re.compile(r"(?:^|\n)\s*function\s+(\w+)"), "function"),
-    # Class methods (public/protected/private/static/abstract/final)
-    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|static|abstract|final)\s+)*function\s+(\w+)"), "method"),
+    # Class methods (require at least one access modifier to avoid duplicating the function pattern)
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|static|abstract|final)\s+)+function\s+(\w+)"), "method"),
 ]
 
 _PHP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _PHP_TYPED_PATTERNS]
@@ -211,6 +213,7 @@ class PhpAnalyzer:
                         src = fp.read()
                 except OSError:
                     continue
+                src = _strip_php_comments(src)
                 file_sources[rel] = src
                 m = _PHP_NAMESPACE_RE.search(src)
                 if m:
@@ -367,7 +370,7 @@ _DART_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*extension\s+(\w+)"), "extension"),
     (re.compile(r"(?:^|\n)\s*enum\s+(\w+)"), "enum"),
     (re.compile(r"(?:^|\n)\s*typedef\s+(\w+)"), "type_alias"),
-    (re.compile(r"(?:^|\n)\s*(?:[\w<>?]+\s+)?(\w+)\s*\([^)]*\)\s*(?:async\s*)?[{=]"), "function"),
+    (re.compile(r"(?:^|\n)\s*(?:[\w<>?]+\s+)?(?!if|else|for|while|do|switch|catch)(\w+)\s*\([^)]*\)\s*(?:async\s*)?[{=]"), "function"),
     # Factory and named constructors: factory ClassName.name(...) or ClassName.name(...)
     (re.compile(r"(?:^|\n)\s*(?:factory\s+)?(\w+\.\w+)\s*\("), "constructor"),
 ]
@@ -399,6 +402,7 @@ class DartAnalyzer:
                     src = fp.read()
             except OSError:
                 continue
+            src = _strip_c_comments(src)
             deps: set[str] = set()
             for m in _DART_IMPORT_RE.finditer(src):
                 import_path = m.group(1)
@@ -469,6 +473,7 @@ class ZigAnalyzer:
                     src = fp.read()
             except OSError:
                 continue
+            src = _strip_c_comments(src)
             deps: set[str] = set()
             for m in _ZIG_IMPORT_RE.finditer(src):
                 import_path = m.group(1)

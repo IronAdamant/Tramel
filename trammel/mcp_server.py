@@ -202,7 +202,7 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 
 # ── Dispatch handlers ────────────────────────────────────────────────────────
 
-def _get_analyzer(args: dict[str, Any]) -> object | None:
+def _get_analyzer(args: dict[str, Any]) -> Any:
     """Build a language analyzer from args, or None for auto-detection."""
     from .analyzers import get_analyzer
     lang = args.get("language")
@@ -218,9 +218,7 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
 def _handle_explore(store: RecipeStore, args: dict[str, Any]) -> Any:
     planner = Planner(store=store, analyzer=_get_analyzer(args))
     strategy = planner.decompose(args["goal"], args["project_root"], scope=args.get("scope"))
-    beams = planner.explore_trajectories(
-        strategy, num_beams=args.get("num_beams", 3), store=store,
-    )
+    beams = planner.explore_trajectories(strategy, num_beams=args.get("num_beams", 3))
     return {"strategy": strategy, "beams": beams}
 
 
@@ -302,21 +300,9 @@ def _handle_history(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_status(store: RecipeStore, args: dict[str, Any]) -> Any:
-    recipes = store.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
-    plans = store.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
-    active = store.conn.execute(
-        "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
-    ).fetchone()[0]
-    constraints = store.conn.execute(
-        "SELECT COUNT(*) FROM constraints WHERE active = 1"
-    ).fetchone()[0]
-    return {
-        "recipes": recipes,
-        "plans_total": plans,
-        "plans_active": active,
-        "constraints_active": constraints,
-        "tools": len(_TOOL_SCHEMAS),
-    }
+    summary = store.get_status_summary()
+    summary["tools"] = len(_TOOL_SCHEMAS)
+    return summary
 
 
 def _handle_list_strategies(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -340,16 +326,15 @@ def _handle_validate_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_estimate(store: RecipeStore, args: dict[str, Any]) -> Any:
-    from .analyzers import detect_language, get_analyzer
+    from .analyzers import detect_language
     from .utils import _collect_project_files
-    lang = args.get("language")
-    est_scope = args.get("scope")
-    analysis_root = os.path.join(args["project_root"], est_scope) if est_scope else args["project_root"]
-    est_analyzer = get_analyzer(lang) if lang else detect_language(analysis_root)
-    files = _collect_project_files(analysis_root, est_analyzer.extensions)
+    scope = args.get("scope")
+    analysis_root = os.path.join(args["project_root"], scope) if scope else args["project_root"]
+    analyzer = _get_analyzer(args) or detect_language(analysis_root)
+    files = _collect_project_files(analysis_root, analyzer.extensions)
     return {
-        "language": est_analyzer.name,
-        "scope": est_scope,
+        "language": analyzer.name,
+        "scope": scope,
         "matching_files": len(files),
         "recommendation": "use scope" if len(files) > 5000 else "full analysis OK",
     }
@@ -417,6 +402,11 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "release_step": _handle_release_step,
     "available_steps": _handle_available_steps,
 }
+
+
+assert set(_TOOL_SCHEMAS) == set(_DISPATCH), (
+    f"Schema/dispatch mismatch: {set(_TOOL_SCHEMAS) ^ set(_DISPATCH)}"
+)
 
 
 def dispatch_tool(

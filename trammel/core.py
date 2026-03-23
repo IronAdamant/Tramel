@@ -61,7 +61,7 @@ def _generate_steps(
             "symbols": ["root"],
             "symbol_count": 1,
             "description": goal[:100],
-            "rationale": "No Python symbols found; treating as whole-project task",
+            "rationale": "No symbols found; treating as whole-project task",
             "depends_on": [],
         }]
 
@@ -71,7 +71,7 @@ def _generate_steps(
 def _step_rationale(dep_files: list[str], sym_names: list[str]) -> str:
     parts: list[str] = []
     if dep_files:
-        parts.append(f"imports from {', '.join(dep_files[:3])}")
+        parts.append(f"depends on {', '.join(dep_files[:3])}")
     parts.append(f"contains {len(sym_names)} symbol(s)")
     return "; ".join(parts)
 
@@ -250,9 +250,23 @@ class Planner:
         t4 = _time.monotonic()
 
         lang_name = getattr(analyzer, "name", "unknown")
-        warning = None
+
+        analysis_meta: dict[str, Any] = {
+            "language": lang_name,
+            "scope": scope,
+            "files_analyzed": len(symbols),
+            "dep_files": len(relevant_graph),
+            "dep_edges": sum(len(v) for v in relevant_graph.values()),
+            "timing_s": {
+                "symbols": round(t2 - t1, 3),
+                "imports": round(t3 - t2, 3),
+                "total": round(t4 - t0, 3),
+            },
+        }
         if lang_name not in _SUPPORTED_LANGUAGES:
-            warning = f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
+            analysis_meta["warning"] = (
+                f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
+            )
 
         return {
             "goal": goal,
@@ -261,26 +275,13 @@ class Planner:
             "constraints": [c["description"] for c in active_constraints],
             "constraints_applied": [c["description"] for c in applied],
             "goal_fingerprint": trigram_signature(goal)[:8],
-            "analysis_meta": {
-                "language": lang_name,
-                "scope": scope,
-                "files_analyzed": len(symbols),
-                "dep_files": len(relevant_graph),
-                "dep_edges": sum(len(v) for v in relevant_graph.values()),
-                "timing_s": {
-                    "symbols": round(t2 - t1, 3),
-                    "imports": round(t3 - t2, 3),
-                    "total": round(t4 - t0, 3),
-                },
-                "warning": warning,
-            },
+            "analysis_meta": analysis_meta,
         }
 
     def explore_trajectories(
         self,
         strategy: dict[str, Any],
         num_beams: int = 3,
-        store: RecipeStore | None = None,
     ) -> list[dict[str, Any]]:
         n = _default_beam_count(num_beams)
         steps = strategy.get("steps", [])
@@ -289,9 +290,9 @@ class Planner:
         # Build ordered variants from registry
         entries = list(_STRATEGY_REGISTRY.values())
 
-        # If store available, sort strategies by historical success rate
-        if store is not None:
-            stats = store.get_strategy_stats()
+        # Sort strategies by historical success rate
+        if self.store is not None:
+            stats = self.store.get_strategy_stats()
             def _success_rate(entry: StrategyEntry) -> float:
                 pair = stats.get(entry.name)
                 if pair is None:

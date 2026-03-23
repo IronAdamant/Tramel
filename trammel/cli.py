@@ -32,7 +32,11 @@ def main() -> None:
         if sys.stdin.isatty():
             parser.print_help()
             sys.exit(2)
-        payload = json.load(sys.stdin)
+        try:
+            payload = json.load(sys.stdin)
+        except json.JSONDecodeError as exc:
+            print(f"Error: invalid JSON on stdin: {exc}", file=sys.stderr)
+            sys.exit(1)
         goal = str(payload.get("goal", ""))
     else:
         goal = args.goal

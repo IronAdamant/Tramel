@@ -13,6 +13,62 @@
 
 ## Session log
 
+---
+
+## v3.5.2 — Codebase cleanup & modernization
+
+**Date:** 2026-03-23
+
+### Summary
+Comprehensive codebase audit and cleanup: eliminated dead code, consolidated duplicated patterns, fixed bugs, modernized syntax, and improved type safety across all modules.
+
+### Changes
+
+#### Consolidation
+- Removed duplicate comment strippers: `_strip_js_comments` (analyzers.py) and `_strip_cpp_comments` (analyzers_ext.py) → all analyzers now use `_strip_c_comments` from utils
+- Removed redundant `store` parameter from `Planner.explore_trajectories()` — method now uses `self.store`
+- Consolidated `get_analyzer` imports in `__init__.py` — removed redundant lazy imports since module is already eagerly imported
+- `_handle_status` in mcp_server.py now delegates to `RecipeStore.get_status_summary()` instead of raw SQL queries
+- `_handle_estimate` in mcp_server.py now uses shared `_get_analyzer()` helper instead of inline import logic
+
+#### Bug Fixes
+- PHP `_PHP_TYPED_PATTERNS`: changed method modifier quantifier from `*` to `+` to prevent overlap with the function pattern
+- Dart `_DART_TYPED_PATTERNS`: added negative lookahead for control flow keywords (`if`, `for`, `while`, `do`, `switch`, `catch`) to prevent false positive function matches
+- `detect_language()`: fixed `max(counts, key=counts.get)` → `key=lambda k: counts[k]` for type safety
+- `store_recipes.py`: fixed float equality `text_sim == 1.0` → `text_sim >= 0.9999` for floating-point safety
+- `store.py`: fixed `list_plans` status filter from `if status:` to `if status is not None:` (empty string edge case)
+- `store.py`: fixed `get_failure_history` params type annotation from bare `tuple` to `tuple[Any, ...]`
+- `store.py`: fixed `get_strategy_stats` return — uses explicit `(v[0], v[1])` instead of `tuple(v)` for correct static typing
+- `core.py`: fixed hardcoded "No Python symbols" fallback message → "No symbols found"
+- `core.py`: changed "imports from" to "depends on" in step rationale (language-agnostic)
+- `core.py`: `analysis_meta["warning"]` now only included when non-None (less JSON noise)
+
+#### Consistency & Correctness
+- All regex-based analyzers now strip comments before `analyze_imports()`: Ruby (hash comments), C# (C-style), PHP (C + hash), Dart (C-style), Zig (C-style), Go (C-style in import extraction)
+- `str.endswith()` now uses native tuple form throughout `_collect_symbols_regex`, `_collect_typed_symbols_regex`, and `_collect_project_files`
+- Java `analyze_imports` also uses tuple form for extension check
+
+#### Infrastructure
+- Added module-load assertion `assert set(_TOOL_SCHEMAS) == set(_DISPATCH)` in mcp_server.py
+- `mcp_stdio.py`: moved `logging.basicConfig()` before server construction
+- `mcp_stdio.py`: fixed `call_tool` arguments type hint from bare `dict` to `dict[str, Any]`
+- `store.py`: removed unreliable `__del__` finalizer — `__exit__` via context manager handles cleanup
+- `store.py`: narrowed schema migration exception from `Exception` to `sqlite3.OperationalError`
+- `store.py`: `log_event` now logs debug message on failure instead of silent swallow
+- `store.py`: added `get_status_summary()` method
+- `cli.py`: added `json.JSONDecodeError` handling for stdin input
+- `__main__.py`: added `if __name__ == "__main__"` guard
+- `_ANALYZER_REGISTRY` type annotation tightened from `dict[str, type]` to `dict[str, type[LanguageAnalyzer]]`
+- `_LANG_EXTENSIONS` moved from function body to module level in analyzers.py
+
+#### Performance
+- `store_recipes.py` `list_recipes()`: batch-fetches recipe files in single query (N+1 fix)
+- `store_recipes.py` `validate_recipes()`: removed redundant DELETE for invalidated recipes
+- `strategies.py` `_order_test_adjacent()`: pre-computes basename set for O(1) lookup instead of O(steps × files)
+
+### Test impact
+- All 242 existing tests pass without modification (1 test updated to match new `explore_trajectories` signature)
+
 - **2026-03-23:** [FIX] Release **3.4.1**. Analyzer gap fixes for 5 languages. **C++ nested templates:** Replaced `[^>]*` with `(?:[^<>]|<[^<>]*>)*` in template patterns (`_CPP_TYPED_PATTERNS` class detection, `_CPP_SYMBOL_PATTERNS` template function). Handles 2 levels of nesting (`template<typename T, vector<int>>`). Same fix applied to Rust `impl<>` and Java/Kotlin `fun<>` generic patterns. **Rust imports:** `analyze_imports` now handles `use super::` (parent module), `use self::` (current module), and workspace crate imports. New `_resolve_rust_mod` helper. New `_read_cargo_crates` reads `Cargo.toml` `[workspace] members`, extracts crate names (with hyphen→underscore conversion and explicit name lookup from member Cargo.toml), maps to `src/` dirs. Comment stripping now applied to import source before regex matching. **PHP grouped use:** New `_PHP_USE_GROUP_RE` pattern matches `use Prefix\{A, B, C};`. `analyze_imports` expands grouped uses by combining prefix with each item, then resolves all paths uniformly. **Swift SPM:** New `SwiftAnalyzer._build_module_map` detects `Sources/<Module>/` and `Tests/<Module>/` directories. For SPM projects, module names map to their directory's files. Falls back to parent-directory mapping for non-SPM. Comment stripping added to import source. **TypeScript workspaces:** New `_read_workspace_packages` in `utils.py` reads `package.json` workspaces (npm array, yarn `{packages:[]}`, simple `dir/*` glob expansion), discovers workspace packages by reading each `package.json` name. New `_resolve_workspace_import` resolves bare imports to workspace package entry points (`src/index.*` or `index.*`), handles scoped packages (`@scope/pkg/sub`). `TypeScriptAnalyzer.analyze_imports` now checks workspace packages for non-relative imports after alias resolution. All 242 tests pass (unchanged). All docs updated.
 - **2026-03-23:** [FEATURE] Release **3.4.0**. Usage telemetry, dispatch refactor, analyzer improvements. **Telemetry:** New `usage_events` SQLite table (8 tables total) with `log_event(event_type, detail, value)` and `get_usage_stats(days=30)` methods on `RecipeStore`. All `dispatch_tool` calls logged as `tool_call` events. `retrieve_best_recipe` logs `recipe_hit` (with score) and `recipe_miss` events. `get_usage_stats` aggregates tool call counts, recipe hit/miss rates (with average hit score), and strategy win rates from trajectories. New `usage_stats` MCP tool (22 tools total). Telemetry uses fire-and-forget pattern with `try/except pass` to never break core functionality. **Dispatch refactor:** Replaced 153-line `match/case` statement in `mcp_server.py` with dispatch-dict pattern. 22 individual `_handle_*` functions at module level, looked up via `_DISPATCH: dict[str, Callable]`. Shared `_get_analyzer(args)` helper extracts analyzer creation from dispatch. `dispatch_tool` is now 6 lines: lookup handler, log event, call handler. Adding new tools requires only: handler function + schema entry + dict entry. **Analyzer improvements:** PHP class method detection added — new pattern `(?:(?:public|protected|private|static|abstract|final)\s+)*function\s+(\w+)` with type label "method" (was major gap). Java 16+ `record` keyword added to `_JAVA_TYPED_PATTERNS` with type label "record". Dart factory/named constructor detection added — pattern `(?:factory\s+)?(\w+\.\w+)\s*\(` with type label "constructor". **Comment stripping for 7 languages:** Added shared `_strip_c_comments` (Go, Rust, Java, C#, Swift, Dart, Zig), `_strip_hash_comments` (Ruby), `_strip_php_comments` (PHP) in `utils.py`. All regex-based analyzers now preprocess source through comment strippers before symbol detection, eliminating false matches from commented-out code. **5 new sample repos:** Jekyll (Ruby), Flame (Dart), ZLS (Zig), Laravel (PHP), Ktor (Kotlin) cloned to `sample_file_test/` — brings total to 26 sample repos covering all 15 supported languages. All 242 tests pass (unchanged). All docs updated.
 - **2026-03-23:** [CLEANUP] Release **3.3.1**. Comprehensive codebase audit and module extraction. **Strategy extraction:** Beam strategy registry and 9 built-in orderings extracted from `core.py` into new `strategies.py` (~280 LOC). `core.py` reduced from 595 to 324 LOC. `__init__.py` and `mcp_server.py` imports updated. Test imports in `test_strategies.py` updated. **Circular dependency elimination:** Moved shared `_collect_symbols_regex` and `_collect_typed_symbols_regex` helper functions from `analyzers.py` to `utils.py`. Removed `functools.cache` lazy-import wrappers from `analyzers_ext.py` (12 lines) and `analyzers_ext2.py` (12 lines), replaced with direct `from .utils import` statements. Also removed `functools` and `Callable` imports (no longer needed in ext files). **Regex deduplication:** Derived `_*_SYMBOL_PATTERNS` from `_*_TYPED_PATTERNS` via `[p for p, _ in _*_TYPED_PATTERNS]` for 8 languages where patterns were identical: TypeScript, Rust, Java, C#, Ruby, PHP, Swift, Dart. Go and Zig kept separate (different pattern structures). C++ uses `[p for p, _ in _CPP_TYPED_PATTERNS] + [extra patterns]` for the additional C++-specific patterns. Net ~70 lines of duplicated regex definitions eliminated. **Python AST deduplication:** Extracted `PythonAnalyzer._iter_ast()` static generator method yielding `(rel_path, ast_tree)` tuples. Both `collect_symbols` and `collect_typed_symbols` now use it, eliminating ~20 lines of duplicated file-walking and AST-parsing code. `_PY_AST_TYPES` and `_PY_TYPE_MAP` promoted to module-level constants. **Import ordering:** Fixed stdlib import ordering in `store_recipes.py` (`import os` moved from after local imports to correct position between `import json` and `import time`). **All files now under 500 LOC:** `analyzers.py` 559→463, `core.py` 595→324, `analyzers_ext.py` 478→438, `analyzers_ext2.py` 490→445. **Total source:** 3,876→3,771 LOC (105 lines net reduction). All 242 tests pass (unchanged). All docs updated.

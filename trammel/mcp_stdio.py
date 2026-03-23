@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import sys
+from typing import Any
 
 from .mcp_server import _TOOL_SCHEMAS, dispatch_tool
 from .store import RecipeStore
@@ -48,7 +49,7 @@ def _configure_server(store: RecipeStore) -> Server:
         ]
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         try:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
@@ -67,9 +68,9 @@ def _configure_server(store: RecipeStore) -> Server:
 async def _run_server() -> None:
     """Start the stdio MCP server and run until the client disconnects."""
     db_path = os.environ.get("TRAMMEL_DB_PATH", "trammel.db")
+    logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
     with RecipeStore(db_path) as store:
         server = _configure_server(store)
-        logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 
         async with stdio_server() as (read_stream, write_stream):
             await server.run(

@@ -88,7 +88,7 @@ class GoAnalyzer:
         graph: dict[str, list[str]] = {}
         for rel, src in file_sources.items():
             deps: set[str] = set()
-            for imp in self._extract_imports(src):
+            for imp in self._extract_imports(_strip_c_comments(src)):
                 if not imp.startswith(prefix):
                     continue
                 rel_pkg = imp[len(prefix):]
@@ -273,8 +273,6 @@ class RustAnalyzer:
 
 _CPP_EXTENSIONS = (".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx")
 
-_CPP_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
-
 _CPP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:template\s*<(?:[^<>]|<[^<>]*>)*>\s*)?class\s+(\w+)"), "class"),
     (re.compile(r"(?:^|\n)\s*(?:typedef\s+)?struct\s+(\w+)"), "struct"),
@@ -298,11 +296,6 @@ _CPP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _CPP_TYPED_PATTERNS
 _CPP_INCLUDE_RE = re.compile(r'#include\s+"([^"]+)"')
 
 
-def _strip_cpp_comments(src: str) -> str:
-    """Remove C/C++ line and block comments."""
-    return _CPP_COMMENT_RE.sub("", src)
-
-
 class CppAnalyzer:
     """C/C++ code analysis via regex (stdlib-only)."""
 
@@ -311,12 +304,12 @@ class CppAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _collect_symbols_regex(
-            project_root, _CPP_EXTENSIONS, _CPP_SYMBOL_PATTERNS, _strip_cpp_comments,
+            project_root, _CPP_EXTENSIONS, _CPP_SYMBOL_PATTERNS, _strip_c_comments,
         )
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
         return _collect_typed_symbols_regex(
-            project_root, _CPP_EXTENSIONS, _CPP_TYPED_PATTERNS, _strip_cpp_comments,
+            project_root, _CPP_EXTENSIONS, _CPP_TYPED_PATTERNS, _strip_c_comments,
         )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
@@ -326,7 +319,7 @@ class CppAnalyzer:
             path = os.path.join(project_root, rel)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = _strip_cpp_comments(fp.read())
+                    src = _strip_c_comments(fp.read())
             except OSError:
                 continue
             deps: set[str] = set()
@@ -405,7 +398,7 @@ class JavaAnalyzer:
             for root, dirs, files in os.walk(src_root):
                 dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
                 for fname in files:
-                    if not any(fname.endswith(ext) for ext in _JAVA_EXTENSIONS):
+                    if not fname.endswith(_JAVA_EXTENSIONS):
                         continue
                     path = os.path.join(root, fname)
                     rel = os.path.relpath(path, project_root)

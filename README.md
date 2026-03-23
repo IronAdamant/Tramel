@@ -154,6 +154,23 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.5.2 — Codebase cleanup & modernization
+- **Consolidated comment strippers**: removed duplicate `_strip_js_comments` and `_strip_cpp_comments`, all analyzers now use the shared `_strip_c_comments` from utils
+- **Consistent import analysis**: all regex-based analyzers now strip comments before extracting imports (fixes false positives from commented-out imports in Ruby, Dart, Zig, C#, PHP)
+- **Fixed PHP method pattern overlap**: method pattern now requires at least one access modifier (changed `*` to `+`), preventing duplicate symbol entries with the function pattern
+- **Fixed Dart function false positives**: added negative lookahead to exclude control flow keywords (`if`, `for`, `while`, etc.)
+- **Improved `max()` type safety**: `detect_language` extension counting now uses `lambda k: counts[k]` instead of `counts.get`
+- **Modernized `str.endswith`**: uses native tuple form throughout `_collect_*` helpers
+- **Removed redundant `store` parameter** from `Planner.explore_trajectories` (uses `self.store`)
+- **MCP status handler refactored**: now delegates to `RecipeStore.get_status_summary()` instead of raw SQL
+- **Schema/dispatch sync assertion**: module-load assertion ensures `_TOOL_SCHEMAS` and `_DISPATCH` keys stay in sync
+- **Store improvements**: removed unreliable `__del__`, narrowed schema migration exception to `sqlite3.OperationalError`, fixed `list_plans` status filter, fixed `get_strategy_stats` return type, batch-fetched recipe files in `list_recipes` (N+1 fix)
+- **Fixed float equality**: recipe text similarity early-exit now uses `>= 0.9999` instead of `== 1.0`
+- **Logging setup fix**: `mcp_stdio.py` now calls `logging.basicConfig` before server construction
+- **CLI hardening**: added JSON parse error handling for stdin input
+- **Language-agnostic messages**: "No Python symbols" fallback message now says "No symbols found"
+- **`__main__.py` guard**: added `if __name__ == "__main__"` protection
+
 ### 3.5.1
 
 - **Multi-agent step coordination**: New `claim_step`, `release_step`, and `available_steps` MCP tools (27 tools total). Agents claim steps before working on them — other agents see claimed steps and skip them. Claims auto-expire after 10 minutes (stale agent recovery). `available_steps` returns only steps whose dependencies are satisfied AND aren't claimed by another agent.
@@ -281,7 +298,7 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 ### 2.4.0
 
 - **Go and Rust support**: New `GoAnalyzer` (regex-based, reads `go.mod` for module path, resolves internal imports) and `RustAnalyzer` (regex-based, resolves `use crate::` and `mod` declarations). Shared `_collect_symbols_regex` helper for regex-based analyzers. `detect_language` expanded to count `.go`/`.rs` files. Registry now supports 5 languages.
-- **TypeScript enhancements**: `_strip_js_comments` for comment stripping before symbol/import detection. Namespace pattern added to `_TS_SYMBOL_PATTERNS`.
+- **TypeScript enhancements**: `_strip_c_comments` for comment stripping before symbol/import detection. Namespace pattern added to `_TS_SYMBOL_PATTERNS`.
 - **Improved beam strategies**: `_order_bottom_up` stable-sorts by ascending dependency count (files with fewer deps first). `_order_top_down` stable-sorts by descending dependency count (most consumer-facing files first). Both now genuinely use the `dep_graph` parameter.
 - **Better recipe matching**: New `word_substring_score(a, b)` for partial word matching. `goal_similarity` reweighted: 0.3 trigram cosine + 0.4 word Jaccard + 0.3 substring (was 0.4/0.6).
 - **Store improvements**: Merged duplicated SQL branches in `save_recipe`, `list_plans`, `get_active_constraints`. Composite scoring gains recency weighting (30-day half-life). New weights: text 0.4, files 0.25, success 0.15, recency 0.2. File trimmed from 534 to 516 lines.

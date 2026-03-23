@@ -56,7 +56,7 @@ def _collect_symbols_regex(
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for fname in files:
-            if not any(fname.endswith(ext) for ext in extensions):
+            if not fname.endswith(extensions):
                 continue
             path = os.path.join(root, fname)
             rel = os.path.relpath(path, project_root)
@@ -89,7 +89,7 @@ def _collect_typed_symbols_regex(
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for fname in files:
-            if not any(fname.endswith(ext) for ext in extensions):
+            if not fname.endswith(extensions):
                 continue
             path = os.path.join(root, fname)
             rel = os.path.relpath(path, project_root)
@@ -119,7 +119,7 @@ def _collect_project_files(project_root: str, extensions: tuple[str, ...]) -> se
     for root, dirs, fnames in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for fname in fnames:
-            if any(fname.endswith(ext) for ext in extensions):
+            if fname.endswith(extensions):
                 files.add(os.path.relpath(os.path.join(root, fname), project_root))
     return files
 
