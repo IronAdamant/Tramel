@@ -850,5 +850,138 @@ class TestCLIDryRun(unittest.TestCase):
             self.assertIn("beams", out)
 
 
+# ── Concurrent write safety ──────────────────────────────────────────────────
+
+class TestConcurrentWrites(unittest.TestCase):
+    def test_concurrent_plan_creation(self) -> None:
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "conc.db")
+            errors: list[Exception] = []
+
+            def create_plans(thread_id: int) -> None:
+                try:
+                    store = RecipeStore(db_path)
+                    for i in range(5):
+                        store.create_plan(f"goal-{thread_id}-{i}", {"steps": []})
+                    store.close()
+                except Exception as e:
+                    errors.append(e)
+
+            threads = [threading.Thread(target=create_plans, args=(t,)) for t in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(errors, [])
+            store = RecipeStore(db_path)
+            plans = store.list_plans()
+            self.assertEqual(len(plans), 20)
+            store.close()
+
+    def test_concurrent_recipe_saves(self) -> None:
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "conc2.db")
+            errors: list[Exception] = []
+
+            def save_recipes(thread_id: int) -> None:
+                try:
+                    store = RecipeStore(db_path)
+                    for i in range(5):
+                        strat = {"steps": [{"file": f"t{thread_id}_f{i}.py"}], "tid": thread_id, "i": i}
+                        store.save_recipe(f"goal {thread_id} {i}", strat, True)
+                    store.close()
+                except Exception as e:
+                    errors.append(e)
+
+            threads = [threading.Thread(target=save_recipes, args=(t,)) for t in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(errors, [])
+            store = RecipeStore(db_path)
+            recipes = store.list_recipes(limit=100)
+            self.assertEqual(len(recipes), 20)
+            store.close()
+
+    def test_concurrent_constraint_adds(self) -> None:
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "conc3.db")
+            errors: list[Exception] = []
+
+            def add_constraints(thread_id: int) -> None:
+                try:
+                    store = RecipeStore(db_path)
+                    for i in range(5):
+                        store.add_constraint("avoid", f"t{thread_id}-c{i}")
+                    store.close()
+                except Exception as e:
+                    errors.append(e)
+
+            threads = [threading.Thread(target=add_constraints, args=(t,)) for t in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(errors, [])
+            store = RecipeStore(db_path)
+            constraints = store.get_active_constraints()
+            self.assertEqual(len(constraints), 20)
+            store.close()
+
+
+# ── Monorepo scope ───────────────────────────────────────────────────────────
+
+class TestMonorepoScope(unittest.TestCase):
+    def test_decompose_with_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            sub = pathlib.Path(d) / "services" / "auth"
+            sub.mkdir(parents=True)
+            (sub / "handler.py").write_text("def login():\n    pass\n", encoding="utf-8")
+            # Root-level file should NOT appear in scoped analysis
+            pathlib.Path(d, "root_mod.py").write_text("def root_fn():\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sc.db"))
+            planner = Planner(store=store)
+            strat = planner.decompose("fix auth", d, scope="services/auth")
+            step_files = [s.get("file") for s in strat.get("steps", [])]
+            self.assertTrue(
+                any("handler.py" in (f or "") for f in step_files)
+                or strat["steps"][0].get("file") == "__project__",
+            )
+            # root_mod.py should not appear
+            for f in step_files:
+                self.assertNotIn("root_mod", f or "")
+
+    def test_explore_with_scope_mcp(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            sub = pathlib.Path(d) / "pkg"
+            sub.mkdir()
+            (sub / "mod.py").write_text("class Foo:\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sc2.db"))
+            result = dispatch_tool(store, "explore", {
+                "goal": "refactor pkg", "project_root": d,
+                "scope": "pkg", "num_beams": 2,
+            })
+            self.assertIn("beams", result)
+
+    def test_scope_cli_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            sub = pathlib.Path(d) / "lib"
+            sub.mkdir()
+            (sub / "util.py").write_text("def helper():\n    pass\n", encoding="utf-8")
+            db = os.path.join(d, "sc3.db")
+            result = subprocess.run(
+                [sys.executable, "-m", "trammel", "fix lib", "--root", d,
+                 "--scope", "lib", "--db", db, "--dry-run"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            out = json.loads(result.stdout)
+            self.assertIn("strategy", out)
+
+
 if __name__ == "__main__":
     unittest.main()

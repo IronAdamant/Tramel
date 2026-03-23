@@ -31,6 +31,7 @@ If `get_recipe` returns a match, you can use that strategy directly without deco
 ```
 decompose(goal, project_root)     → dependency-aware strategy with steps
 decompose(goal, root, language="typescript")  → for non-Python projects
+decompose(goal, root, scope="services/auth")  → monorepo: analyze only a subdirectory
 ```
 
 Returns: steps with file paths, symbols, dependency ordering, rationale, and any constraints already applied.
@@ -125,6 +126,17 @@ history(plan_id)            → trajectory log: which beams tried, outcomes
 list_plans(status="failed") → find failed plans to learn from
 status()                    → summary: recipe count, active plans, constraints
 ```
+
+## Monorepo support
+
+For large repositories, use `scope` to limit analysis to a subdirectory:
+
+```
+decompose(goal, project_root, scope="services/auth")
+explore(goal, project_root, scope="frontend", num_beams=3)
+```
+
+Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
 ## Tool reference (20 tools)
 

@@ -16,7 +16,7 @@ from typing import Any, Generator
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",
     ".tox", ".mypy_cache", ".ruff_cache", ".chisel", ".stele-context", "dist", "build",
-    ".next", ".nuxt", "coverage", ".turbo", ".parcel-cache",
+    ".next", ".nuxt", "coverage", ".turbo", ".parcel-cache", "sample_file_test",
 })
 
 

@@ -24,6 +24,7 @@ def main() -> None:
         help="Custom test command (default: unittest discover)",
     )
     parser.add_argument("--language", default=None, help="Project language (auto-detected if omitted)")
+    parser.add_argument("--scope", default=None, help="Subdirectory scope for analysis (monorepo support)")
     parser.add_argument("--dry-run", action="store_true", help="Preview decomposition without running tests")
     args = parser.parse_args()
 
@@ -39,11 +40,12 @@ def main() -> None:
     if args.dry_run:
         from . import explore
         result = explore(
-            goal, args.root, num_beams=args.beams, db_path=args.db, language=args.language,
+            goal, args.root, num_beams=args.beams, db_path=args.db,
+            language=args.language, scope=args.scope,
         )
     else:
         result = plan_and_execute(
             goal, args.root, num_beams=args.beams, db_path=args.db,
-            test_cmd=args.test_cmd, language=args.language,
+            test_cmd=args.test_cmd, language=args.language, scope=args.scope,
         )
     print(json.dumps(result, indent=2))

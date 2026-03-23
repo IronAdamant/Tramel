@@ -30,6 +30,9 @@ coverage.xml
 # Stele (local context cache)
 .stele-context/
 
+# Test data (large monorepo clones for planning tests)
+sample_file_test/
+
 # IDE
 .vscode/
 .idea/

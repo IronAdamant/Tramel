@@ -35,6 +35,7 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "ordering rationale, and checks for matching cached recipes.",
         {"goal": _prop("string", "High-level goal to decompose (e.g. 'refactor auth module')."),
          "project_root": _prop("string", "Absolute path to the project root directory."),
+         "scope": _prop("string", "Subdirectory to scope analysis to (monorepo support). Relative to project_root."),
          "language": _prop("string", "Project language (auto-detected if omitted).", enum=_LANGUAGES)},
         ["goal", "project_root"]),
     "explore": _schema("explore",
@@ -43,6 +44,7 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "risk_first (highest coupling first).",
         {"goal": _prop("string", "High-level goal string."),
          "project_root": _prop("string", "Absolute path to the project root directory."),
+         "scope": _prop("string", "Subdirectory to scope analysis to (monorepo support). Relative to project_root."),
          "num_beams": _prop("integer", "Number of beam variants to generate (default: 3, max: 12)."),
          "language": _prop("string", "Project language (auto-detected if omitted).", enum=_LANGUAGES)},
         ["goal", "project_root"]),
@@ -158,15 +160,17 @@ def dispatch_tool(
     lang = arguments.get("language")
     analyzer = get_analyzer(lang) if lang else None
 
+    scope = arguments.get("scope")
+
     match tool_name:
         case "decompose":
             return Planner(store=store, analyzer=analyzer).decompose(
-                arguments["goal"], arguments["project_root"],
+                arguments["goal"], arguments["project_root"], scope=scope,
             )
 
         case "explore":
             planner = Planner(store=store, analyzer=analyzer)
-            strategy = planner.decompose(arguments["goal"], arguments["project_root"])
+            strategy = planner.decompose(arguments["goal"], arguments["project_root"], scope=scope)
             beams = planner.explore_trajectories(
                 strategy, num_beams=arguments.get("num_beams", 3), store=store,
             )

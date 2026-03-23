@@ -54,6 +54,7 @@ python -m trammel "refactor X to Y" --root /path/to/project --beams 3 --db ./tra
 python -m trammel "fix tests" --test-cmd pytest -x -q
 python -m trammel "explore auth" --dry-run                  # explore only, no verification
 python -m trammel "fix tests" --language python
+python -m trammel "fix auth" --root /monorepo --scope services/auth   # monorepo scope
 echo '{"goal":"fix tests"}' | python -m trammel
 ```
 
@@ -81,7 +82,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (20):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`
+**MCP tools (20):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`
 
 ## Architecture
 
@@ -108,7 +109,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point (--dry-run, --language)
   mcp_server.py       MCP tool schemas and dispatch (20 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (200 tests, 4 modules)
+tests/                stdlib unittest (206 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -148,6 +149,12 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 3.0.0
+
+- **Monorepo scope support**: New `scope` parameter on `decompose`, `explore`, `plan_and_execute`, CLI (`--scope`), and MCP tools. Limits analysis to a subdirectory while keeping the full project available for test execution. Example: `--scope services/auth` analyzes only `services/auth/`.
+- **Concurrent write safety**: Validated with threading tests (4 threads x 5 operations). Plans, recipes, and constraints all survive concurrent access without errors.
+- **206 tests** (6 new: 3 concurrent, 3 scope).
 
 ### 2.9.0
 

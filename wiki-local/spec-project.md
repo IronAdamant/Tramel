@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.9.0
+**Version:** 3.0.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -28,7 +28,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `explore(goal, project_root, num_beams=3, db_path="trammel.db", language=None)` | Decompose + beams only (no harness) |
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
-| CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language` |
+| CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language`, `--scope` (monorepo support) |
 | MCP `trammel-mcp` | 20 tools over stdio transport |
 
 ## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
@@ -50,6 +50,7 @@ Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, 
 ## 5. Planner (`core.py`)
 
 - **Recipe hit**: If `retrieve_best_recipe(goal, context_files)` returns a strategy (composite score >= 0.3), use it. Two-phase: text-only fast path, then structural scoring with file overlap.
+- **Scope support**: `decompose(goal, project_root, scope=None)` accepts an optional `scope` subdirectory. When provided, analysis is scoped to `os.path.join(project_root, scope)` while the full project remains available for test execution. Enables monorepo workflows.
 - **Import analysis**: Delegated to language-specific analyzers. `Planner` accepts optional `analyzer` and auto-detects language if not provided.
 - **Topological sort**: Kahn's algorithm orders files so dependencies come first. Cycles are appended at end.
 - **Step generation**: Each file with symbols becomes a step with `description`, `rationale`, `depends_on` (indices of prior steps this depends on).
@@ -107,8 +108,8 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 | Tool | Purpose |
 |------|---------|
-| `decompose` | Goal → dependency-aware strategy (accepts `language` parameter) |
-| `explore` | Goal → strategy + beam variants (accepts `language` parameter) |
+| `decompose` | Goal → dependency-aware strategy (accepts `language` and `scope` parameters) |
+| `explore` | Goal → strategy + beam variants (accepts `language` and `scope` parameters) |
 | `create_plan` | Persist a plan with tracked steps |
 | `get_plan` | Retrieve full plan state |
 | `verify_step` | Isolated single-step verification |

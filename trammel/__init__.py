@@ -56,13 +56,14 @@ def plan_and_execute(
     db_path: str = "trammel.db",
     test_cmd: list[str] | None = None,
     language: str | None = None,
+    scope: str | None = None,
 ) -> dict[str, Any]:
     """Decompose goal, explore beam strategies, verify, and store recipe on success."""
     from .analyzers import get_analyzer
     analyzer = get_analyzer(language) if language else None
     with RecipeStore(db_path) as store:
         planner = Planner(store=store, analyzer=analyzer)
-        strategy = planner.decompose(goal, project_root)
+        strategy = planner.decompose(goal, project_root, scope=scope)
         plan_id = store.create_plan(goal, strategy)
         store.update_plan_status(plan_id, "running")
 
@@ -106,13 +107,14 @@ def explore(
     num_beams: int = 3,
     db_path: str = "trammel.db",
     language: str | None = None,
+    scope: str | None = None,
 ) -> dict[str, Any]:
     """Return decomposition + beam variants without running the harness."""
     from .analyzers import get_analyzer
     analyzer = get_analyzer(language) if language else None
     with RecipeStore(db_path) as store:
         planner = Planner(store=store, analyzer=analyzer)
-        strategy = planner.decompose(goal, project_root)
+        strategy = planner.decompose(goal, project_root, scope=scope)
         beams = planner.explore_trajectories(strategy, num_beams=num_beams, store=store)
         return {"strategy": strategy, "beams": beams}
 

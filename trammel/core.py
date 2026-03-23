@@ -397,7 +397,7 @@ class Planner:
         from .analyzers import detect_language
         return detect_language(project_root)
 
-    def decompose(self, goal: str, project_root: str) -> dict[str, Any]:
+    def decompose(self, goal: str, project_root: str, scope: str | None = None) -> dict[str, Any]:
         # Fast path: exact text match without project scan
         recipe = self.store.retrieve_best_recipe(goal)
         if recipe:
@@ -405,9 +405,10 @@ class Planner:
 
         active_constraints = self.store.get_active_constraints()
 
-        analyzer = self._get_analyzer(project_root)
-        symbols = analyzer.collect_symbols(project_root)
-        dep_graph = analyzer.analyze_imports(project_root)
+        analysis_root = os.path.join(project_root, scope) if scope else project_root
+        analyzer = self._get_analyzer(analysis_root)
+        symbols = analyzer.collect_symbols(analysis_root)
+        dep_graph = analyzer.analyze_imports(analysis_root)
 
         # Structural recipe match: try again with file context
         all_files = set(symbols) | set(dep_graph)
