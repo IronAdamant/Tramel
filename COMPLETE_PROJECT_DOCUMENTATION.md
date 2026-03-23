@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
 **Updated:** 2026-03-23
-**Version:** 3.4.0
+**Version:** 3.4.1
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition (15 languages: Python, TypeScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig), parallel beam execution (9 strategies), typed symbol analysis, incremental verification, failure constraint propagation, structural recipe matching (with abbreviation expansion), recipe pruning, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server (21 tools) for LLM integration with reference system prompt.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 3.4.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 3.4.1), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 | `SYSTEM_PROMPT.md` | Reference orchestration guide for LLM clients: plan-verify-store loop |
 
 ## wiki-local/
@@ -72,6 +72,7 @@
 
 ## Changelog (high level)
 
+- **3.4.1:** Analyzer gap fixes. C++ nested template parsing (2-level `<>` nesting in template/impl/fun patterns). Rust `use super::`/`use self::` and workspace crate import resolution (reads `Cargo.toml` members). PHP grouped `use Foo\{Bar, Baz}` support. Swift SPM-aware module mapping (`Sources/<Module>/` detection). TypeScript monorepo workspace support (reads `package.json` workspaces, resolves bare imports to workspace packages). Workspace helpers (`_read_workspace_packages`, `_resolve_workspace_import`) in `utils.py`. 242 tests (unchanged, all passing).
 - **3.4.0:** Usage telemetry, dispatch refactor, analyzer improvements. New `usage_events` table (8 tables total) with `log_event()` and `get_usage_stats()` on `RecipeStore`. Tool calls, recipe hit/miss rates, and strategy win rates tracked automatically. New `usage_stats` MCP tool (22 tools total). Dispatch refactored from 153-line match/case to dispatch-dict pattern with dedicated handler functions. PHP class method detection added. Java 16+ `record` keyword supported. Dart factory/named constructor detection added. Comment stripping added for 7 languages: Go, Rust, Java, C#, Ruby, PHP, Swift, Dart, Zig (shared `_strip_c_comments`, `_strip_hash_comments`, `_strip_php_comments` in `utils.py`). 5 new sample repos (Jekyll, Flame, ZLS, Laravel, Ktor). 242 tests (unchanged, all passing).
 - **3.3.1:** Codebase cleanup and module extraction. Extracted beam strategies from `core.py` into new `strategies.py` (~280 LOC), reducing `core.py` from 595 to 324 LOC. Moved shared `_collect_symbols_regex` and `_collect_typed_symbols_regex` from `analyzers.py` to `utils.py`, eliminating circular dependency workarounds (`functools.cache` lazy imports) in `analyzers_ext.py` and `analyzers_ext2.py`. DRY-ed regex pattern duplications: derived `_*_SYMBOL_PATTERNS` from `_*_TYPED_PATTERNS` for 8 languages (TS, Rust, Java, C#, Ruby, PHP, Swift, Dart). Extracted `PythonAnalyzer._iter_ast()` generator to share AST walking between `collect_symbols` and `collect_typed_symbols`. Fixed stdlib import ordering in `store_recipes.py`. All files now under 500 LOC. Total source reduced from 3,876 to 3,771 LOC (105 lines net). 242 tests (unchanged, all passing).
 - **3.3.0:** Typed symbol analysis, 3 new beam strategies, analyzer bug fixes, store refactor. New `collect_typed_symbols()` method on all 15 analyzers returns `dict[str, list[tuple[str, str]]]` (file → [(name, type_label)]) with type classification (function, class, interface, enum, struct, trait, etc.). New shared `_collect_typed_symbols_regex()` helper in `analyzers.py`. 3 new beam strategies (9 total): `leaf_first` (zero-importer files first), `hub_first` (network hub files first by in*out degree product), `test_adjacent` (files with matching test files first). Fixed Ruby analyzer basename overwriting (separate full-path and basename lookup maps). Fixed Swift analyzer overly broad directory mapping (immediate parent only). Fixed Java analyzer packageless file gap (directory-based fallback). Refactored `_init_schema()` in `store.py` into `_SCHEMA_RECIPE_TABLES` and `_SCHEMA_PLAN_TABLES` class-level SQL constants. Java `analyze_imports` eliminates double file read via `file_sources` cache. 242 tests (12 new: 3 typed symbols, 6 new strategies, 1 Ruby basename, 1 Swift parent, 1 Java packageless).

@@ -152,6 +152,15 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### 3.4.1
+
+- **C++ nested template parsing**: Template patterns now handle 2 levels of nesting (`template<typename T, std::vector<int>>`) instead of breaking at the first `>`. Also fixed in Rust `impl<>` and Java/Kotlin generic `fun<>` patterns.
+- **Rust workspace + relative imports**: `analyze_imports` now resolves `use super::`, `use self::`, and workspace crate imports (reads `Cargo.toml` `[workspace] members` and member crate names). Previously only `use crate::` was handled.
+- **PHP grouped use statements**: `use Foo\{Bar, Baz, Qux};` (PHP 7.0+) now correctly expanded and resolved. Previously only simple `use Foo\Bar;` was parsed.
+- **Swift SPM-aware module mapping**: Detects `Sources/<Module>/` and `Tests/<Module>/` directory structure for Swift Package Manager projects. Falls back to parent-directory mapping for non-SPM projects.
+- **TypeScript monorepo workspace support**: Reads `package.json` `workspaces` field (npm, yarn, pnpm patterns), discovers workspace packages, resolves bare imports (`import { x } from '@scope/pkg'`) to workspace package entry points.
+- **242 tests** (all passing).
+
 ### 3.4.0
 
 - **Usage telemetry**: New `usage_events` SQLite table (8 tables total) with `log_event()` and `get_usage_stats()` methods on `RecipeStore`. Tool calls, recipe hit/miss rates, and strategy win rates tracked automatically. New `usage_stats` MCP tool (22 tools total) returns aggregated telemetry over a configurable time window.

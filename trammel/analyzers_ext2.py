@@ -179,7 +179,8 @@ _PHP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 _PHP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _PHP_TYPED_PATTERNS]
 
-_PHP_USE_RE = re.compile(r"^\s*use\s+([\w\\]+)", re.MULTILINE)
+_PHP_USE_RE = re.compile(r"^\s*use\s+([\w\\]+)\s*;", re.MULTILINE)
+_PHP_USE_GROUP_RE = re.compile(r"^\s*use\s+([\w\\]+)\\\{([^}]+)\}", re.MULTILINE)
 _PHP_NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w\\]+)", re.MULTILINE)
 
 
@@ -219,9 +220,18 @@ class PhpAnalyzer:
         graph: dict[str, list[str]] = {}
         for rel, src in file_sources.items():
             deps: set[str] = set()
-            for m in _PHP_USE_RE.finditer(src):
-                use_path = m.group(1).replace("\\", ".")
-                parts = use_path.split(".")
+            # Regular use statements: use Foo\Bar;
+            use_paths: list[str] = [m.group(1) for m in _PHP_USE_RE.finditer(src)]
+            # Grouped use statements: use Foo\{Bar, Baz};
+            for m in _PHP_USE_GROUP_RE.finditer(src):
+                prefix = m.group(1)
+                for item in m.group(2).split(","):
+                    item = item.strip()
+                    if item:
+                        use_paths.append(prefix + "\\" + item)
+            for use_path in use_paths:
+                dot_path = use_path.replace("\\", ".")
+                parts = dot_path.split(".")
                 for i in range(len(parts), 0, -1):
                     prefix = ".".join(parts[:i])
                     if prefix in ns_dot_map:
@@ -279,29 +289,60 @@ class SwiftAnalyzer:
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _SWIFT_EXTENSIONS)
-        # Map immediate parent directory name to files (Swift modules map to directories)
-        dir_to_files: dict[str, list[str]] = {}
-        for rel in file_set:
-            parts = rel.replace(os.sep, "/").split("/")
-            if len(parts) >= 2:
-                dir_to_files.setdefault(parts[-2], []).append(rel)
+        module_to_files = self._build_module_map(project_root, file_set)
         graph: dict[str, list[str]] = {}
         for rel in file_set:
             path = os.path.join(project_root, rel)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
+                    src = _strip_c_comments(fp.read())
             except OSError:
                 continue
             deps: set[str] = set()
             for m in _SWIFT_IMPORT_RE.finditer(src):
                 mod = m.group(1)
-                for dep in dir_to_files.get(mod, []):
+                for dep in module_to_files.get(mod, []):
                     if dep != rel:
                         deps.add(dep)
             if deps:
                 graph[rel] = sorted(deps)
         return graph
+
+    @staticmethod
+    def _build_module_map(project_root: str, file_set: set[str]) -> dict[str, list[str]]:
+        """Map module names to files. SPM-aware: Sources/<Module>/ directories are modules."""
+        module_to_files: dict[str, list[str]] = {}
+        # SPM structure: Sources/<ModuleName>/*.swift
+        sources_dir = os.path.join(project_root, "Sources")
+        if os.path.isdir(sources_dir):
+            try:
+                for entry in os.listdir(sources_dir):
+                    if os.path.isdir(os.path.join(sources_dir, entry)):
+                        prefix = os.path.join("Sources", entry)
+                        mod_files = [f for f in file_set if f.startswith(prefix + os.sep) or f.startswith(prefix + "/")]
+                        if mod_files:
+                            module_to_files[entry] = mod_files
+            except OSError:
+                pass
+        # Tests/<ModuleName>Tests/ are also modules
+        tests_dir = os.path.join(project_root, "Tests")
+        if os.path.isdir(tests_dir):
+            try:
+                for entry in os.listdir(tests_dir):
+                    if os.path.isdir(os.path.join(tests_dir, entry)):
+                        prefix = os.path.join("Tests", entry)
+                        mod_files = [f for f in file_set if f.startswith(prefix + os.sep) or f.startswith(prefix + "/")]
+                        if mod_files:
+                            module_to_files[entry] = mod_files
+            except OSError:
+                pass
+        # Fallback: immediate parent directory name (for non-SPM projects)
+        if not module_to_files:
+            for rel in file_set:
+                parts = rel.replace(os.sep, "/").split("/")
+                if len(parts) >= 2:
+                    module_to_files.setdefault(parts[-2], []).append(rel)
+        return module_to_files
 
     def pick_test_cmd(self, project_root: str) -> list[str]:
         if os.path.isfile(os.path.join(project_root, "Package.swift")):

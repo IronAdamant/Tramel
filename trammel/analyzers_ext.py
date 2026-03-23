@@ -152,7 +152,7 @@ _RUST_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)"), "struct"),
     (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)"), "enum"),
     (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?trait\s+(\w+)"), "trait"),
-    (re.compile(r"(?:^|\n)\s*impl(?:<[^>]*>)?\s+(\w+)"), "impl"),
+    (re.compile(r"(?:^|\n)\s*impl(?:<(?:[^<>]|<[^<>]*>)*>)?\s+(\w+)"), "impl"),
     (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)"), "type_alias"),
 ]
 
@@ -173,33 +173,89 @@ class RustAnalyzer:
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _RUST_EXTENSIONS)
+        workspace_crates = self._read_cargo_crates(project_root)
         graph: dict[str, list[str]] = {}
         for rel in file_set:
             path = os.path.join(project_root, rel)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
+                    src = _strip_c_comments(fp.read())
             except OSError:
                 continue
             deps: set[str] = set()
+            # use crate::module
             for m in re.finditer(r"use\s+crate::(\w+(?:::\w+)*)", src):
-                mod_path = m.group(1).split("::")[0]
-                for candidate in (mod_path + ".rs", os.path.join(mod_path, "mod.rs")):
-                    if candidate in file_set and candidate != rel:
-                        deps.add(candidate)
+                self._resolve_rust_mod(m.group(1).split("::")[0], "", file_set, deps)
+            # use super::module (parent module)
             file_dir = os.path.dirname(rel)
+            for m in re.finditer(r"use\s+super::(\w+(?:::\w+)*)", src):
+                parent = os.path.dirname(file_dir) if file_dir else ""
+                self._resolve_rust_mod(m.group(1).split("::")[0], parent, file_set, deps)
+            # use self::module (current module)
+            for m in re.finditer(r"use\s+self::(\w+(?:::\w+)*)", src):
+                self._resolve_rust_mod(m.group(1).split("::")[0], file_dir, file_set, deps)
+            # use workspace_crate::module
+            for crate_name, crate_dir in workspace_crates.items():
+                for m in re.finditer(rf"use\s+{re.escape(crate_name)}::(\w+(?:::\w+)*)", src):
+                    mod_path = m.group(1).split("::")[0]
+                    self._resolve_rust_mod(mod_path, crate_dir, file_set, deps)
+            # mod declarations
             for m in re.finditer(r"(?:^|\n)\s*mod\s+(\w+)\s*;", src):
-                mod_name = m.group(1)
-                base = file_dir if file_dir else ""
-                for candidate in (
-                    os.path.join(base, mod_name + ".rs") if base else mod_name + ".rs",
-                    os.path.join(base, mod_name, "mod.rs") if base else os.path.join(mod_name, "mod.rs"),
-                ):
-                    if candidate in file_set and candidate != rel:
-                        deps.add(candidate)
+                self._resolve_rust_mod(m.group(1), file_dir, file_set, deps)
+            deps.discard(rel)
             if deps:
                 graph[rel] = sorted(deps)
         return graph
+
+    @staticmethod
+    def _resolve_rust_mod(
+        mod_name: str, base: str, file_set: set[str], deps: set[str],
+    ) -> None:
+        """Resolve a Rust module name to file paths and add to deps."""
+        for candidate in (
+            os.path.join(base, mod_name + ".rs") if base else mod_name + ".rs",
+            os.path.join(base, mod_name, "mod.rs") if base else os.path.join(mod_name, "mod.rs"),
+        ):
+            if candidate in file_set:
+                deps.add(candidate)
+
+    @staticmethod
+    def _read_cargo_crates(project_root: str) -> dict[str, str]:
+        """Read Cargo.toml for workspace member crate names mapped to their src dirs."""
+        cargo = os.path.join(project_root, "Cargo.toml")
+        crates: dict[str, str] = {}
+        if not os.path.isfile(cargo):
+            return crates
+        try:
+            with open(cargo, encoding="utf-8") as fp:
+                content = fp.read()
+        except OSError:
+            return crates
+        # Extract workspace members: members = ["crate1", "crate2"]
+        m = re.search(r'members\s*=\s*\[(.*?)\]', content, re.DOTALL)
+        if not m:
+            return crates
+        for member_match in re.finditer(r'"([^"]+)"', m.group(1)):
+            member_path = member_match.group(1)
+            member_dir = os.path.join(project_root, member_path)
+            if not os.path.isdir(member_dir):
+                continue
+            # Crate name defaults to directory name (hyphens → underscores in Rust)
+            crate_name = os.path.basename(member_path).replace("-", "_")
+            # Check member's Cargo.toml for explicit name
+            member_cargo = os.path.join(member_dir, "Cargo.toml")
+            if os.path.isfile(member_cargo):
+                try:
+                    with open(member_cargo, encoding="utf-8") as fp:
+                        mc = fp.read()
+                    nm = re.search(r'name\s*=\s*"([^"]+)"', mc)
+                    if nm:
+                        crate_name = nm.group(1).replace("-", "_")
+                except OSError:
+                    pass
+            src_dir = os.path.join(member_path, "src")
+            crates[crate_name] = os.path.relpath(src_dir, ".") if os.path.isdir(os.path.join(project_root, src_dir)) else member_path
+        return crates
 
     def pick_test_cmd(self, project_root: str) -> list[str]:
         return ["cargo", "test"]
@@ -220,7 +276,7 @@ _CPP_EXTENSIONS = (".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx")
 _CPP_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
 
 _CPP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"(?:^|\n)\s*(?:template\s*<[^>]*>\s*)?class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*(?:template\s*<(?:[^<>]|<[^<>]*>)*>\s*)?class\s+(\w+)"), "class"),
     (re.compile(r"(?:^|\n)\s*(?:typedef\s+)?struct\s+(\w+)"), "struct"),
     (re.compile(r"(?:^|\n)\s*namespace\s+(\w+)"), "namespace"),
     (re.compile(r"(?:^|\n)\s*enum\s+(?:class\s+)?(\w+)"), "enum"),
@@ -229,8 +285,8 @@ _CPP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 _CPP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _CPP_TYPED_PATTERNS] + [
-    # Template function
-    re.compile(r"(?:^|\n)\s*template\s*<[^>]*>\s*(?:[\w:*&<>\s]+\s+)?(\w+)\s*\("),
+    # Template function (handles nested angle brackets like vector<pair<int,int>>)
+    re.compile(r"(?:^|\n)\s*template\s*<(?:[^<>]|<[^<>]*>)*>\s*(?:[\w:*&<>\s]+\s+)?(\w+)\s*\("),
     # Operator overloading
     re.compile(r"(?:^|\n)\s*(?:[\w:*&<>]+\s+)*(operator\s*(?:<<|>>|==|!=|<=|>=|[+\-*/%<>&|^~!]|\[\]|\(\)|->|new|delete))\s*\("),
     # Constructor/destructor (out-of-class: Class::~Class)
@@ -315,7 +371,7 @@ _JAVA_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal)\s+)*enum\s+(?:class\s+)?(\w+)"), "enum"),
     # Java 16+ records
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private)\s+)*record\s+(\w+)"), "record"),
-    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|override|open|suspend|inline)\s+)*fun\s+(?:<[^>]*>\s*)?(\w+)"), "function"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|override|open|suspend|inline)\s+)*fun\s+(?:<(?:[^<>]|<[^<>]*>)*>\s*)?(\w+)"), "function"),
     (re.compile(r"(?:^|\n)\s*(?:(?:internal|private)\s+)?(?:companion\s+)?object\s+(\w+)"), "object"),
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private)\s+)*@interface\s+(\w+)"), "annotation"),
 ]

@@ -124,6 +124,87 @@ def _collect_project_files(project_root: str, extensions: tuple[str, ...]) -> se
     return files
 
 
+def _read_workspace_packages(project_root: str) -> dict[str, str]:
+    """Read workspace packages from package.json. Returns {pkg_name: relative_dir}."""
+    pkg_json = os.path.join(project_root, "package.json")
+    if not os.path.isfile(pkg_json):
+        return {}
+    try:
+        with open(pkg_json, encoding="utf-8") as fp:
+            root_pkg = json.load(fp)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    workspace_globs = root_pkg.get("workspaces", [])
+    # workspaces can be {"packages": [...]} (yarn) or [...] (npm/pnpm)
+    if isinstance(workspace_globs, dict):
+        workspace_globs = workspace_globs.get("packages", [])
+    if not isinstance(workspace_globs, list):
+        return {}
+    # Expand simple glob patterns (e.g. "packages/*")
+    pkg_dirs: list[str] = []
+    for pattern in workspace_globs:
+        if pattern.endswith("/*"):
+            parent = os.path.join(project_root, pattern[:-2])
+            if os.path.isdir(parent):
+                try:
+                    for entry in sorted(os.listdir(parent)):
+                        full = os.path.join(parent, entry)
+                        if os.path.isdir(full) and os.path.isfile(os.path.join(full, "package.json")):
+                            pkg_dirs.append(os.path.relpath(full, project_root))
+                except OSError:
+                    pass
+        else:
+            full = os.path.join(project_root, pattern)
+            if os.path.isdir(full) and os.path.isfile(os.path.join(full, "package.json")):
+                pkg_dirs.append(pattern)
+    # Map package names to their directories
+    result: dict[str, str] = {}
+    for pkg_dir in pkg_dirs:
+        child_pkg = os.path.join(project_root, pkg_dir, "package.json")
+        try:
+            with open(child_pkg, encoding="utf-8") as fp:
+                child = json.load(fp)
+            name = child.get("name")
+            if name:
+                result[name] = pkg_dir
+        except (OSError, json.JSONDecodeError):
+            continue
+    return result
+
+
+def _resolve_workspace_import(
+    import_path: str, file_set: set[str],
+    workspace_pkgs: dict[str, str],
+    extensions: tuple[str, ...],
+) -> str | None:
+    """Resolve a bare import to a workspace package entry point."""
+    pkg_name = import_path
+    sub_path = ""
+    if pkg_name not in workspace_pkgs:
+        parts = import_path.split("/")
+        if parts[0].startswith("@") and len(parts) >= 2:
+            pkg_name = parts[0] + "/" + parts[1]
+            sub_path = "/".join(parts[2:])
+        elif len(parts) >= 2:
+            pkg_name = parts[0]
+            sub_path = "/".join(parts[1:])
+    if pkg_name not in workspace_pkgs:
+        return None
+    pkg_dir = workspace_pkgs[pkg_name]
+    if sub_path:
+        resolved_base = os.path.normpath(os.path.join(pkg_dir, sub_path))
+    else:
+        resolved_base = os.path.join(pkg_dir, "src", "index")
+        found = any((resolved_base + ext) in file_set for ext in extensions)
+        if not found:
+            resolved_base = os.path.join(pkg_dir, "index")
+    for ext in extensions:
+        candidate = resolved_base + ext
+        if candidate in file_set:
+            return candidate
+    return None
+
+
 # ── JSON / hashing ──────────────────────────────────────────────────────────
 
 def dumps_json(obj: Any) -> str:

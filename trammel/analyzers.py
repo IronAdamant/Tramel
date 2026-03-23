@@ -12,6 +12,7 @@ from typing import Protocol
 from .utils import (
     _ERROR_PATTERNS, _collect_project_files, _collect_symbols_regex,
     _collect_typed_symbols_regex, _is_ignored_dir,
+    _read_workspace_packages, _resolve_workspace_import,
 )
 
 
@@ -206,6 +207,7 @@ class TypeScriptAnalyzer:
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = self._collect_files(project_root)
         base_url, aliases = self._read_ts_path_aliases(project_root)
+        workspace_pkgs = _read_workspace_packages(project_root)
         graph: dict[str, list[str]] = {}
 
         for rel in file_set:
@@ -227,17 +229,22 @@ class TypeScriptAnalyzer:
                 if resolved and resolved != rel:
                     deps.add(resolved)
 
-            # Alias imports (only if aliases configured)
-            if aliases:
-                for m in _TS_ALIAS_IMPORT_RE.finditer(src):
-                    import_path = next((g for g in m.groups() if g is not None), None)
-                    if not import_path:
-                        continue
+            # Non-relative imports: aliases + workspace packages
+            for m in _TS_ALIAS_IMPORT_RE.finditer(src):
+                import_path = next((g for g in m.groups() if g is not None), None)
+                if not import_path:
+                    continue
+                resolved = None
+                if aliases:
                     resolved = self._resolve_alias(
                         import_path, file_set, base_url, aliases,
                     )
-                    if resolved and resolved != rel:
-                        deps.add(resolved)
+                if not resolved and workspace_pkgs:
+                    resolved = _resolve_workspace_import(
+                        import_path, file_set, workspace_pkgs, _TS_EXTENSIONS,
+                    )
+                if resolved and resolved != rel:
+                    deps.add(resolved)
 
             if deps:
                 graph[rel] = sorted(deps)
@@ -337,6 +344,7 @@ class TypeScriptAnalyzer:
                     return resolved_base
                 break
         return None
+
 
 
 # ── Registry + detection ─────────────────────────────────────────────────────
