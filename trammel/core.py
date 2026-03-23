@@ -8,12 +8,18 @@ from typing import TYPE_CHECKING, Any
 
 from .store import RecipeStore
 from .strategies import (
-    StrategyEntry, _STRATEGY_REGISTRY, _default_beam_count, _split_active_skipped,
+    StrategyEntry, _STRATEGY_REGISTRY, _split_active_skipped,
 )
 from .utils import sha256_json, topological_sort
 
 if TYPE_CHECKING:
     from .analyzers import LanguageAnalyzer
+
+
+def _get_analyzer_registry() -> dict[str, type]:
+    """Lazy import to avoid circular dependency."""
+    from .analyzers import _ANALYZER_REGISTRY
+    return _ANALYZER_REGISTRY
 
 
 # ── Step generation ──────────────────────────────────────────────────────────
@@ -207,7 +213,8 @@ class Planner:
         # Fast path: exact text match without project scan
         recipe = self.store.retrieve_best_recipe(goal)
         if recipe:
-            return {**recipe, "_source": recipe.get("_source", "recipe_exact")}
+            recipe.setdefault("_source", "recipe_exact")
+            return recipe
 
         active_constraints = self.store.get_active_constraints()
 
@@ -224,7 +231,8 @@ class Planner:
         all_files = set(symbols) | set(dep_graph)
         recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
         if recipe:
-            return {**recipe, "_source": recipe.get("_source", "recipe_structural")}
+            recipe.setdefault("_source", "recipe_structural")
+            return recipe
         relevant_graph = {
             f: [d for d in deps if d in all_files]
             for f, deps in dep_graph.items()
@@ -256,8 +264,7 @@ class Planner:
                 "total": round(t4 - t0, 3),
             },
         }
-        from .analyzers import _ANALYZER_REGISTRY
-        if lang_name not in _ANALYZER_REGISTRY:
+        if lang_name not in _get_analyzer_registry():
             analysis_meta["warning"] = (
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
             )
@@ -277,7 +284,8 @@ class Planner:
         strategy: dict[str, Any],
         num_beams: int = 3,
     ) -> list[dict[str, Any]]:
-        n = _default_beam_count(num_beams)
+        cores = os.cpu_count() or 4
+        n = min(num_beams, min(12, max(3, cores)))
         steps = strategy.get("steps", [])
         dep_graph = strategy.get("dependency_graph", {})
 
@@ -297,6 +305,8 @@ class Planner:
         ordered_variants = [
             (e.name, e.description, e.fn(steps, dep_graph)) for e in entries
         ]
+        if not ordered_variants:
+            return []
 
         beams: list[dict[str, Any]] = []
         for i in range(n):

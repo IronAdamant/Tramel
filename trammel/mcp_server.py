@@ -309,9 +309,8 @@ def _handle_status(store: RecipeStore, _args: dict[str, Any]) -> Any:
 def _handle_list_strategies(store: RecipeStore, _args: dict[str, Any]) -> Any:
     stats = store.get_strategy_stats()
     return [
-        {"name": name, "successes": s, "failures": f}
+        {"name": name, "successes": stats.get(name, (0, 0))[0], "failures": stats.get(name, (0, 0))[1]}
         for name in get_strategies()
-        for s, f in [stats.get(name, (0, 0))]
     ]
 
 
@@ -402,14 +401,15 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
 }
 
 
-assert set(_TOOL_SCHEMAS) == set(_DISPATCH), (
-    f"Schema/dispatch mismatch: {set(_TOOL_SCHEMAS) ^ set(_DISPATCH)}"
-)
+_schema_dispatch_diff = set(_TOOL_SCHEMAS) ^ set(_DISPATCH)
+if _schema_dispatch_diff:
+    raise RuntimeError(f"Schema/dispatch mismatch: {_schema_dispatch_diff}")
 
 from .analyzers import _ANALYZER_REGISTRY  # noqa: E402
-assert set(_LANGUAGES) == set(_ANALYZER_REGISTRY), (
-    f"Language/analyzer mismatch: {set(_LANGUAGES) ^ set(_ANALYZER_REGISTRY)}"
-)
+
+_lang_analyzer_diff = set(_LANGUAGES) ^ set(_ANALYZER_REGISTRY)
+if _lang_analyzer_diff:
+    raise RuntimeError(f"Language/analyzer mismatch: {_lang_analyzer_diff}")
 
 
 def dispatch_tool(

@@ -154,6 +154,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.7.4 — Code quality: dead code removal, simplification & modernization
+- **Bug hardening**: Fixed potential `ZeroDivisionError` in `explore_trajectories`, `ValueError` with 0 beams, replaced fragile `assert` with `RuntimeError` in MCP server.
+- **Dead code removal**: Removed unused `_default_beam_count`, dead `TYPE_CHECKING: pass` block.
+- **Simplification**: Consolidated 4 SQL COUNT queries into 1, extracted `_sql_in()` helper (deduplicates 8 sites), eliminated redundant dict copies, simplified confusing list-unpacking comprehension.
+- **Modernization**: `asyncio.to_thread` replaces `run_in_executor`, logger configured at module level for early error capture, lazy `_get_analyzer_registry()` replaces late inline imports.
+- **248 tests** (all passing).
+
 ### v3.7.3 — Code quality: deduplication, modernization & hardening
 - **Deduplication**: Extracted shared trigram/file helpers in `store_recipes.py`, deduplicated Swift SPM scanning.
 - **Modernization**: `_count_importers` uses `Counter`, set-based symbol deduplication, f-string continuation.

@@ -14,11 +14,18 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    pass  # conn and log_event provided by composing class (RecipeStore)
+    from .store import RecipeStore  # noqa: F401 — documents mixin host
 
 
 _MAX_PATTERN_LENGTH = 200
+_MAX_LOG_GOAL_LENGTH = 100
 _NEAR_PERFECT_SIMILARITY = 0.9999
+
+
+def _sql_in(items: list[str] | tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+    """Build an SQL IN clause and parameter tuple: ``'IN (?,?,?)' , (a, b, c)``."""
+    ph = ",".join("?" for _ in items)
+    return f"IN ({ph})", tuple(items)
 
 
 class RecipeStoreMixin:
@@ -132,30 +139,29 @@ class RecipeStoreMixin:
         goal_tris = unique_trigrams(normalize_goal(goal))
         if not goal_tris:
             return None
-        placeholders = ",".join("?" for _ in goal_tris)
+        tri_in, tri_params = _sql_in(sorted(goal_tris))
         candidate_sigs = self.conn.execute(
-            f"SELECT DISTINCT recipe_sig FROM recipe_trigrams "
-            f"WHERE trigram IN ({placeholders})",
-            tuple(goal_tris),
+            f"SELECT DISTINCT recipe_sig FROM recipe_trigrams WHERE trigram {tri_in}",
+            tri_params,
         ).fetchall()
         if not candidate_sigs:
             return None
-        sig_tuple = tuple(row[0] for row in candidate_sigs)
-        sig_ph = ",".join("?" for _ in sig_tuple)
+        sig_list = [row[0] for row in candidate_sigs]
+        sig_in, sig_params = _sql_in(sig_list)
         cur = self.conn.execute(
             f"SELECT sig, pattern, strategy, successes, failures, updated FROM recipes "
-            f"WHERE sig IN ({sig_ph})",
-            sig_tuple,
+            f"WHERE sig {sig_in}",
+            sig_params,
         )
         # Batch-fetch file paths for all candidates to avoid N+1 queries
         candidates = cur.fetchall()
         sig_files: dict[str, set[str]] = {}
         if context_files is not None and candidates:
-            all_sigs = tuple(row[0] for row in candidates)
-            file_ph = ",".join("?" for _ in all_sigs)
+            all_sigs = [row[0] for row in candidates]
+            file_in, file_params = _sql_in(all_sigs)
             file_rows = self.conn.execute(
-                f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig IN ({file_ph})",
-                all_sigs,
+                f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig {file_in}",
+                file_params,
             ).fetchall()
             for fsig, fpath in file_rows:
                 sig_files.setdefault(fsig, set()).add(fpath)
@@ -199,9 +205,9 @@ class RecipeStoreMixin:
                     break
 
         if best is not None:
-            self.log_event("recipe_hit", goal[:100], best_score)
+            self.log_event("recipe_hit", goal[:_MAX_LOG_GOAL_LENGTH], best_score)
         else:
-            self.log_event("recipe_miss", goal[:100])
+            self.log_event("recipe_miss", goal[:_MAX_LOG_GOAL_LENGTH])
         return best
 
     def list_recipes(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -215,10 +221,10 @@ class RecipeStoreMixin:
             return []
         # Batch-fetch all file paths for the returned recipes
         sigs = [r[0] for r in rows]
-        ph = ",".join("?" for _ in sigs)
+        sig_in, sig_params = _sql_in(sigs)
         file_rows = self.conn.execute(
-            f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig IN ({ph})",
-            tuple(sigs),
+            f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig {sig_in}",
+            sig_params,
         ).fetchall()
         sig_files: dict[str, list[str]] = {}
         for sig, fpath in file_rows:
@@ -247,11 +253,11 @@ class RecipeStoreMixin:
         ]
         if not pruned:
             return 0
-        ph = ",".join("?" for _ in pruned)
+        prune_in, prune_params = _sql_in(pruned)
         with transaction(self.conn):
-            self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(pruned))
-            self.conn.execute(f"DELETE FROM recipe_files WHERE recipe_sig IN ({ph})", tuple(pruned))
-            self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(pruned))
+            self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig {prune_in}", prune_params)
+            self.conn.execute(f"DELETE FROM recipe_files WHERE recipe_sig {prune_in}", prune_params)
+            self.conn.execute(f"DELETE FROM recipes WHERE sig {prune_in}", prune_params)
         return len(pruned)
 
     def validate_recipes(self, project_root: str) -> dict[str, Any]:
@@ -292,9 +298,9 @@ class RecipeStoreMixin:
                         stale_pairs,
                     )
                 if invalidated:
-                    ph = ",".join("?" for _ in invalidated)
-                    self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(invalidated))
-                    self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(invalidated))
+                    inv_in, inv_params = _sql_in(invalidated)
+                    self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig {inv_in}", inv_params)
+                    self.conn.execute(f"DELETE FROM recipes WHERE sig {inv_in}", inv_params)
         return {
             "recipes_checked": len(rows),
             "files_removed": files_removed,

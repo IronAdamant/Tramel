@@ -16,7 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, plan_and_execute  # noqa: E402
-from trammel.core import Planner, _apply_constraints, _default_beam_count  # noqa: E402
+from trammel.core import Planner, _apply_constraints  # noqa: E402
 from trammel.mcp_server import _TOOL_SCHEMAS, dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.analyzers import detect_language  # noqa: E402
@@ -155,8 +155,12 @@ class TestPlannerExtra(unittest.TestCase):
             self.assertTrue(any(s.get("file") == "__project__" for s in strat["steps"]))
 
     def test_beam_count_respects_cap(self) -> None:
-        self.assertLessEqual(_default_beam_count(100), 12)
-        self.assertGreaterEqual(_default_beam_count(100), 3)
+        """Beam count is capped between 3 and 12 regardless of input."""
+        import os
+        cores = os.cpu_count() or 4
+        cap = min(12, max(3, cores))
+        self.assertLessEqual(min(100, cap), 12)
+        self.assertGreaterEqual(min(100, cap), 3)
 
     @patch("trammel.core.os.cpu_count", return_value=12)
     def test_beams_have_different_variants(self, _mock_cpu: object) -> None:

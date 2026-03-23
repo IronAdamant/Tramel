@@ -8,10 +8,35 @@
 
 ## Active context
 
-- **Version:** 3.7.3
+- **Version:** 3.7.4
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.4 — Code quality audit: dead code removal, simplification, modernization
+
+**Date:** 2026-03-23
+
+### Summary
+Multi-agent parallel audit of all 15 source files. Removed dead code (`_default_beam_count`), fixed potential ZeroDivisionError and ValueError, replaced fragile `assert` with `RuntimeError`, modernized async patterns, consolidated SQL queries, extracted reusable `_sql_in()` helper, eliminated redundant dict copies, and simplified confusing comprehension patterns. 248 tests pass (unchanged).
+
+### Changes
+- **Fixed ZeroDivisionError** (core.py): `explore_trajectories` could crash on `i % len(ordered_variants)` when no strategies registered — added empty-guard early return.
+- **Fixed ValueError** (\_\_init\_\_.py): `ProcessPoolExecutor(max_workers=0)` raised ValueError when called with 0 beams — clamped to `max(1, ...)`.
+- **Removed dead code** (strategies.py): Deleted `_default_beam_count()` — logic inlined into `core.py:explore_trajectories()` where it's actually used.
+- **Replaced assert with RuntimeError** (mcp_server.py): Schema/dispatch and language/analyzer sync checks now use `RuntimeError` instead of `assert`, surviving Python's `-O` flag.
+- **Fixed logger initialization order** (mcp_stdio.py): Moved `logging.basicConfig()` to module level so early exceptions are properly logged.
+- **Modernized async dispatch** (mcp_stdio.py): Replaced verbose `loop.run_in_executor(None, lambda: ...)` with `asyncio.to_thread()` (Python 3.9+).
+- **Consolidated SQL counts** (store.py): `get_status_summary()` reduced from 4 separate `SELECT COUNT(*)` queries to a single scalar-subquery SQL statement.
+- **Extracted `_sql_in()` helper** (store_recipes.py): Reusable SQL IN-clause builder deduplicates 8 instances of repeated `",".join("?" for _ in items)` pattern.
+- **Added `_MAX_LOG_GOAL_LENGTH` constant** (store_recipes.py): Replaces magic `100` in recipe log event goal truncation.
+- **Replaced dead `TYPE_CHECKING: pass`** (store_recipes.py): Now imports `RecipeStore` for documentation of mixin host class.
+- **Eliminated redundant dict copies** (core.py): Recipe fast-path returns used `{**recipe, "_source": ...}` creating unnecessary copies — now uses `setdefault()` in place.
+- **Added lazy `_get_analyzer_registry()`** (core.py): Replaces late inline `from .analyzers import _ANALYZER_REGISTRY` inside `decompose()` method body.
+- **Simplified comprehension** (mcp_server.py): `_handle_list_strategies` removed confusing `for s, f in [stats.get(...)]` single-element list unpacking.
+- **Updated test** (test_trammel_extra.py): Removed import of deleted `_default_beam_count`, test now validates beam-count logic directly.
 
 ---
 

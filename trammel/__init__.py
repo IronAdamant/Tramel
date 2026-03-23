@@ -47,7 +47,7 @@ def _run_beams_parallel(
     analyzer_name = getattr(analyzer, "name", None)
     args_list = [(b, base_dir, test_cmd, analyzer_name) for b in beams]
     try:
-        workers = min(len(beams), os.cpu_count() or 4)
+        workers = max(1, min(len(beams), os.cpu_count() or 4))
         with ProcessPoolExecutor(max_workers=workers) as pool:
             return list(pool.map(_run_beam, args_list))
     except OSError:

@@ -36,12 +36,6 @@ def get_strategies() -> list[str]:
     return list(_STRATEGY_REGISTRY)
 
 
-def _default_beam_count(requested: int) -> int:
-    cores = os.cpu_count() or 4
-    cap = min(12, max(3, cores))
-    return min(requested, cap)
-
-
 # ── Beam strategies ──────────────────────────────────────────────────────────
 
 def _split_active_skipped(

@@ -22,6 +22,7 @@ from .mcp_server import _TOOL_SCHEMAS, dispatch_tool
 from .store import RecipeStore
 from .utils import DEFAULT_DB_PATH
 
+logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
 try:
@@ -52,10 +53,7 @@ def _configure_server(store: RecipeStore) -> Server:
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None, lambda: dispatch_tool(store, name, arguments),
-            )
+            result = await asyncio.to_thread(dispatch_tool, store, name, arguments)
         except Exception as exc:
             logger.exception("Error executing tool %s", name)
             return [TextContent(type="text", text=f"Error: {exc}")]
@@ -69,7 +67,6 @@ def _configure_server(store: RecipeStore) -> Server:
 async def _run_server() -> None:
     """Start the stdio MCP server and run until the client disconnects."""
     db_path = os.environ.get("TRAMMEL_DB_PATH", DEFAULT_DB_PATH)
-    logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
     with RecipeStore(db_path) as store:
         server = _configure_server(store)
 

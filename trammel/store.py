@@ -446,19 +446,18 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
 
     def get_status_summary(self) -> dict[str, Any]:
         """Return a summary of current state: recipe, plan, and constraint counts."""
-        recipes = self.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
-        plans = self.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
-        active = self.conn.execute(
-            "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
-        ).fetchone()[0]
-        constraints = self.conn.execute(
-            "SELECT COUNT(*) FROM constraints WHERE active = 1"
-        ).fetchone()[0]
+        row = self.conn.execute(
+            "SELECT "
+            "(SELECT COUNT(*) FROM recipes), "
+            "(SELECT COUNT(*) FROM plans), "
+            "(SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')), "
+            "(SELECT COUNT(*) FROM constraints WHERE active = 1)"
+        ).fetchone()
         return {
-            "recipes": recipes,
-            "plans_total": plans,
-            "plans_active": active,
-            "constraints_active": constraints,
+            "recipes": row[0],
+            "plans_total": row[1],
+            "plans_active": row[2],
+            "constraints_active": row[3],
         }
 
     # ── Telemetry ───────────────────────────────────────────────────────────
