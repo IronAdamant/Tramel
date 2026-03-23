@@ -831,6 +831,15 @@ class TestConfigDetection(unittest.TestCase):
             a = detect_language(d)
             self.assertEqual(a.name, "rust")
 
+    def test_detect_pyproject_over_package_json(self) -> None:
+        """Python projects with npm tooling should detect as Python, not TypeScript."""
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+            pathlib.Path(d, "package.json").write_text('{"name": "x"}\n', encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "python")
+
 
 # ── CLI dry-run ──────────────────────────────────────────────────────────────
 

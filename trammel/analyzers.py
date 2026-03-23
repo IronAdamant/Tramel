@@ -378,7 +378,12 @@ def get_analyzer(name: str) -> LanguageAnalyzer:
 
 
 def _detect_from_config(project_root: str) -> str | None:
-    """Detect language from project config files (more reliable than extension counting)."""
+    """Detect language from project config files (more reliable than extension counting).
+
+    Priority: Cargo.toml/go.mod (unambiguous) > tsconfig.json (TS-specific) >
+    pyproject.toml/setup.py (Python-specific) > package.json (ambiguous — many
+    Python/Java projects use npm for tooling) > build files > CMake.
+    """
     has = lambda f: os.path.isfile(os.path.join(project_root, f))  # noqa: E731
     if has("Cargo.toml"):
         return "rust"
@@ -386,6 +391,8 @@ def _detect_from_config(project_root: str) -> str | None:
         return "go"
     if has("tsconfig.json"):
         return "typescript"
+    if has("pyproject.toml") or has("setup.py") or has("setup.cfg"):
+        return "python"
     if has("package.json"):
         return "typescript"
     for gradle in ("build.gradle", "build.gradle.kts", "pom.xml"):
@@ -393,8 +400,6 @@ def _detect_from_config(project_root: str) -> str | None:
             return "java"
     if has("CMakeLists.txt"):
         return "cpp"
-    if has("pyproject.toml") or has("setup.py") or has("setup.cfg"):
-        return "python"
     return None
 
 
