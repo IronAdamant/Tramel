@@ -160,6 +160,28 @@ def _walk_and_map_namespaces(
     return ns_to_files, file_sources
 
 
+def _resolve_namespace_import(
+    import_path: str,
+    ns_to_files: dict[str, list[str]],
+    rel: str,
+    deps: set[str],
+    sep: str = ".",
+) -> None:
+    """Resolve a namespace/package import by trying progressively shorter prefixes.
+
+    Used by Java, C#, and PHP analyzers to resolve dotted import paths
+    against a namespace-to-files mapping. Adds matching files to deps.
+    """
+    parts = import_path.split(sep)
+    for i in range(len(parts), 0, -1):
+        prefix = sep.join(parts[:i])
+        if prefix in ns_to_files:
+            for dep in ns_to_files[prefix]:
+                if dep != rel:
+                    deps.add(dep)
+            break
+
+
 def _read_workspace_packages(project_root: str) -> dict[str, str]:
     """Read workspace packages from package.json. Returns {pkg_name: relative_dir}."""
     pkg_json = os.path.join(project_root, "package.json")
@@ -386,6 +408,7 @@ _BUSY_BASE_DELAY = 0.05
 
 def db_connect(path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=5.0)
+    conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn

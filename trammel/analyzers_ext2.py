@@ -12,7 +12,8 @@ import re
 from .utils import (
     _collect_project_files, _collect_symbols_regex,
     _collect_typed_symbols_regex, _is_ignored_dir,
-    _strip_c_comments, _strip_hash_comments, _strip_php_comments,
+    _resolve_namespace_import, _strip_c_comments,
+    _strip_hash_comments, _strip_php_comments,
     _walk_and_map_namespaces,
 )
 
@@ -56,15 +57,7 @@ class CSharpAnalyzer:
         for rel, src in file_sources.items():
             deps: set[str] = set()
             for m in _CSHARP_USING_RE.finditer(src):
-                ns = m.group(1)
-                parts = ns.split(".")
-                for i in range(len(parts), 0, -1):
-                    prefix = ".".join(parts[:i])
-                    if prefix in ns_to_files:
-                        for dep in ns_to_files[prefix]:
-                            if dep != rel:
-                                deps.add(dep)
-                        break
+                _resolve_namespace_import(m.group(1), ns_to_files, rel, deps)
             if deps:
                 graph[rel] = sorted(deps)
         return graph
@@ -187,8 +180,10 @@ class PhpAnalyzer:
         ns_to_files, file_sources = _walk_and_map_namespaces(
             project_root, _PHP_EXTENSIONS, _PHP_NAMESPACE_RE, _strip_php_comments,
         )
-        # Build reverse index for fast namespace lookup
-        ns_dot_map: dict[str, str] = {ns.replace("\\", "."): ns for ns in ns_to_files}
+        # Normalize namespace keys to dot-separated for uniform resolution
+        dot_ns_to_files: dict[str, list[str]] = {
+            ns.replace("\\", "."): files for ns, files in ns_to_files.items()
+        }
         graph: dict[str, list[str]] = {}
         for rel, src in file_sources.items():
             deps: set[str] = set()
@@ -202,15 +197,9 @@ class PhpAnalyzer:
                     if item:
                         use_paths.append(prefix + "\\" + item)
             for use_path in use_paths:
-                dot_path = use_path.replace("\\", ".")
-                parts = dot_path.split(".")
-                for i in range(len(parts), 0, -1):
-                    prefix = ".".join(parts[:i])
-                    if prefix in ns_dot_map:
-                        for dep in ns_to_files[ns_dot_map[prefix]]:
-                            if dep != rel:
-                                deps.add(dep)
-                        break
+                _resolve_namespace_import(
+                    use_path.replace("\\", "."), dot_ns_to_files, rel, deps,
+                )
             if deps:
                 graph[rel] = sorted(deps)
         return graph

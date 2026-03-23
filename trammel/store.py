@@ -188,15 +188,19 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             (plan_id,),
         ).fetchall()
         return {
-            "id": row[0], "goal": row[1], "strategy": json.loads(row[2]),
-            "status": row[3], "current_step": row[4], "total_steps": row[5],
-            "created": row[6], "updated": row[7],
+            "id": row["id"], "goal": row["goal"],
+            "strategy": json.loads(row["strategy"]),
+            "status": row["status"], "current_step": row["current_step"],
+            "total_steps": row["total_steps"],
+            "created": row["created"], "updated": row["updated"],
             "steps": [
-                {"id": s[0], "step_index": s[1], "description": s[2], "rationale": s[3],
-                 "depends_on": json.loads(s[4]), "status": s[5], "edits": json.loads(s[6]),
-                 "verification": json.loads(s[7]) if s[7] else None,
-                 "constraints_found": json.loads(s[8]),
-                 "claimed_by": s[9], "claimed_at": s[10]}
+                {"id": s["id"], "step_index": s["step_index"],
+                 "description": s["description"], "rationale": s["rationale"],
+                 "depends_on": json.loads(s["depends_on"]),
+                 "status": s["status"], "edits": json.loads(s["edits_json"]),
+                 "verification": json.loads(s["verification"]) if s["verification"] else None,
+                 "constraints_found": json.loads(s["constraints_found"]),
+                 "claimed_by": s["claimed_by"], "claimed_at": s["claimed_at"]}
                 for s in steps
             ],
         }
@@ -218,9 +222,9 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         rows = self.conn.execute(query + " ORDER BY id DESC", params).fetchall()
         return [
             {
-                "id": r[0], "goal": r[1], "status": r[2],
-                "current_step": r[3], "total_steps": r[4],
-                "created": r[5], "updated": r[6],
+                "id": r["id"], "goal": r["goal"], "status": r["status"],
+                "current_step": r["current_step"], "total_steps": r["total_steps"],
+                "created": r["created"], "updated": r["updated"],
             }
             for r in rows
         ]
@@ -269,13 +273,14 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         if not row:
             return None
         return {
-            "id": row[0], "plan_id": row[1], "step_index": row[2],
-            "description": row[3], "rationale": row[4],
-            "depends_on": json.loads(row[5]), "status": row[6],
-            "edits": json.loads(row[7]),
-            "verification": json.loads(row[8]) if row[8] else None,
-            "constraints_found": json.loads(row[9]),
-            "claimed_by": row[10], "claimed_at": row[11],
+            "id": row["id"], "plan_id": row["plan_id"],
+            "step_index": row["step_index"],
+            "description": row["description"], "rationale": row["rationale"],
+            "depends_on": json.loads(row["depends_on"]),
+            "status": row["status"], "edits": json.loads(row["edits_json"]),
+            "verification": json.loads(row["verification"]) if row["verification"] else None,
+            "constraints_found": json.loads(row["constraints_found"]),
+            "claimed_by": row["claimed_by"], "claimed_at": row["claimed_at"],
         }
 
     def get_plan_progress(self, plan_id: int) -> dict[str, Any] | None:
@@ -330,8 +335,9 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         rows = self.conn.execute(query, params).fetchall()
         return [
             {
-                "id": r[0], "plan_id": r[1], "step_id": r[2], "type": r[3],
-                "description": r[4], "context": json.loads(r[5]), "created": r[6],
+                "id": r["id"], "plan_id": r["plan_id"], "step_id": r["step_id"],
+                "type": r["constraint_type"], "description": r["description"],
+                "context": json.loads(r["context"]), "created": r["created"],
             }
             for r in rows
         ]
@@ -368,10 +374,10 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             "SELECT strategy_variant, outcome FROM trajectories"
         ).fetchall()
         stats: dict[str, list[int]] = {}
-        for variant, outcome_str in rows:
-            pair = stats.setdefault(variant, [0, 0])
+        for r in rows:
+            pair = stats.setdefault(r["strategy_variant"], [0, 0])
             try:
-                success = json.loads(outcome_str).get("success", False)
+                success = json.loads(r["outcome"]).get("success", False)
             except (json.JSONDecodeError, TypeError):
                 success = False
             pair[0 if success else 1] += 1
@@ -385,9 +391,11 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         ).fetchall()
         return [
             {
-                "id": r[0], "beam_id": r[1], "strategy_variant": r[2],
-                "steps_completed": r[3], "outcome": json.loads(r[4]),
-                "failure_reason": r[5], "created": r[6],
+                "id": r["id"], "beam_id": r["beam_id"],
+                "strategy_variant": r["strategy_variant"],
+                "steps_completed": r["steps_completed"],
+                "outcome": json.loads(r["outcome"]),
+                "failure_reason": r["failure_reason"], "created": r["created"],
             }
             for r in rows
         ]
@@ -407,7 +415,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
                 self.conn.execute(
                     "UPDATE failure_patterns SET occurrences = occurrences + 1, "
                     "error_message = ?, last_seen = ? WHERE id = ?",
-                    (error_message[:200], now, existing[0]),
+                    (error_message[:200], now, existing["id"]),
                 )
             else:
                 self.conn.execute(
@@ -437,8 +445,10 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             params = (file_path, limit)
         rows = self.conn.execute(query + " ORDER BY occurrences DESC LIMIT ?", params).fetchall()
         return [
-            {"file": r[0], "error_type": r[1], "message": r[2], "test_file": r[3],
-             "occurrences": r[4], "last_resolution": r[5], "first_seen": r[6], "last_seen": r[7]}
+            {"file": r["file_path"], "error_type": r["error_type"],
+             "message": r["error_message"], "test_file": r["test_file"],
+             "occurrences": r["occurrences"], "last_resolution": r["last_resolution"],
+             "first_seen": r["first_seen"], "last_seen": r["last_seen"]}
             for r in rows
         ]
 
@@ -448,16 +458,16 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         """Return a summary of current state: recipe, plan, and constraint counts."""
         row = self.conn.execute(
             "SELECT "
-            "(SELECT COUNT(*) FROM recipes), "
-            "(SELECT COUNT(*) FROM plans), "
-            "(SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')), "
-            "(SELECT COUNT(*) FROM constraints WHERE active = 1)"
+            "(SELECT COUNT(*) FROM recipes) AS recipe_count, "
+            "(SELECT COUNT(*) FROM plans) AS plan_count, "
+            "(SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')) AS active_count, "
+            "(SELECT COUNT(*) FROM constraints WHERE active = 1) AS constraint_count"
         ).fetchone()
         return {
-            "recipes": row[0],
-            "plans_total": row[1],
-            "plans_active": row[2],
-            "constraints_active": row[3],
+            "recipes": row["recipe_count"],
+            "plans_total": row["plan_count"],
+            "plans_active": row["active_count"],
+            "constraints_active": row["constraint_count"],
         }
 
     # ── Telemetry ───────────────────────────────────────────────────────────
@@ -481,7 +491,8 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         ).fetchall()
         tool_calls: dict[str, int] = {}
         hits, misses, scores = 0, 0, []
-        for etype, detail, value in rows:
+        for r in rows:
+            etype, detail, value = r["event_type"], r["detail"], r["value"]
             if etype == "tool_call":
                 tool_calls[detail] = tool_calls.get(detail, 0) + 1
             elif etype == "recipe_hit":

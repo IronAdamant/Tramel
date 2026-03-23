@@ -43,9 +43,9 @@ class AgentStoreMixin:
             ).fetchone()
             if not row:
                 return False
-            if row[0] != "pending":
+            if row["status"] != "pending":
                 return False
-            if self._is_claimed_by_other(row[1], row[2], agent_id, now):
+            if self._is_claimed_by_other(row["claimed_by"], row["claimed_at"], agent_id, now):
                 return False
             self.conn.execute(
                 "UPDATE steps SET claimed_by = ?, claimed_at = ? WHERE id = ?",

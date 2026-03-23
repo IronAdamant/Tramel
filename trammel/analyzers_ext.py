@@ -11,7 +11,8 @@ import re
 
 from .utils import (
     _collect_project_files, _collect_symbols_regex,
-    _collect_typed_symbols_regex, _is_ignored_dir, _strip_c_comments,
+    _collect_typed_symbols_regex, _is_ignored_dir,
+    _resolve_namespace_import, _strip_c_comments,
     _walk_and_map_namespaces,
 )
 
@@ -395,15 +396,7 @@ class JavaAnalyzer:
         for rel, src in file_sources.items():
             deps: set[str] = set()
             for m in _JAVA_IMPORT_RE.finditer(src):
-                import_path = m.group(1)
-                parts = import_path.split(".")
-                for i in range(len(parts), 0, -1):
-                    pkg = ".".join(parts[:i])
-                    if pkg in pkg_to_files:
-                        for dep_file in pkg_to_files[pkg]:
-                            if dep_file != rel:
-                                deps.add(dep_file)
-                        break
+                _resolve_namespace_import(m.group(1), pkg_to_files, rel, deps)
             # Fallback: files sharing the same package are co-dependent
             if not deps:
                 m = _JAVA_PACKAGE_RE.search(src)

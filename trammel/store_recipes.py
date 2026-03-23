@@ -146,7 +146,7 @@ class RecipeStoreMixin:
         ).fetchall()
         if not candidate_sigs:
             return None
-        sig_list = [row[0] for row in candidate_sigs]
+        sig_list = [row["recipe_sig"] for row in candidate_sigs]
         sig_in, sig_params = _sql_in(sig_list)
         cur = self.conn.execute(
             f"SELECT sig, pattern, strategy, successes, failures, updated FROM recipes "
@@ -157,7 +157,7 @@ class RecipeStoreMixin:
         candidates = cur.fetchall()
         sig_files: dict[str, set[str]] = {}
         if context_files is not None and candidates:
-            all_sigs = [row[0] for row in candidates]
+            all_sigs = [row["sig"] for row in candidates]
             file_in, file_params = _sql_in(all_sigs)
             file_rows = self.conn.execute(
                 f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig {file_in}",
@@ -220,7 +220,7 @@ class RecipeStoreMixin:
         if not rows:
             return []
         # Batch-fetch all file paths for the returned recipes
-        sigs = [r[0] for r in rows]
+        sigs = [r["sig"] for r in rows]
         sig_in, sig_params = _sql_in(sigs)
         file_rows = self.conn.execute(
             f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig {sig_in}",
@@ -245,7 +245,7 @@ class RecipeStoreMixin:
         """Remove stale, low-quality recipes. Returns count of pruned recipes."""
         cutoff = time.time() - (max_age_days * 86400)
         pruned = [
-            row[0] for row in self.conn.execute(
+            row["sig"] for row in self.conn.execute(
                 "SELECT sig FROM recipes WHERE updated < ? AND "
                 "(successes + failures = 0 OR CAST(successes AS REAL) / (successes + failures) < ?)",
                 (cutoff, min_success_ratio),

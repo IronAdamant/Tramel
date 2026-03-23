@@ -49,6 +49,11 @@ def _split_active_skipped(
     return active, skipped
 
 
+def _step_file(step: dict[str, Any]) -> str:
+    """Extract file path from a step dict."""
+    return step.get("file", "")
+
+
 def _count_importers(dep_graph: dict[str, list[str]]) -> dict[str, int]:
     """Count how many files import each file."""
     return Counter(d for deps in dep_graph.values() for d in deps)
@@ -59,7 +64,7 @@ def _order_bottom_up(
 ) -> list[dict[str, Any]]:
     """Dependencies first, then dependents. Stable sort by dep count ascending."""
     active, skipped = _split_active_skipped(steps)
-    active.sort(key=lambda s: len(dep_graph.get(s.get("file", ""), [])))
+    active.sort(key=lambda s: len(dep_graph.get(_step_file(s), [])))
     return active + skipped
 
 
@@ -68,7 +73,7 @@ def _order_top_down(
 ) -> list[dict[str, Any]]:
     """Entry points first (most dependencies), internals last. Skipped at end."""
     active, skipped = _split_active_skipped(steps)
-    active.sort(key=lambda s: len(dep_graph.get(s.get("file", ""), [])), reverse=True)
+    active.sort(key=lambda s: len(dep_graph.get(_step_file(s), [])), reverse=True)
     return active + skipped
 
 
@@ -83,23 +88,23 @@ def _order_risk_first(
     batchable = [s for s in active if not s.get("incompatible_with")]
 
     isolated.sort(
-        key=lambda s: import_counts.get(s.get("file", ""), 0), reverse=True,
+        key=lambda s: import_counts.get(_step_file(s), 0), reverse=True,
     )
 
     pkg_groups: dict[str, list[dict[str, Any]]] = {}
     for s in batchable:
-        pkg = os.path.dirname(s.get("file", "")) or "__root__"
+        pkg = os.path.dirname(_step_file(s)) or "__root__"
         pkg_groups.setdefault(pkg, []).append(s)
     sorted_groups = sorted(
         pkg_groups.values(),
-        key=lambda g: max(import_counts.get(st.get("file", ""), 0) for st in g),
+        key=lambda g: max(import_counts.get(_step_file(st), 0) for st in g),
         reverse=True,
     )
 
     result: list[dict[str, Any]] = list(isolated)
     for group in sorted_groups:
         group.sort(
-            key=lambda s: import_counts.get(s.get("file", ""), 0), reverse=True,
+            key=lambda s: import_counts.get(_step_file(s), 0), reverse=True,
         )
         result.extend(group)
     result.extend(skipped)
@@ -112,12 +117,12 @@ def _order_critical_path(
     """Longest dependency chain first (fast feedback on bottlenecks). Skipped at end."""
     active, skipped = _split_active_skipped(steps)
 
-    all_files = {s.get("file", "") for s in active}
+    all_files = {_step_file(s) for s in active}
     depth: dict[str, int] = {}
 
     # Iterative longest-path (avoids recursion limit on deep graphs)
     for s in active:
-        start = s.get("file", "")
+        start = _step_file(s)
         if start in depth:
             continue
         stack: list[tuple[str, bool]] = [(start, False)]
@@ -141,7 +146,7 @@ def _order_critical_path(
                 if c in all_files and c not in depth:
                     stack.append((c, False))
 
-    active.sort(key=lambda s: depth.get(s.get("file", ""), 0), reverse=True)
+    active.sort(key=lambda s: depth.get(_step_file(s), 0), reverse=True)
     return active + skipped
 
 
@@ -151,7 +156,7 @@ def _order_cohesion(
     """Group tightly coupled files, process each group contiguously. Skipped at end."""
     active, skipped = _split_active_skipped(steps)
 
-    all_files = {s.get("file", "") for s in active}
+    all_files = {_step_file(s) for s in active}
     adj: dict[str, set[str]] = {f: set() for f in all_files}
     for f, deps in dep_graph.items():
         if f not in all_files:
@@ -192,11 +197,11 @@ def _order_cohesion(
             }
             file_order.extend(topological_sort(sub_graph))
 
-    file_to_step = {s.get("file", ""): s for s in active}
+    file_to_step = {_step_file(s): s for s in active}
     ordered = [file_to_step[f] for f in file_order if f in file_to_step]
-    ordered_files = {s.get("file", "") for s in ordered}
+    ordered_files = {_step_file(s) for s in ordered}
     for s in active:
-        if s.get("file", "") not in ordered_files:
+        if _step_file(s) not in ordered_files:
             ordered.append(s)
     return ordered + skipped
 
@@ -216,7 +221,7 @@ def _order_leaf_first(
     """Files with zero importers first (safe, isolated changes). Skipped at end."""
     active, skipped = _split_active_skipped(steps)
     importer_counts = _count_importers(dep_graph)
-    active.sort(key=lambda s: importer_counts.get(s.get("file", ""), 0))
+    active.sort(key=lambda s: importer_counts.get(_step_file(s), 0))
     return active + skipped
 
 
@@ -228,7 +233,7 @@ def _order_hub_first(
     importer_counts = _count_importers(dep_graph)
 
     def hub_score(s: dict[str, Any]) -> float:
-        f = s.get("file", "")
+        f = _step_file(s)
         imports_out = len(dep_graph.get(f, []))
         imports_in = importer_counts.get(f, 0)
         return imports_out * imports_in
@@ -243,12 +248,12 @@ def _order_test_adjacent(
     """Files with corresponding test files first (verifiable changes prioritized). Skipped at end."""
     active, skipped = _split_active_skipped(steps)
 
-    all_files = {s.get("file", "") for s in active}
+    all_files = {_step_file(s) for s in active}
 
     all_basenames = {os.path.splitext(os.path.basename(f))[0] for f in all_files}
 
     def has_test(s: dict[str, Any]) -> int:
-        f = s.get("file", "")
+        f = _step_file(s)
         base = os.path.splitext(os.path.basename(f))[0]
         test_names = {f"test_{base}", f"{base}_test", f"{base}_spec"}
         return 1 if test_names & all_basenames else 0

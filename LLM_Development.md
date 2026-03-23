@@ -8,10 +8,48 @@
 
 ## Active context
 
-- **Version:** 3.7.6
+- **Version:** 3.7.7
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.7 — Structural deduplication: sqlite3.Row, shared step-file accessor, namespace resolver
+
+**Date:** 2026-03-23
+
+### Summary
+Three structural deduplication passes targeting the remaining audit findings: (1) replaced all fragile positional tuple indexing in the store layer with `sqlite3.Row` named column access, (2) extracted `_step_file()` helper in strategies.py eliminating 17 repeated `.get("file", "")` calls, (3) extracted `_resolve_namespace_import()` shared utility deduplicating identical prefix-matching loops in Java/C#/PHP analyzers. All 248 tests pass.
+
+### Changes
+
+**sqlite3.Row named columns (store.py, store_recipes.py, store_agents.py, utils.py):**
+- Set `conn.row_factory = sqlite3.Row` in `db_connect()` — all query results now support named column access
+- Replaced all `row[0]`/`row[1]`/... positional indexing in `get_plan()`, `get_step()`, `list_plans()`, `get_active_constraints()`, `get_trajectories()`, `get_strategy_stats()`, `record_failure_pattern()`, `get_failure_history()`, `get_status_summary()`, `get_usage_stats()` with `row["column_name"]`
+- Updated `store_agents.py` `claim_step` from `row[0]`/`row[1]`/`row[2]` to `row["status"]`/`row["claimed_by"]`/`row["claimed_at"]`
+- Updated `store_recipes.py` `retrieve_best_recipe`, `list_recipes`, `prune_recipes` from `row[0]` to `row["sig"]`/`row["recipe_sig"]`
+- Added named aliases to `get_status_summary` SQL for `sqlite3.Row` compatibility
+
+**_step_file() helper (strategies.py):**
+- New `_step_file(step)` extracts `step.get("file", "")` — single source of truth
+- Replaced 17 occurrences across 9 strategy functions (including both `s` and `st` variable names)
+
+**_resolve_namespace_import() (utils.py, analyzers_ext.py, analyzers_ext2.py):**
+- New shared utility: tries progressively shorter dotted prefixes against a namespace-to-files mapping
+- JavaAnalyzer: 7-line inline loop → single `_resolve_namespace_import()` call
+- CSharpAnalyzer: 7-line inline loop → single `_resolve_namespace_import()` call
+- PhpAnalyzer: 8-line inline loop with `ns_dot_map` indirection → normalized `dot_ns_to_files` dict + single `_resolve_namespace_import()` call
+
+### Files changed
+- `trammel/utils.py` — `sqlite3.Row` factory, `_resolve_namespace_import()` utility
+- `trammel/store.py` — Named column access throughout
+- `trammel/store_recipes.py` — Named column access for sig lookups
+- `trammel/store_agents.py` — Named column access in `claim_step`
+- `trammel/strategies.py` — `_step_file()` helper, 17 call sites updated
+- `trammel/analyzers_ext.py` — Java uses shared resolver
+- `trammel/analyzers_ext2.py` — C# and PHP use shared resolver
+- `pyproject.toml` — Version bump to 3.7.7
 
 ---
 
