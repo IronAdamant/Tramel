@@ -12,6 +12,11 @@ from .utils import topological_sort, trigram_signature
 if TYPE_CHECKING:
     from .analyzers import LanguageAnalyzer
 
+_SUPPORTED_LANGUAGES = frozenset({
+    "python", "typescript", "go", "rust", "cpp", "java",
+    "csharp", "ruby", "php", "swift", "dart", "zig",
+})
+
 # ── Strategy registry ────────────────────────────────────────────────────────
 
 StrategyFn = Callable[[list[dict[str, Any]], dict[str, list[str]]], list[dict[str, Any]]]
@@ -452,12 +457,9 @@ class Planner:
         steps, applied = _apply_constraints(steps, active_constraints)
         t4 = _time.monotonic()
 
-        # Supported language list for unsupported-language warning
-        _SUPPORTED = {"python", "typescript", "go", "rust", "cpp", "java",
-                      "csharp", "ruby", "php", "swift", "dart", "zig"}
         lang_name = getattr(analyzer, "name", "unknown")
         warning = None
-        if lang_name not in _SUPPORTED:
+        if lang_name not in _SUPPORTED_LANGUAGES:
             warning = f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
 
         return {

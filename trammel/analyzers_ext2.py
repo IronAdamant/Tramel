@@ -9,12 +9,14 @@ from __future__ import annotations
 import functools
 import os
 import re
+from typing import Callable
 
 from .utils import _collect_project_files, _is_ignored_dir
 
 
 @functools.cache
-def _get_collect_symbols_regex():  # noqa: ANN202
+def _get_collect_symbols_regex() -> Callable:
+    """Lazy import to avoid circular dependency; analyzers.py imports us at the bottom."""
     from .analyzers import _collect_symbols_regex as fn
     return fn
 
@@ -47,7 +49,7 @@ class CSharpAnalyzer:
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         ns_to_files: dict[str, list[str]] = {}
-        file_set: set[str] = set()
+        file_sources: dict[str, str] = {}
         for root, dirs, files in os.walk(project_root):
             dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
             for fname in files:
@@ -55,23 +57,17 @@ class CSharpAnalyzer:
                     continue
                 path = os.path.join(root, fname)
                 rel = os.path.relpath(path, project_root)
-                file_set.add(rel)
                 try:
                     with open(path, encoding="utf-8", errors="replace") as fp:
                         src = fp.read()
                 except OSError:
                     continue
+                file_sources[rel] = src
                 m = _CSHARP_NAMESPACE_RE.search(src)
                 if m:
                     ns_to_files.setdefault(m.group(1), []).append(rel)
         graph: dict[str, list[str]] = {}
-        for rel in file_set:
-            path = os.path.join(project_root, rel)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
-            except OSError:
-                continue
+        for rel, src in file_sources.items():
             deps: set[str] = set()
             for m in _CSHARP_USING_RE.finditer(src):
                 ns = m.group(1)
@@ -187,7 +183,7 @@ class PhpAnalyzer:
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         ns_to_files: dict[str, list[str]] = {}
-        file_set: set[str] = set()
+        file_sources: dict[str, str] = {}
         for root, dirs, files in os.walk(project_root):
             dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
             for fname in files:
@@ -195,35 +191,30 @@ class PhpAnalyzer:
                     continue
                 path = os.path.join(root, fname)
                 rel = os.path.relpath(path, project_root)
-                file_set.add(rel)
                 try:
                     with open(path, encoding="utf-8", errors="replace") as fp:
                         src = fp.read()
                 except OSError:
                     continue
+                file_sources[rel] = src
                 m = _PHP_NAMESPACE_RE.search(src)
                 if m:
                     ns_to_files.setdefault(m.group(1), []).append(rel)
+        # Build reverse index for fast namespace lookup
+        ns_dot_map: dict[str, str] = {ns.replace("\\", "."): ns for ns in ns_to_files}
         graph: dict[str, list[str]] = {}
-        for rel in file_set:
-            path = os.path.join(project_root, rel)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
-            except OSError:
-                continue
+        for rel, src in file_sources.items():
             deps: set[str] = set()
             for m in _PHP_USE_RE.finditer(src):
                 use_path = m.group(1).replace("\\", ".")
                 parts = use_path.split(".")
                 for i in range(len(parts), 0, -1):
                     prefix = ".".join(parts[:i])
-                    for ns, ns_files in ns_to_files.items():
-                        if ns.replace("\\", ".") == prefix:
-                            for dep in ns_files:
-                                if dep != rel:
-                                    deps.add(dep)
-                            break
+                    if prefix in ns_dot_map:
+                        for dep in ns_to_files[ns_dot_map[prefix]]:
+                            if dep != rel:
+                                deps.add(dep)
+                        break
             if deps:
                 graph[rel] = sorted(deps)
         return graph
@@ -355,8 +346,6 @@ class DartAnalyzer:
         return graph
 
     def pick_test_cmd(self, project_root: str) -> list[str]:
-        if os.path.isfile(os.path.join(project_root, "pubspec.yaml")):
-            return ["dart", "test"]
         return ["dart", "test"]
 
     def error_patterns(self) -> list[tuple[str, str, str]]:

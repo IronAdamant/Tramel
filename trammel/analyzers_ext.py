@@ -9,12 +9,13 @@ from __future__ import annotations
 import functools
 import os
 import re
+from typing import Callable
 
 from .utils import _collect_project_files, _is_ignored_dir
 
 
 @functools.cache
-def _get_collect_symbols_regex():  # noqa: ANN202
+def _get_collect_symbols_regex() -> Callable:
     """Lazy import to avoid circular dependency; analyzers.py imports us at the bottom."""
     from .analyzers import _collect_symbols_regex as fn
     return fn
@@ -55,40 +56,41 @@ class GoAnalyzer:
             prefix = module_path + "/"
         else:
             prefix = module_path + "/" + scope_rel.replace(os.sep, "/") + "/"
+        # Single walk: collect package dir→files mapping and read sources together
         dir_files: dict[str, list[str]] = {}
+        file_sources: dict[str, str] = {}
         for root, dirs, files in os.walk(project_root):
             dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            go_files = [f for f in files if f.endswith(".go") and not f.endswith("_test.go")]
-            if go_files:
-                rel_dir = os.path.relpath(root, project_root)
-                if rel_dir == ".":
-                    rel_dir = ""
-                dir_files[rel_dir] = [
-                    os.path.relpath(os.path.join(root, f), project_root) for f in go_files
-                ]
-        graph: dict[str, list[str]] = {}
-        for root, dirs, files in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+            rel_dir = os.path.relpath(root, project_root)
+            if rel_dir == ".":
+                rel_dir = ""
+            go_files_in_dir: list[str] = []
             for fname in files:
                 if not fname.endswith(".go"):
                     continue
                 path = os.path.join(root, fname)
                 rel = os.path.relpath(path, project_root)
+                if not fname.endswith("_test.go"):
+                    go_files_in_dir.append(rel)
                 try:
                     with open(path, encoding="utf-8", errors="replace") as fp:
-                        src = fp.read()
+                        file_sources[rel] = fp.read()
                 except OSError:
                     continue
-                deps: set[str] = set()
-                for imp in self._extract_imports(src):
-                    if not imp.startswith(prefix):
-                        continue
-                    rel_pkg = imp[len(prefix):]
-                    for dep_file in dir_files.get(rel_pkg, []):
-                        if dep_file != rel:
-                            deps.add(dep_file)
-                if deps:
-                    graph[rel] = sorted(deps)
+            if go_files_in_dir:
+                dir_files[rel_dir] = go_files_in_dir
+        graph: dict[str, list[str]] = {}
+        for rel, src in file_sources.items():
+            deps: set[str] = set()
+            for imp in self._extract_imports(src):
+                if not imp.startswith(prefix):
+                    continue
+                rel_pkg = imp[len(prefix):]
+                for dep_file in dir_files.get(rel_pkg, []):
+                    if dep_file != rel:
+                        deps.add(dep_file)
+            if deps:
+                graph[rel] = sorted(deps)
         return graph
 
     def pick_test_cmd(self, project_root: str) -> list[str]:

@@ -295,7 +295,7 @@ def dispatch_tool(
             return store.validate_recipes(arguments["project_root"])
 
         case "estimate":
-            from .analyzers import detect_language, get_analyzer
+            from .analyzers import detect_language
             from .utils import _collect_project_files
             est_root = arguments["project_root"]
             est_scope = arguments.get("scope")
@@ -305,7 +305,6 @@ def dispatch_tool(
             else:
                 est_analyzer = detect_language(analysis_root)
             files = _collect_project_files(analysis_root, est_analyzer.extensions)
-            total_files = sum(1 for _ in os.scandir(analysis_root)) if os.path.isdir(analysis_root) else 0
             return {
                 "language": est_analyzer.name,
                 "scope": est_scope,

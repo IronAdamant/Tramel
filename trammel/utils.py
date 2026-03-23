@@ -287,7 +287,7 @@ def analyze_failure(
 
     if analysis["error_type"] == "unknown":
         for line in combined.split("\n"):
-            if "Error" in line or "error" in line.lower():
+            if "error" in line.lower():
                 analysis["error_type"] = "runtime_error"
                 analysis["message"] = line.strip()[:200]
                 break

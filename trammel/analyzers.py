@@ -363,15 +363,6 @@ from .analyzers_ext2 import (
     CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
 )
 
-_CPP_EXTENSIONS = CppAnalyzer.extensions
-_JAVA_EXTENSIONS = JavaAnalyzer.extensions
-_CSHARP_EXTENSIONS = CSharpAnalyzer.extensions
-_RUBY_EXTENSIONS = RubyAnalyzer.extensions
-_PHP_EXTENSIONS = PhpAnalyzer.extensions
-_SWIFT_EXTENSIONS = SwiftAnalyzer.extensions
-_DART_EXTENSIONS = DartAnalyzer.extensions
-_ZIG_EXTENSIONS = ZigAnalyzer.extensions
-
 _ANALYZER_REGISTRY: dict[str, type] = {
     "python": PythonAnalyzer,
     "typescript": TypeScriptAnalyzer,
@@ -402,7 +393,8 @@ def _detect_from_config(project_root: str) -> str | None:
 
     Priority: unambiguous config files first, then language-specific, then ambiguous.
     """
-    has = lambda f: os.path.isfile(os.path.join(project_root, f))  # noqa: E731
+    def has(f: str) -> bool:
+        return os.path.isfile(os.path.join(project_root, f))
     # Unambiguous single-language config files
     if has("Cargo.toml"):
         return "rust"
@@ -420,7 +412,11 @@ def _detect_from_config(project_root: str) -> str | None:
     if has("CMakeLists.txt") or has("SConstruct"):
         return "cpp"
     # .NET / C#
-    if any(has(f) for f in os.listdir(project_root) if f.endswith((".csproj", ".sln"))):
+    try:
+        csharp_match = any(has(f) for f in os.listdir(project_root) if f.endswith((".csproj", ".sln")))
+    except OSError:
+        csharp_match = False
+    if csharp_match:
         return "csharp"
     # Python (setup.py unambiguous; pyproject.toml needs [project])
     if has("setup.py") or has("setup.cfg"):
@@ -453,38 +449,30 @@ def detect_language(project_root: str) -> LanguageAnalyzer:
     config_lang = _detect_from_config(project_root)
     if config_lang:
         return get_analyzer(config_lang)
-    counts: dict[str, int] = {
-        "python": 0, "typescript": 0, "go": 0, "rust": 0, "cpp": 0, "java": 0,
-        "csharp": 0, "ruby": 0, "php": 0, "swift": 0, "dart": 0, "zig": 0,
-    }
+    # Map language → extensions for file counting (use tuples for shared analyzers)
+    _LANG_EXTENSIONS: list[tuple[str, tuple[str, ...]]] = [
+        ("python", (".py",)),
+        ("typescript", _TS_EXTENSIONS),
+        ("go", (".go",)),
+        ("rust", (".rs",)),
+        ("cpp", CppAnalyzer.extensions),
+        ("java", JavaAnalyzer.extensions),
+        ("csharp", (".cs",)),
+        ("ruby", (".rb",)),
+        ("php", (".php",)),
+        ("swift", (".swift",)),
+        ("dart", (".dart",)),
+        ("zig", (".zig",)),
+    ]
+    counts: dict[str, int] = {lang: 0 for lang, _ in _LANG_EXTENSIONS}
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for fname in files:
-            if fname.endswith(".py"):
-                counts["python"] += 1
-            elif any(fname.endswith(ext) for ext in _TS_EXTENSIONS):
-                counts["typescript"] += 1
-            elif fname.endswith(".go"):
-                counts["go"] += 1
-            elif fname.endswith(".rs"):
-                counts["rust"] += 1
-            elif any(fname.endswith(ext) for ext in _CPP_EXTENSIONS):
-                counts["cpp"] += 1
-            elif any(fname.endswith(ext) for ext in _JAVA_EXTENSIONS):
-                counts["java"] += 1
-            elif fname.endswith(".cs"):
-                counts["csharp"] += 1
-            elif fname.endswith(".rb"):
-                counts["ruby"] += 1
-            elif fname.endswith(".php"):
-                counts["php"] += 1
-            elif fname.endswith(".swift"):
-                counts["swift"] += 1
-            elif fname.endswith(".dart"):
-                counts["dart"] += 1
-            elif fname.endswith(".zig"):
-                counts["zig"] += 1
-    best = max(counts, key=lambda k: counts[k])
+            for lang, exts in _LANG_EXTENSIONS:
+                if any(fname.endswith(ext) for ext in exts):
+                    counts[lang] += 1
+                    break
+    best = max(counts, key=counts.get)
     if counts[best] == 0:
         return PythonAnalyzer()
     return get_analyzer(best)

@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
 **Updated:** 2026-03-23
-**Version:** 3.2.0
+**Version:** 3.2.1
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition (15 languages: Python, TypeScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig), parallel beam execution, incremental verification, failure constraint propagation, structural recipe matching (with abbreviation expansion), recipe pruning, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server (21 tools) for LLM integration with reference system prompt.
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 3.2.0), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 3.2.1), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 | `SYSTEM_PROMPT.md` | Reference orchestration guide for LLM clients: plan-verify-store loop |
 
 ## wiki-local/
@@ -71,6 +71,7 @@
 
 ## Changelog (high level)
 
+- **3.2.1:** Codebase cleanup and bug fixes. Fixed recipe scoring bug in `store_recipes.py` where `best_score` was updated before JSON validation succeeded (corrupted entries could shadow valid recipes). Removed dead code: unused `total_files` variable in `mcp_server.py` `estimate` tool, redundant `get_analyzer` re-import. Simplified `detect_language` in `analyzers.py`: replaced 8 extension alias constants and 12-branch if/elif chain with registry-based loop. Replaced lambda with `def` in `_detect_from_config`. Added `OSError` guard to `os.listdir` call in C# config detection. Added return type annotations to `_get_collect_symbols_regex` in both `analyzers_ext.py` and `analyzers_ext2.py`. Eliminated double file reads in `CSharpAnalyzer` and `PhpAnalyzer` `analyze_imports` (single walk, cache sources). Optimized `GoAnalyzer.analyze_imports` from two walks to one. Optimized PHP namespace lookup with reverse index (O(1) vs O(n)). Removed redundant Dart `pick_test_cmd` branch. Simplified `utils.py` error detection case check. Moved `_SUPPORTED` set from inside `decompose()` to module-level `_SUPPORTED_LANGUAGES` frozenset. Simplified `__main__.py`. 230 tests pass (unchanged).
 - **3.2.0:** Six new language analyzers in new `analyzers_ext2.py` (~480 LOC): `CSharpAnalyzer` (.cs), `RubyAnalyzer` (.rb), `PhpAnalyzer` (.php), `SwiftAnalyzer` (.swift), `DartAnalyzer` (.dart), `ZigAnalyzer` (.zig). Total: 15 supported languages. Config-file detection expanded (Package.swift, build.zig, pubspec.yaml, .csproj/.sln, Gemfile, composer.json). Extension counting expanded (.cs, .rb, .php, .swift, .dart, .zig). `_ANALYZER_REGISTRY` expanded to 15 languages (python, typescript, javascript, go, rust, cpp, c, java, kotlin, csharp, ruby, php, swift, dart, zig). MCP `_LANGUAGES` list updated to match. All 6 new analyzers exported from `__init__.py`. 230 tests (15 new: symbols/imports for C#, Ruby, PHP, Swift, Dart, Zig + 6 config detection). All 21 sample repos re-tested: zero errors.
 - **3.1.0:** Abbreviation handling in recipe matching, analysis timing metadata, `estimate` MCP tool, iterative critical_path. New `_ABBREVIATIONS` dict in `utils.py` (~40 common coding abbreviations); `normalize_goal` expands abbreviations before verb synonyms, enabling recipe matching across abbreviated goals (e.g., "optimize GC" matches "optimize garbage collector" at 0.86+ similarity). `decompose` now returns `analysis_meta` with `language`, `scope`, `files_analyzed`, `dep_files`, `dep_edges`, `timing_s`, and optional `warning` for unsupported language fallbacks. New `estimate` MCP tool (21 tools total) for quick file count without full analysis. Converted recursive `critical_path` depth computation to iterative stack-based DFS with cycle detection (fixes stack overflow on deep graphs like Guava's 1.66M-edge Java import graph). 215 tests (5 new: 3 abbreviation, 1 analysis meta, 1 estimate tool).
 - **3.0.0:** Monorepo scope support + concurrent write safety. New `scope` parameter on `decompose`, `explore`, `plan_and_execute`, CLI (`--scope`), and MCP tools — limits analysis to a subdirectory while keeping the full project for test execution. Concurrent write safety validated with threading tests (4 threads × 5 ops on plans, recipes, constraints). `sample_file_test/` added to `.gitignore` and `_IGNORED_DIRS` for large-repo testing. 206 tests (6 new: 3 concurrent, 3 scope).

@@ -151,6 +151,15 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### 3.2.1
+
+- **Bug fix**: `retrieve_best_recipe` scoring bug where `best_score` was updated before JSON validation — corrupted entries could shadow valid recipes.
+- **Dead code removed**: unused `total_files` variable in `estimate` tool, redundant `get_analyzer` re-import.
+- **Code simplification**: `detect_language` replaced 8 extension alias constants and 12-branch if/elif with data-driven loop. Lambda replaced with `def` in `_detect_from_config`. Redundant `DartAnalyzer.pick_test_cmd` branch removed.
+- **Performance**: eliminated double file reads in C#/PHP analyzers; Go analyzer reduced from two walks to one; PHP namespace lookup optimized from O(n) to O(1).
+- **Modernization**: added return type annotations to `_get_collect_symbols_regex`. Moved `_SUPPORTED` to module-level `_SUPPORTED_LANGUAGES` frozenset. Simplified `__main__.py`.
+- **230 tests** (unchanged).
+
 ### 3.2.0
 
 - **Six new language analyzers**: `CSharpAnalyzer` (.cs), `RubyAnalyzer` (.rb), `PhpAnalyzer` (.php), `SwiftAnalyzer` (.swift), `DartAnalyzer` (.dart), `ZigAnalyzer` (.zig) in new `analyzers_ext2.py` (~480 LOC). Total: 15 supported languages (Python, TypeScript, JavaScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig).

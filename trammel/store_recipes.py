@@ -159,11 +159,12 @@ class RecipeStoreMixin:
                 score = text_sim
 
             if score > best_score:
-                best_score = score
                 try:
-                    best = json.loads(strategy_str)
+                    candidate = json.loads(strategy_str)
                 except (json.JSONDecodeError, TypeError):
                     continue
+                best_score = score
+                best = candidate
                 if context_files is None and text_sim == 1.0:
                     break
         return best
