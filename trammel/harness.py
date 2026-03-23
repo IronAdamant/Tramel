@@ -175,7 +175,7 @@ class ExecutionHarness:
                         "trace": result.get("trace", ""),
                         "score": 0.0,
                         "failure_analysis": result.get("failure_analysis"),
-                        "failure_reason": result.get("failure_analysis", {}).get("message", ""),
+                        "failure_reason": (result.get("failure_analysis") or {}).get("message", ""),
                     }
 
                 # Apply content edits to base for next step

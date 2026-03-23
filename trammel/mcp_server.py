@@ -252,7 +252,7 @@ def _handle_save_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_get_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
-    ctx = set(args["context_files"]) if args.get("context_files") else None
+    ctx = set(files) if (files := args.get("context_files")) else None
     return store.retrieve_best_recipe(args["goal"], context_files=ctx) or {"match": None}
 
 
@@ -309,8 +309,9 @@ def _handle_status(store: RecipeStore, _args: dict[str, Any]) -> Any:
 def _handle_list_strategies(store: RecipeStore, _args: dict[str, Any]) -> Any:
     stats = store.get_strategy_stats()
     return [
-        {"name": name, "successes": stats.get(name, (0, 0))[0], "failures": stats.get(name, (0, 0))[1]}
+        {"name": name, "successes": pair[0], "failures": pair[1]}
         for name in get_strategies()
+        for pair in (stats.get(name, (0, 0)),)
     ]
 
 

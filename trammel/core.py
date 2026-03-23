@@ -72,7 +72,10 @@ def _generate_steps(
 def _step_rationale(dep_files: list[str], sym_names: list[str]) -> str:
     parts: list[str] = []
     if dep_files:
-        parts.append(f"depends on {', '.join(dep_files[:3])}")
+        summary = ", ".join(dep_files[:3])
+        if len(dep_files) > 3:
+            summary += f" (+{len(dep_files) - 3} more)"
+        parts.append(f"depends on {summary}")
     parts.append(f"contains {len(sym_names)} symbol(s)")
     return "; ".join(parts)
 
@@ -285,7 +288,7 @@ class Planner:
         num_beams: int = 3,
     ) -> list[dict[str, Any]]:
         cores = os.cpu_count() or 4
-        n = min(num_beams, min(12, max(3, cores)))
+        n = min(num_beams, max(3, min(12, cores)))
         steps = strategy.get("steps", [])
         dep_graph = strategy.get("dependency_graph", {})
 

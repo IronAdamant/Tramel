@@ -136,7 +136,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
         self.assertIn("TypeError", markers)
         self.assertIn("Cannot find module", markers)
 
-    def test_collect_symbols_interface(self):
+    def test_collect_symbols_interface(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "types.ts").write_text(
                 "export interface UserProps {\n  name: string;\n}\n", encoding="utf-8",
@@ -144,7 +144,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             symbols = TypeScriptAnalyzer().collect_symbols(d)
             self.assertIn("UserProps", symbols.get("types.ts", []))
 
-    def test_collect_symbols_enum(self):
+    def test_collect_symbols_enum(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "colors.ts").write_text(
                 "export enum Color {\n  Red,\n  Green,\n  Blue\n}\n", encoding="utf-8",
@@ -152,7 +152,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             symbols = TypeScriptAnalyzer().collect_symbols(d)
             self.assertIn("Color", symbols.get("colors.ts", []))
 
-    def test_collect_symbols_const_enum(self):
+    def test_collect_symbols_const_enum(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "dir.ts").write_text(
                 "export const enum Direction {\n  Up,\n  Down\n}\n", encoding="utf-8",
@@ -160,7 +160,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             symbols = TypeScriptAnalyzer().collect_symbols(d)
             self.assertIn("Direction", symbols.get("dir.ts", []))
 
-    def test_collect_symbols_type_alias(self):
+    def test_collect_symbols_type_alias(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "types.ts").write_text(
                 "export type ID = string | number;\n", encoding="utf-8",
@@ -168,7 +168,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             symbols = TypeScriptAnalyzer().collect_symbols(d)
             self.assertIn("ID", symbols.get("types.ts", []))
 
-    def test_collect_symbols_abstract_class(self):
+    def test_collect_symbols_abstract_class(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "base.ts").write_text(
                 "export abstract class Base {\n  abstract run(): void;\n}\n", encoding="utf-8",
@@ -176,7 +176,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             symbols = TypeScriptAnalyzer().collect_symbols(d)
             self.assertIn("Base", symbols.get("base.ts", []))
 
-    def test_collect_symbols_decorated_class(self):
+    def test_collect_symbols_decorated_class(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "comp.ts").write_text(
                 "@Component({selector: 'app'})\nexport class MyComponent {\n}\n", encoding="utf-8",
@@ -184,7 +184,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             symbols = TypeScriptAnalyzer().collect_symbols(d)
             self.assertIn("MyComponent", symbols.get("comp.ts", []))
 
-    def test_collect_symbols_function_expression(self):
+    def test_collect_symbols_function_expression(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "handler.ts").write_text(
                 "export const handler = function(req: Request) {\n  return null;\n}\n", encoding="utf-8",
@@ -192,7 +192,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             symbols = TypeScriptAnalyzer().collect_symbols(d)
             self.assertIn("handler", symbols.get("handler.ts", []))
 
-    def test_import_reexport(self):
+    def test_import_reexport(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "utils.ts").write_text(
                 "export function greet() { return 'hi'; }\n", encoding="utf-8",
@@ -204,7 +204,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             self.assertIn("index.ts", graph)
             self.assertIn("utils.ts", graph["index.ts"])
 
-    def test_import_barrel_export(self):
+    def test_import_barrel_export(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "models.ts").write_text(
                 "export class User {}\n", encoding="utf-8",
@@ -216,7 +216,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             self.assertIn("index.ts", graph)
             self.assertIn("models.ts", graph["index.ts"])
 
-    def test_import_dynamic(self):
+    def test_import_dynamic(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "lazy.ts").write_text(
                 "export function load() { return 42; }\n", encoding="utf-8",
@@ -228,7 +228,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             self.assertIn("main.ts", graph)
             self.assertIn("lazy.ts", graph["main.ts"])
 
-    def test_import_type_reexport(self):
+    def test_import_type_reexport(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "types.ts").write_text(
                 "export interface Foo { x: number; }\n", encoding="utf-8",
@@ -240,7 +240,7 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             self.assertIn("index.ts", graph)
             self.assertIn("types.ts", graph["index.ts"])
 
-    def test_mts_mjs_collected(self):
+    def test_mts_mjs_collected(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "mod.mts").write_text(
                 "export function mtsFunc() {}\n", encoding="utf-8",
@@ -288,7 +288,7 @@ class TestDetectLanguage(unittest.TestCase):
 # ── TsConfig ─────────────────────────────────────────────────────────────────
 
 class TestTsConfig(unittest.TestCase):
-    def test_tsconfig_path_aliases(self):
+    def test_tsconfig_path_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             src = pathlib.Path(d) / "src"
             src.mkdir()
@@ -312,7 +312,7 @@ class TestTsConfig(unittest.TestCase):
             self.assertIn("main.ts", graph)
             self.assertIn(os.path.join("src", "utils.ts"), graph["main.ts"])
 
-    def test_tsconfig_missing_graceful(self):
+    def test_tsconfig_missing_graceful(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "utils.ts").write_text(
                 "export function greet() { return 'hi'; }\n", encoding="utf-8",
@@ -325,7 +325,7 @@ class TestTsConfig(unittest.TestCase):
             self.assertIn("main.ts", graph)
             self.assertIn("utils.ts", graph["main.ts"])
 
-    def test_tsconfig_invalid_json_graceful(self):
+    def test_tsconfig_invalid_json_graceful(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "utils.ts").write_text(
                 "export function greet() { return 'hi'; }\n", encoding="utf-8",

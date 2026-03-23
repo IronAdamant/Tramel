@@ -8,10 +8,42 @@
 
 ## Active context
 
-- **Version:** 3.7.5
+- **Version:** 3.7.6
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.6 — Code quality audit: bug fixes, robustness, modernization, test consistency
+
+**Date:** 2026-03-23
+
+### Summary
+Full codebase audit via 5 parallel agents across all 15 source files and 4 test files. Fixed 2 bugs (unsafe CLI JSON parsing, fragile harness failure_analysis access), applied code simplifications and modernization across 7 files, and standardized return type hints on 24 test methods. All 248 tests pass.
+
+### Bug fixes
+- **cli.py:** Added type validation for JSON stdin payload — non-dict JSON (e.g., `["goal"]`) previously crashed with `AttributeError` instead of a clean error message.
+- **harness.py:** Fixed fragile `failure_analysis` access in `run_incremental` — if `failure_analysis` key existed but was explicitly `None`, the chained `.get()` call would crash with `AttributeError`. Changed to `(result.get("failure_analysis") or {}).get("message", "")`.
+
+### Simplification & modernization
+- **core.py:** Added `+N more` truncation indicator to `_step_rationale` dependency list (consistent with symbol list formatting). Simplified beam-count capping from nested `min(num_beams, min(12, max(3, cores)))` to clearer `min(num_beams, max(3, min(12, cores)))`.
+- **analyzers.py:** Replaced manual JS extension stripping (`import_path[: -len(js_ext)]`) with `removesuffix()` (Python 3.9+ built-in).
+- **mcp_server.py:** Applied walrus operator in `_handle_get_recipe` for cleaner context_files extraction. Eliminated double `stats.get(name, (0, 0))` lookup in `_handle_list_strategies` using generator expression binding.
+
+### Test consistency
+- **test_strategies.py:** Added `-> None` return type hints to 9 test methods (TestNewStrategies class).
+- **test_analyzers.py:** Added `-> None` return type hints to 15 test methods (TypeScript symbol/import tests and tsconfig tests).
+
+### Files changed
+- `trammel/cli.py` — JSON type validation
+- `trammel/harness.py` — Robust failure_analysis access
+- `trammel/core.py` — Rationale formatting, beam count simplification
+- `trammel/analyzers.py` — removesuffix() modernization
+- `trammel/mcp_server.py` — Walrus operator, comprehension dedup
+- `tests/test_strategies.py` — 9 type hints added
+- `tests/test_analyzers.py` — 15 type hints added
+- `pyproject.toml` — Version bump to 3.7.6
 
 ---
 

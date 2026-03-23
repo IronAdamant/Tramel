@@ -38,6 +38,9 @@ def main() -> None:
         except json.JSONDecodeError as exc:
             print(f"Error: invalid JSON on stdin: {exc}", file=sys.stderr)
             sys.exit(1)
+        if not isinstance(payload, dict):
+            print("Error: JSON payload must be an object with a 'goal' key", file=sys.stderr)
+            sys.exit(1)
         goal = str(payload.get("goal", ""))
     else:
         goal = args.goal
