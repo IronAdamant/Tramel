@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 3.0.0
+**Version:** 3.1.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -29,7 +29,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
 | CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language`, `--scope` (monorepo support) |
-| MCP `trammel-mcp` | 20 tools over stdio transport |
+| MCP `trammel-mcp` | 21 tools over stdio transport |
 
 ## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
 
@@ -54,7 +54,7 @@ Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, 
 - **Import analysis**: Delegated to language-specific analyzers. `Planner` accepts optional `analyzer` and auto-detects language if not provided.
 - **Topological sort**: Kahn's algorithm orders files so dependencies come first. Cycles are appended at end.
 - **Step generation**: Each file with symbols becomes a step with `description`, `rationale`, `depends_on` (indices of prior steps this depends on).
-- **Beam strategies (6 built-in)**: `bottom_up` (dependencies first — safest; stable-sorts by ascending dependency count, genuinely uses `dep_graph`), `top_down` (API surface first; stable-sorts by descending dependency count, genuinely uses `dep_graph`), `risk_first` (most-imported files first — highest coupling impact), `critical_path` (longest dependency chain first — bottleneck feedback, recursive depth computation), `cohesion` (flood-fill connected components, process tightly coupled groups contiguously, largest first, topological sort within each component), `minimal_change` (fewest symbols first — quick wins, catch trivial failures early).
+- **Beam strategies (6 built-in)**: `bottom_up` (dependencies first — safest; stable-sorts by ascending dependency count, genuinely uses `dep_graph`), `top_down` (API surface first; stable-sorts by descending dependency count, genuinely uses `dep_graph`), `risk_first` (most-imported files first — highest coupling impact), `critical_path` (longest dependency chain first — bottleneck feedback, iterative stack-based DFS depth computation with `in_stack` cycle detection; fixes stack overflow on deep graphs), `cohesion` (flood-fill connected components, process tightly coupled groups contiguously, largest first, topological sort within each component), `minimal_change` (fewest symbols first — quick wins, catch trivial failures early).
 - **Strategy registry**: Pluggable via `register_strategy(name, description, fn)`. Six built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
 - **Strategy learning**: `explore_trajectories` accepts optional `store`. When provided, `get_strategy_stats()` aggregates trajectory outcomes by variant (success/failure counts) and strategies are sorted by historical success rate.
 
@@ -104,7 +104,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 ## 8. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
-20 tools exposed via stdio JSON-RPC:
+21 tools exposed via stdio JSON-RPC:
 
 | Tool | Purpose |
 |------|---------|
@@ -128,6 +128,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 | `prune_recipes` | Remove stale/low-quality recipes (`max_age_days`, `min_success_ratio` parameters) |
 | `resume` | Get plan progress with prior_edits from passed steps for resumption |
 | `validate_recipes` | Check recipe files against project, remove stale entries, prune fully-stale recipes |
+| `estimate` | Quick file count for a project or scope without full analysis; returns `language`, `matching_files`, `recommendation` |
 
 See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-verify-store loop for LLM clients.
 
@@ -139,7 +140,8 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 - `unique_trigrams` — Distinct trigram set for index population and lookup.
 - `trigram_bag_cosine` — Shared-vocabulary trigram cosine similarity.
 - `_VERB_SYNONYMS` — Dict comprehension mapping 40+ verb variants to 9 canonical forms (e.g., "refactor"/"rewrite"/"reorganize" all map to "restructure").
-- `normalize_goal(text)` — Lowercase + verb synonym replacement for goal text normalization.
+- `_ABBREVIATIONS` — Dict of ~40 common coding abbreviations (gc→garbage collector, db→database, auth→authentication, api→application programming interface, etc.).
+- `normalize_goal(text)` — Lowercase + abbreviation expansion + verb synonym replacement for goal text normalization. Abbreviation expansion enables recipe matching across abbreviated goals (e.g., "optimize GC" matches "optimize garbage collector" at 0.86+ similarity).
 - `word_jaccard(a, b)` — Word-level Jaccard similarity between two strings.
 - `word_substring_score(a, b)` — Partial word matching: checks for substring overlap between the word sets of two strings. Rewards partial matches that pure Jaccard misses.
 - `goal_similarity(a, b)` — Blended similarity: 0.3 trigram cosine + 0.4 word Jaccard + 0.3 substring on normalized text.

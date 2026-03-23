@@ -548,11 +548,11 @@ class TestNewMCPTools(unittest.TestCase):
             store = RecipeStore(os.path.join(d, "st.db"))
             result = dispatch_tool(store, "status", {})
             self.assertIn("tools", result)
-            self.assertEqual(result["tools"], 20)
+            self.assertEqual(result["tools"], 21)
 
-    def test_all_18_schemas_valid(self) -> None:
+    def test_all_21_schemas_valid(self) -> None:
         from trammel.mcp_server import _TOOL_SCHEMAS
-        self.assertEqual(len(_TOOL_SCHEMAS), 20)
+        self.assertEqual(len(_TOOL_SCHEMAS), 21)
         for name, schema in _TOOL_SCHEMAS.items():
             self.assertIn("name", schema)
             self.assertIn("description", schema)
@@ -848,6 +848,30 @@ class TestConfigDetection(unittest.TestCase):
             pathlib.Path(d, "pyproject.toml").write_text("[tool.mypy]\n", encoding="utf-8")
             a = detect_language(d)
             self.assertEqual(a.name, "cpp")
+
+    def test_estimate_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("x = 1\n", encoding="utf-8")
+            pathlib.Path(d, "b.py").write_text("y = 2\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "est.db"))
+            result = dispatch_tool(store, "estimate", {"project_root": d})
+            self.assertEqual(result["language"], "python")
+            self.assertEqual(result["matching_files"], 2)
+            self.assertEqual(result["recommendation"], "full analysis OK")
+
+    def test_analysis_meta_in_decompose(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "mod.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "am.db"))
+            from trammel.core import Planner
+            planner = Planner(store=store)
+            strat = planner.decompose("task", d)
+            self.assertIn("analysis_meta", strat)
+            meta = strat["analysis_meta"]
+            self.assertEqual(meta["language"], "python")
+            self.assertIn("timing_s", meta)
+            self.assertIn("total", meta["timing_s"])
+            self.assertGreater(meta["files_analyzed"], 0)
 
     def test_detect_pyproject_without_project_section(self) -> None:
         """pyproject.toml with only tool config should not trigger Python detection."""

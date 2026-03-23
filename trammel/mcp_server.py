@@ -6,6 +6,7 @@ function used by the stdio MCP server.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from .core import Planner, get_strategies
@@ -149,6 +150,13 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "entries and prunes recipes whose files are entirely missing.",
         {"project_root": _prop("string", "Absolute path to the project root.")},
         ["project_root"]),
+    "estimate": _schema("estimate",
+        "Quick file count for a project or scope without running full analysis. "
+        "Use to decide whether to scope before calling decompose/explore on large repos.",
+        {"project_root": _prop("string", "Absolute path to the project root."),
+         "scope": _prop("string", "Subdirectory to count within (optional)."),
+         "language": _prop("string", "Override language detection.", enum=_LANGUAGES)},
+        ["project_root"]),
 }
 
 
@@ -282,6 +290,25 @@ def dispatch_tool(
 
         case "validate_recipes":
             return store.validate_recipes(arguments["project_root"])
+
+        case "estimate":
+            from .analyzers import detect_language, get_analyzer
+            from .utils import _collect_project_files
+            est_root = arguments["project_root"]
+            est_scope = arguments.get("scope")
+            analysis_root = os.path.join(est_root, est_scope) if est_scope else est_root
+            if lang:
+                est_analyzer = get_analyzer(lang)
+            else:
+                est_analyzer = detect_language(analysis_root)
+            files = _collect_project_files(analysis_root, est_analyzer.extensions)
+            total_files = sum(1 for _ in os.scandir(analysis_root)) if os.path.isdir(analysis_root) else 0
+            return {
+                "language": est_analyzer.name,
+                "scope": est_scope,
+                "matching_files": len(files),
+                "recommendation": "use scope" if len(files) > 5000 else "full analysis OK",
+            }
 
         case _:
             raise ValueError(

@@ -187,15 +187,28 @@ class TestStore(unittest.TestCase):
 class TestRecipeMatching(unittest.TestCase):
     def test_normalize_goal_verb_replacement(self) -> None:
         result = normalize_goal("refactor the auth module")
-        self.assertEqual(result, "restructure the auth module")
+        self.assertEqual(result, "restructure the authentication module")
 
     def test_normalize_goal_case_insensitive(self) -> None:
         result = normalize_goal("REFACTOR Auth")
-        self.assertEqual(result, "restructure auth")
+        self.assertEqual(result, "restructure authentication")
 
     def test_normalize_goal_preserves_unknown_words(self) -> None:
         result = normalize_goal("foo bar baz")
         self.assertEqual(result, "foo bar baz")
+
+    def test_normalize_goal_expands_abbreviations(self) -> None:
+        result = normalize_goal("optimize GC perf")
+        self.assertEqual(result, "optimize garbage collector performance")
+
+    def test_normalize_goal_abbreviation_and_verb(self) -> None:
+        result = normalize_goal("fix DB config")
+        self.assertEqual(result, "fix database configuration")
+
+    def test_abbreviation_improves_matching(self) -> None:
+        # "optimize GC" should now match "optimize garbage collector"
+        sim = goal_similarity("optimize GC", "optimize garbage collector")
+        self.assertGreater(sim, 0.5)
 
     def test_word_jaccard_identical(self) -> None:
         self.assertAlmostEqual(word_jaccard("a b c", "a b c"), 1.0, places=5)

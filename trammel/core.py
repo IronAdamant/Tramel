@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time as _time
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 from .store import RecipeStore
@@ -287,19 +288,30 @@ def _order_critical_path(
     all_files = {s.get("file", "") for s in active}
     depth: dict[str, int] = {}
 
-    def _longest(f: str, visited: set[str]) -> int:
-        if f in depth:
-            return depth[f]
-        if f in visited:
-            return 0
-        visited.add(f)
-        children = [d for d in dep_graph.get(f, []) if d in all_files]
-        val = 1 + max((_longest(c, visited) for c in children), default=0)
-        depth[f] = val
-        return val
-
+    # Iterative longest-path (avoids recursion limit on deep graphs)
     for s in active:
-        _longest(s.get("file", ""), set())
+        start = s.get("file", "")
+        if start in depth:
+            continue
+        stack: list[tuple[str, bool]] = [(start, False)]
+        in_stack: set[str] = set()
+        while stack:
+            node, processed = stack.pop()
+            if node in depth:
+                continue
+            if processed:
+                in_stack.discard(node)
+                children = [d for d in dep_graph.get(node, []) if d in all_files]
+                depth[node] = 1 + max((depth.get(c, 0) for c in children), default=0)
+                continue
+            if node in in_stack:
+                depth[node] = 0  # cycle: assign depth 0
+                continue
+            in_stack.add(node)
+            stack.append((node, True))
+            for c in dep_graph.get(node, []):
+                if c in all_files and c not in depth:
+                    stack.append((c, False))
 
     active.sort(key=lambda s: depth.get(s.get("file", ""), 0), reverse=True)
     return active + skipped
@@ -398,22 +410,30 @@ class Planner:
         return detect_language(project_root)
 
     def decompose(self, goal: str, project_root: str, scope: str | None = None) -> dict[str, Any]:
+        t0 = _time.monotonic()
+
         # Fast path: exact text match without project scan
         recipe = self.store.retrieve_best_recipe(goal)
         if recipe:
+            recipe.setdefault("_source", "recipe_exact")
             return recipe
 
         active_constraints = self.store.get_active_constraints()
 
         analysis_root = os.path.join(project_root, scope) if scope else project_root
         analyzer = self._get_analyzer(analysis_root)
+
+        t1 = _time.monotonic()
         symbols = analyzer.collect_symbols(analysis_root)
+        t2 = _time.monotonic()
         dep_graph = analyzer.analyze_imports(analysis_root)
+        t3 = _time.monotonic()
 
         # Structural recipe match: try again with file context
         all_files = set(symbols) | set(dep_graph)
         recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
         if recipe:
+            recipe.setdefault("_source", "recipe_structural")
             return recipe
         relevant_graph = {
             f: [d for d in deps if d in all_files]
@@ -430,6 +450,14 @@ class Planner:
 
         steps = _generate_steps(file_order, symbols, relevant_graph, goal)
         steps, applied = _apply_constraints(steps, active_constraints)
+        t4 = _time.monotonic()
+
+        # Supported language list for unsupported-language warning
+        _SUPPORTED = {"python", "typescript", "go", "rust", "cpp", "java"}
+        lang_name = getattr(analyzer, "name", "unknown")
+        warning = None
+        if lang_name not in _SUPPORTED:
+            warning = f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
 
         return {
             "goal": goal,
@@ -438,6 +466,19 @@ class Planner:
             "constraints": [c["description"] for c in active_constraints],
             "constraints_applied": [c["description"] for c in applied],
             "goal_fingerprint": trigram_signature(goal)[:8],
+            "analysis_meta": {
+                "language": lang_name,
+                "scope": scope,
+                "files_analyzed": len(symbols),
+                "dep_files": len(relevant_graph),
+                "dep_edges": sum(len(v) for v in relevant_graph.values()),
+                "timing_s": {
+                    "symbols": round(t2 - t1, 3),
+                    "imports": round(t3 - t2, 3),
+                    "total": round(t4 - t0, 3),
+                },
+                "warning": warning,
+            },
         }
 
     def explore_trajectories(

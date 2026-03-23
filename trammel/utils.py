@@ -110,10 +110,31 @@ _VERB_SYNONYMS: dict[str, str] = {
     for v in variants
 }
 
+_ABBREVIATIONS: dict[str, str] = {
+    "gc": "garbage collector", "db": "database", "auth": "authentication",
+    "config": "configuration", "impl": "implementation", "init": "initialization",
+    "env": "environment", "deps": "dependencies", "dep": "dependency",
+    "repo": "repository", "fn": "function", "func": "function",
+    "param": "parameter", "params": "parameters", "args": "arguments",
+    "err": "error", "msg": "message", "req": "request", "resp": "response",
+    "res": "response", "cmd": "command", "ctx": "context", "util": "utility",
+    "utils": "utilities", "lib": "library", "pkg": "package", "dir": "directory",
+    "perf": "performance", "opt": "optimize", "mem": "memory",
+    "alloc": "allocation", "io": "input output", "ui": "user interface",
+    "api": "application programming interface", "cli": "command line interface",
+    "orm": "object relational mapping", "sdk": "software development kit",
+    "jwt": "json web token", "url": "uniform resource locator",
+    "http": "hypertext transfer protocol", "src": "source", "dst": "destination",
+    "ref": "reference", "refs": "references", "idx": "index", "tmp": "temporary",
+    "async": "asynchronous", "sync": "synchronous",
+}
+
 
 def normalize_goal(text: str) -> str:
-    """Lowercase text and replace coding verbs with canonical synonyms."""
-    return " ".join(_VERB_SYNONYMS.get(w, w) for w in text.lower().split())
+    """Lowercase, expand abbreviations, then replace coding verbs with canonical synonyms."""
+    words = text.lower().split()
+    expanded = " ".join(_ABBREVIATIONS.get(w, w) for w in words)
+    return " ".join(_VERB_SYNONYMS.get(w, w) for w in expanded.split())
 
 
 def word_jaccard(a: str, b: str) -> float:

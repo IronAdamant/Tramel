@@ -82,7 +82,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (20):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`
+**MCP tools (21):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`
 
 ## Architecture
 
@@ -107,9 +107,9 @@ trammel/              Importable package
   store_recipes.py    RecipeStoreMixin: recipe methods (save, retrieve, list, prune, trigram/file backfill) (~210 LOC)
   utils.py            Trigrams, cosine, failure extraction, goal normalization, goal similarity
   cli.py              Argparse CLI entry point (--dry-run, --language)
-  mcp_server.py       MCP tool schemas and dispatch (20 tools)
+  mcp_server.py       MCP tool schemas and dispatch (21 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (206 tests, 4 modules)
+tests/                stdlib unittest (215 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -149,6 +149,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 3.1.0
+
+- **Abbreviation handling in recipe matching**: New `_ABBREVIATIONS` dict in `utils.py` with ~40 common coding abbreviations (gc, db, auth, api, etc.). `normalize_goal` expands abbreviations before applying verb synonyms. Recipe matching that previously failed (e.g., "optimize GC" vs "optimize garbage collector") now works with 0.86+ similarity.
+- **Analysis timing metadata**: `decompose` now returns `analysis_meta` in the response with `language`, `scope`, `files_analyzed`, `dep_files`, `dep_edges`, `timing_s` (symbols, imports, total), and optional `warning` for unsupported language fallbacks.
+- **`estimate` MCP tool**: Quick file count for a project or scope without running full analysis. Returns `language`, `matching_files`, `recommendation` ("use scope" if >5000 files, "full analysis OK" otherwise). Helps LLMs decide whether to scope before analyzing large repos. 21 MCP tools total.
+- **Iterative critical_path strategy**: Converted recursive `_longest` depth computation to iterative stack-based DFS with cycle detection via `in_stack` set. Fixes stack overflow on deep dependency graphs (Guava's 1.66M-edge Java import graph was crashing).
+- **215 tests** (5 new: 3 abbreviation, 1 analysis meta, 1 estimate tool).
 
 ### 3.0.0
 

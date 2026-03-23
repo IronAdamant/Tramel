@@ -24,7 +24,7 @@ list_recipes(limit=10)      → browse available recipes
 list_strategies()           → see which beam strategies have worked best
 ```
 
-If `get_recipe` returns a match, you can use that strategy directly without decomposing.
+If `get_recipe` returns a match, you can use that strategy directly without decomposing. Recipe matching normalizes goals by expanding common abbreviations (~40: gc, db, auth, api, etc.) and verb synonyms, so "optimize GC" will match a stored recipe for "optimize garbage collector".
 
 ### 2. Decompose the goal
 
@@ -129,7 +129,14 @@ status()                    → summary: recipe count, active plans, constraints
 
 ## Monorepo support
 
-For large repositories, use `scope` to limit analysis to a subdirectory:
+For large repositories, first estimate the file count:
+
+```
+estimate(project_root)               → language, matching_files, recommendation
+estimate(project_root, scope="services/auth")  → scoped file count
+```
+
+If `matching_files` is large (>5000), the recommendation will be "use scope". Then scope your analysis:
 
 ```
 decompose(goal, project_root, scope="services/auth")
@@ -138,7 +145,7 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (20 tools)
+## Tool reference (21 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -162,6 +169,7 @@ Analysis (symbol collection, import resolution) runs only within the scope. Test
 | `list_strategies` | Registered strategies with success rates |
 | `resume` | Get plan progress with prior_edits for resumption |
 | `validate_recipes` | Remove stale recipe file entries; prune fully-stale recipes |
+| `estimate` | Quick file count for project/scope; recommends whether to scope |
 
 ## Multi-language support
 
