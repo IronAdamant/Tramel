@@ -1,13 +1,13 @@
 """Tool schemas and dispatch for Trammel MCP servers.
 
-Contains JSON Schema definitions for all Trammel tools and the dispatch
-function used by the stdio MCP server.
+Contains JSON Schema definitions for all Trammel tools and a dispatch-dict
+based router used by the stdio MCP server.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Callable
 
 from .core import Planner
 from .strategies import get_strategies
@@ -161,159 +161,208 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
          "scope": _prop("string", "Subdirectory to count within (optional)."),
          "language": _prop("string", "Override language detection.", enum=_LANGUAGES)},
         ["project_root"]),
+    "usage_stats": _schema("usage_stats",
+        "Get usage telemetry: tool call counts, recipe hit/miss rates, "
+        "strategy win rates. Data aggregated over a configurable time window.",
+        {"days": _prop("integer", "Number of days to look back (default: 30).")}),
+}
+
+
+# ── Dispatch handlers ────────────────────────────────────────────────────────
+
+def _get_analyzer(args: dict[str, Any]) -> object | None:
+    """Build a language analyzer from args, or None for auto-detection."""
+    from .analyzers import get_analyzer
+    lang = args.get("language")
+    return get_analyzer(lang) if lang else None
+
+
+def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return Planner(store=store, analyzer=_get_analyzer(args)).decompose(
+        args["goal"], args["project_root"], scope=args.get("scope"),
+    )
+
+
+def _handle_explore(store: RecipeStore, args: dict[str, Any]) -> Any:
+    planner = Planner(store=store, analyzer=_get_analyzer(args))
+    strategy = planner.decompose(args["goal"], args["project_root"], scope=args.get("scope"))
+    beams = planner.explore_trajectories(
+        strategy, num_beams=args.get("num_beams", 3), store=store,
+    )
+    return {"strategy": strategy, "beams": beams}
+
+
+def _handle_create_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return {"plan_id": store.create_plan(args["goal"], args["strategy"])}
+
+
+def _handle_get_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.get_plan(args["plan_id"]) or {"error": "plan not found"}
+
+
+def _handle_verify_step(store: RecipeStore, args: dict[str, Any]) -> Any:
+    harness = ExecutionHarness(test_cmd=args.get("test_cmd"), analyzer=_get_analyzer(args))
+    return harness.verify_step(
+        args["edits"], args["project_root"], prior_edits=args.get("prior_edits"),
+    )
+
+
+def _handle_record_step(store: RecipeStore, args: dict[str, Any]) -> Any:
+    store.update_step(
+        args["step_id"], args["status"],
+        edits=args.get("edits"), verification=args.get("verification"),
+    )
+    return {"ok": True}
+
+
+def _handle_save_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
+    store.save_recipe(args["goal"], args["strategy"], args["outcome"])
+    return {"ok": True}
+
+
+def _handle_get_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
+    ctx = set(args["context_files"]) if args.get("context_files") else None
+    return store.retrieve_best_recipe(args["goal"], context_files=ctx) or {"match": None}
+
+
+def _handle_list_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.list_recipes(limit=args.get("limit", 20))
+
+
+def _handle_prune_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return {
+        "pruned": store.prune_recipes(
+            max_age_days=args.get("max_age_days", 90),
+            min_success_ratio=args.get("min_success_ratio", 0.1),
+        )
+    }
+
+
+def _handle_add_constraint(store: RecipeStore, args: dict[str, Any]) -> Any:
+    cid = store.add_constraint(
+        args["constraint_type"], args["description"],
+        context=args.get("context"),
+        plan_id=args.get("plan_id"), step_id=args.get("step_id"),
+    )
+    return {"constraint_id": cid}
+
+
+def _handle_get_constraints(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.get_active_constraints(args.get("constraint_type"))
+
+
+def _handle_update_plan_status(store: RecipeStore, args: dict[str, Any]) -> Any:
+    store.update_plan_status(args["plan_id"], args["status"])
+    return {"ok": True}
+
+
+def _handle_deactivate_constraint(store: RecipeStore, args: dict[str, Any]) -> Any:
+    store.deactivate_constraint(args["constraint_id"])
+    return {"ok": True}
+
+
+def _handle_list_plans(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.list_plans(args.get("status"))
+
+
+def _handle_history(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.get_trajectories(args["plan_id"])
+
+
+def _handle_status(store: RecipeStore, args: dict[str, Any]) -> Any:
+    recipes = store.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+    plans = store.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
+    active = store.conn.execute(
+        "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
+    ).fetchone()[0]
+    constraints = store.conn.execute(
+        "SELECT COUNT(*) FROM constraints WHERE active = 1"
+    ).fetchone()[0]
+    return {
+        "recipes": recipes,
+        "plans_total": plans,
+        "plans_active": active,
+        "constraints_active": constraints,
+        "tools": len(_TOOL_SCHEMAS),
+    }
+
+
+def _handle_list_strategies(store: RecipeStore, args: dict[str, Any]) -> Any:
+    stats = store.get_strategy_stats()
+    return [
+        {
+            "name": name,
+            "successes": stats.get(name, (0, 0))[0],
+            "failures": stats.get(name, (0, 0))[1],
+        }
+        for name in get_strategies()
+    ]
+
+
+def _handle_resume(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.get_plan_progress(args["plan_id"]) or {"error": "plan not found"}
+
+
+def _handle_validate_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.validate_recipes(args["project_root"])
+
+
+def _handle_estimate(store: RecipeStore, args: dict[str, Any]) -> Any:
+    from .analyzers import detect_language, get_analyzer
+    from .utils import _collect_project_files
+    lang = args.get("language")
+    est_scope = args.get("scope")
+    analysis_root = os.path.join(args["project_root"], est_scope) if est_scope else args["project_root"]
+    est_analyzer = get_analyzer(lang) if lang else detect_language(analysis_root)
+    files = _collect_project_files(analysis_root, est_analyzer.extensions)
+    return {
+        "language": est_analyzer.name,
+        "scope": est_scope,
+        "matching_files": len(files),
+        "recommendation": "use scope" if len(files) > 5000 else "full analysis OK",
+    }
+
+
+def _handle_usage_stats(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.get_usage_stats(days=args.get("days", 30))
+
+
+# ── Dispatch table ───────────────────────────────────────────────────────────
+
+_DISPATCH: dict[str, Callable[..., Any]] = {
+    "decompose": _handle_decompose,
+    "explore": _handle_explore,
+    "create_plan": _handle_create_plan,
+    "get_plan": _handle_get_plan,
+    "verify_step": _handle_verify_step,
+    "record_step": _handle_record_step,
+    "save_recipe": _handle_save_recipe,
+    "get_recipe": _handle_get_recipe,
+    "list_recipes": _handle_list_recipes,
+    "prune_recipes": _handle_prune_recipes,
+    "add_constraint": _handle_add_constraint,
+    "get_constraints": _handle_get_constraints,
+    "update_plan_status": _handle_update_plan_status,
+    "deactivate_constraint": _handle_deactivate_constraint,
+    "list_plans": _handle_list_plans,
+    "history": _handle_history,
+    "status": _handle_status,
+    "list_strategies": _handle_list_strategies,
+    "resume": _handle_resume,
+    "validate_recipes": _handle_validate_recipes,
+    "estimate": _handle_estimate,
+    "usage_stats": _handle_usage_stats,
 }
 
 
 def dispatch_tool(
     store: RecipeStore, tool_name: str, arguments: dict[str, Any]
 ) -> Any:
-    """Route an MCP tool call to the appropriate Trammel logic."""
-    from .analyzers import get_analyzer
-    lang = arguments.get("language")
-    analyzer = get_analyzer(lang) if lang else None
-
-    scope = arguments.get("scope")
-
-    match tool_name:
-        case "decompose":
-            return Planner(store=store, analyzer=analyzer).decompose(
-                arguments["goal"], arguments["project_root"], scope=scope,
-            )
-
-        case "explore":
-            planner = Planner(store=store, analyzer=analyzer)
-            strategy = planner.decompose(arguments["goal"], arguments["project_root"], scope=scope)
-            beams = planner.explore_trajectories(
-                strategy, num_beams=arguments.get("num_beams", 3), store=store,
-            )
-            return {"strategy": strategy, "beams": beams}
-
-        case "create_plan":
-            return {"plan_id": store.create_plan(arguments["goal"], arguments["strategy"])}
-
-        case "get_plan":
-            return store.get_plan(arguments["plan_id"]) or {"error": "plan not found"}
-
-        case "verify_step":
-            harness = ExecutionHarness(test_cmd=arguments.get("test_cmd"), analyzer=analyzer)
-            return harness.verify_step(
-                arguments["edits"],
-                arguments["project_root"],
-                prior_edits=arguments.get("prior_edits"),
-            )
-
-        case "record_step":
-            store.update_step(
-                arguments["step_id"],
-                arguments["status"],
-                edits=arguments.get("edits"),
-                verification=arguments.get("verification"),
-            )
-            return {"ok": True}
-
-        case "save_recipe":
-            store.save_recipe(
-                arguments["goal"], arguments["strategy"], arguments["outcome"],
-            )
-            return {"ok": True}
-
-        case "get_recipe":
-            ctx = set(arguments["context_files"]) if arguments.get("context_files") else None
-            return store.retrieve_best_recipe(
-                arguments["goal"], context_files=ctx,
-            ) or {"match": None}
-
-        case "list_recipes":
-            return store.list_recipes(limit=arguments.get("limit", 20))
-
-        case "prune_recipes":
-            return {
-                "pruned": store.prune_recipes(
-                    max_age_days=arguments.get("max_age_days", 90),
-                    min_success_ratio=arguments.get("min_success_ratio", 0.1),
-                )
-            }
-
-        case "add_constraint":
-            cid = store.add_constraint(
-                arguments["constraint_type"],
-                arguments["description"],
-                context=arguments.get("context"),
-                plan_id=arguments.get("plan_id"),
-                step_id=arguments.get("step_id"),
-            )
-            return {"constraint_id": cid}
-
-        case "get_constraints":
-            return store.get_active_constraints(arguments.get("constraint_type"))
-
-        case "update_plan_status":
-            store.update_plan_status(arguments["plan_id"], arguments["status"])
-            return {"ok": True}
-
-        case "deactivate_constraint":
-            store.deactivate_constraint(arguments["constraint_id"])
-            return {"ok": True}
-
-        case "list_plans":
-            return store.list_plans(arguments.get("status"))
-
-        case "history":
-            return store.get_trajectories(arguments["plan_id"])
-
-        case "status":
-            recipes = store.conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
-            plans = store.conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
-            active = store.conn.execute(
-                "SELECT COUNT(*) FROM plans WHERE status IN ('pending','running')"
-            ).fetchone()[0]
-            constraints = store.conn.execute(
-                "SELECT COUNT(*) FROM constraints WHERE active = 1"
-            ).fetchone()[0]
-            return {
-                "recipes": recipes,
-                "plans_total": plans,
-                "plans_active": active,
-                "constraints_active": constraints,
-                "tools": len(_TOOL_SCHEMAS),
-            }
-
-        case "list_strategies":
-            stats = store.get_strategy_stats()
-            return [
-                {
-                    "name": name,
-                    "successes": stats.get(name, (0, 0))[0],
-                    "failures": stats.get(name, (0, 0))[1],
-                }
-                for name in get_strategies()
-            ]
-
-        case "resume":
-            return store.get_plan_progress(arguments["plan_id"]) or {"error": "plan not found"}
-
-        case "validate_recipes":
-            return store.validate_recipes(arguments["project_root"])
-
-        case "estimate":
-            from .analyzers import detect_language
-            from .utils import _collect_project_files
-            est_root = arguments["project_root"]
-            est_scope = arguments.get("scope")
-            analysis_root = os.path.join(est_root, est_scope) if est_scope else est_root
-            if lang:
-                est_analyzer = get_analyzer(lang)
-            else:
-                est_analyzer = detect_language(analysis_root)
-            files = _collect_project_files(analysis_root, est_analyzer.extensions)
-            return {
-                "language": est_analyzer.name,
-                "scope": est_scope,
-                "matching_files": len(files),
-                "recommendation": "use scope" if len(files) > 5000 else "full analysis OK",
-            }
-
-        case _:
-            raise ValueError(
-                f"Unknown tool: {tool_name!r}. Available: {sorted(_TOOL_SCHEMAS)}"
-            )
+    """Route an MCP tool call to the appropriate Trammel handler."""
+    handler = _DISPATCH.get(tool_name)
+    if handler is None:
+        raise ValueError(
+            f"Unknown tool: {tool_name!r}. Available: {sorted(_TOOL_SCHEMAS)}"
+        )
+    store.log_event("tool_call", tool_name)
+    return handler(store, arguments)

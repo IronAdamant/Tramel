@@ -11,7 +11,7 @@ import re
 
 from .utils import (
     _collect_project_files, _collect_symbols_regex,
-    _collect_typed_symbols_regex, _is_ignored_dir,
+    _collect_typed_symbols_regex, _is_ignored_dir, _strip_c_comments,
 )
 
 
@@ -47,10 +47,10 @@ class GoAnalyzer:
     extensions = _GO_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _GO_EXTENSIONS, _GO_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _GO_EXTENSIONS, _GO_SYMBOL_PATTERNS, _strip_c_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _GO_EXTENSIONS, _GO_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _GO_EXTENSIONS, _GO_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         module_path, go_mod_dir = self._read_go_mod(project_root)
@@ -166,10 +166,10 @@ class RustAnalyzer:
     extensions = _RUST_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _RUST_EXTENSIONS, _RUST_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _RUST_EXTENSIONS, _RUST_SYMBOL_PATTERNS, _strip_c_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _RUST_EXTENSIONS, _RUST_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _RUST_EXTENSIONS, _RUST_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _RUST_EXTENSIONS)
@@ -313,6 +313,8 @@ _JAVA_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|abstract|final|static|open|internal|data|sealed)\s+)*class\s+(\w+)"), "class"),
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|sealed)\s+)*interface\s+(\w+)"), "interface"),
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal)\s+)*enum\s+(?:class\s+)?(\w+)"), "enum"),
+    # Java 16+ records
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private)\s+)*record\s+(\w+)"), "record"),
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|override|open|suspend|inline)\s+)*fun\s+(?:<[^>]*>\s*)?(\w+)"), "function"),
     (re.compile(r"(?:^|\n)\s*(?:(?:internal|private)\s+)?(?:companion\s+)?object\s+(\w+)"), "object"),
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private)\s+)*@interface\s+(\w+)"), "annotation"),
@@ -331,10 +333,10 @@ class JavaAnalyzer:
     extensions = _JAVA_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _JAVA_EXTENSIONS, _JAVA_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _JAVA_EXTENSIONS, _JAVA_SYMBOL_PATTERNS, _strip_c_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _JAVA_EXTENSIONS, _JAVA_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _JAVA_EXTENSIONS, _JAVA_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         source_roots = self._detect_source_roots(project_root)

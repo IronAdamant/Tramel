@@ -82,7 +82,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (21):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`
+**MCP tools (22):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`, `usage_stats`
 
 ## Architecture
 
@@ -105,11 +105,11 @@ trammel/              Importable package
   core.py             Planner: decomposition, constraint enforcement, step generation (~325 LOC)
   strategies.py       Beam strategy registry and 9 built-in orderings (~280 LOC)
   harness.py          ExecutionHarness: temp copy, edits, test runner, base-copy caching
-  store.py            RecipeStore: SQLite persistence (7 tables), inherits RecipeStoreMixin (~370 LOC)
+  store.py            RecipeStore: SQLite persistence (8 tables), telemetry, inherits RecipeStoreMixin (~440 LOC)
   store_recipes.py    RecipeStoreMixin: recipe methods (save, retrieve, list, prune, trigram/file backfill) (~250 LOC)
   utils.py            Trigrams, cosine, failure extraction, goal normalization, shared symbol collection (~370 LOC)
   cli.py              Argparse CLI entry point (--dry-run, --language)
-  mcp_server.py       MCP tool schemas and dispatch (21 tools)
+  mcp_server.py       MCP tool schemas and dispatch-dict routing (22 tools)
   mcp_stdio.py        MCP stdio server entry point
 tests/                stdlib unittest (242 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
@@ -151,6 +151,15 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 3.4.0
+
+- **Usage telemetry**: New `usage_events` SQLite table (8 tables total) with `log_event()` and `get_usage_stats()` methods on `RecipeStore`. Tool calls, recipe hit/miss rates, and strategy win rates tracked automatically. New `usage_stats` MCP tool (22 tools total) returns aggregated telemetry over a configurable time window.
+- **Dispatch refactor**: Replaced 153-line `match/case` in `mcp_server.py` with dispatch-dict pattern. Each tool has a dedicated handler function, looked up via `_DISPATCH` dict. Adding new tools now requires only: handler function + schema + dict entry.
+- **Analyzer improvements**: PHP class methods now detected (was major gap). Java 16+ `record` keyword supported. Dart factory/named constructors detected.
+- **Comment stripping for 7 languages**: Added `_strip_c_comments` (shared by Go, Rust, Java, C#, Swift, Dart, Zig), `_strip_hash_comments` (Ruby), and `_strip_php_comments` (PHP). Previously only Python (AST), TypeScript, and C/C++ stripped comments before symbol detection.
+- **5 new sample repos**: Jekyll (Ruby), Flame (Dart), ZLS (Zig), Laravel (PHP), Ktor (Kotlin) cloned to `sample_file_test/` for analyzer validation across all 15 supported languages.
+- **242 tests** (all passing).
 
 ### 3.3.1
 

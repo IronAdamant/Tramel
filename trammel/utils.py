@@ -25,6 +25,26 @@ def _is_ignored_dir(name: str) -> bool:
     return name in _IGNORED_DIRS or name.endswith(".egg-info")
 
 
+_C_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
+_HASH_COMMENT_RE = re.compile(r"#[^\n]*")
+
+
+def _strip_c_comments(src: str) -> str:
+    """Remove C-style line and block comments (Go, Rust, Java, C#, Dart, Zig)."""
+    return _C_COMMENT_RE.sub("", src)
+
+
+def _strip_hash_comments(src: str) -> str:
+    """Remove hash-style line comments (Ruby, Python)."""
+    return _HASH_COMMENT_RE.sub("", src)
+
+
+def _strip_php_comments(src: str) -> str:
+    """Remove PHP comments: //, /* */, and #."""
+    src = _C_COMMENT_RE.sub("", src)
+    return _HASH_COMMENT_RE.sub("", src)
+
+
 def _collect_symbols_regex(
     project_root: str,
     extensions: tuple[str, ...],

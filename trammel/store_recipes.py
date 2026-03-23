@@ -166,6 +166,11 @@ class RecipeStoreMixin:
                 best = candidate
                 if context_files is None and text_sim == 1.0:
                     break
+
+        if best is not None:
+            self.log_event("recipe_hit", goal[:100], best_score)
+        else:
+            self.log_event("recipe_miss", goal[:100])
         return best
 
     def list_recipes(self, limit: int = 20) -> list[dict[str, Any]]:

@@ -61,6 +61,18 @@ class RecipeStore(RecipeStoreMixin):
             ON recipe_files(file_path);
     """
 
+    _SCHEMA_TELEMETRY = """
+        CREATE TABLE IF NOT EXISTS usage_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            value REAL,
+            created REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_events_type
+            ON usage_events(event_type);
+    """
+
     _SCHEMA_PLAN_TABLES = """
         CREATE TABLE IF NOT EXISTS plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +124,9 @@ class RecipeStore(RecipeStoreMixin):
     """
 
     def _init_schema(self) -> None:
-        self.conn.executescript(self._SCHEMA_RECIPE_TABLES + self._SCHEMA_PLAN_TABLES)
+        self.conn.executescript(
+            self._SCHEMA_RECIPE_TABLES + self._SCHEMA_PLAN_TABLES + self._SCHEMA_TELEMETRY
+        )
         self.conn.commit()
         self._rebuild_trigram_index()
         self._backfill_files()
@@ -367,3 +381,57 @@ class RecipeStore(RecipeStoreMixin):
             }
             for r in rows
         ]
+
+    # ── Telemetry ───────────────────────────────────────────────────────────
+
+    def log_event(self, event_type: str, detail: str = "", value: float | None = None) -> None:
+        """Record a usage event for telemetry."""
+        try:
+            self.conn.execute(
+                "INSERT INTO usage_events (event_type, detail, value, created) VALUES (?, ?, ?, ?)",
+                (event_type, detail, value, time.time()),
+            )
+            self.conn.commit()
+        except Exception:
+            pass  # telemetry must never break core functionality
+
+    def get_usage_stats(self, days: int = 30) -> dict[str, Any]:
+        """Aggregate usage telemetry over the given window."""
+        cutoff = time.time() - (days * 86400)
+        rows = self.conn.execute(
+            "SELECT event_type, detail, value FROM usage_events WHERE created >= ?",
+            (cutoff,),
+        ).fetchall()
+
+        tool_calls: dict[str, int] = {}
+        recipe_hits = 0
+        recipe_misses = 0
+        hit_scores: list[float] = []
+
+        for event_type, detail, value in rows:
+            if event_type == "tool_call":
+                tool_calls[detail] = tool_calls.get(detail, 0) + 1
+            elif event_type == "recipe_hit":
+                recipe_hits += 1
+                if value is not None:
+                    hit_scores.append(value)
+            elif event_type == "recipe_miss":
+                recipe_misses += 1
+
+        total_lookups = recipe_hits + recipe_misses
+        strategy_stats = self.get_strategy_stats()
+
+        return {
+            "tool_calls": tool_calls,
+            "total_tool_calls": sum(tool_calls.values()),
+            "recipe_hits": recipe_hits,
+            "recipe_misses": recipe_misses,
+            "recipe_hit_rate": recipe_hits / total_lookups if total_lookups > 0 else 0.0,
+            "avg_hit_score": sum(hit_scores) / len(hit_scores) if hit_scores else 0.0,
+            "strategy_win_rates": {
+                name: succ / (succ + fail) if (succ + fail) > 0 else 0.0
+                for name, (succ, fail) in strategy_stats.items()
+            },
+            "days": days,
+            "total_events": len(rows),
+        }

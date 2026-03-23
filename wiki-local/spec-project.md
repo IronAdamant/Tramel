@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 3.3.1
+**Version:** 3.4.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -112,7 +112,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 ## 8. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
-21 tools exposed via stdio JSON-RPC:
+22 tools exposed via stdio JSON-RPC:
 
 | Tool | Purpose |
 |------|---------|
@@ -137,6 +137,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 | `resume` | Get plan progress with prior_edits from passed steps for resumption |
 | `validate_recipes` | Check recipe files against project, remove stale entries, prune fully-stale recipes |
 | `estimate` | Quick file count for a project or scope without full analysis; returns `language`, `matching_files`, `recommendation` |
+| `usage_stats` | Aggregated usage telemetry: tool call counts, recipe hit/miss rates, strategy win rates |
 
 See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-verify-store loop for LLM clients.
 

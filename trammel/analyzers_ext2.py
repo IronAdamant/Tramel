@@ -12,6 +12,7 @@ import re
 from .utils import (
     _collect_project_files, _collect_symbols_regex,
     _collect_typed_symbols_regex, _is_ignored_dir,
+    _strip_c_comments, _strip_hash_comments, _strip_php_comments,
 )
 
 
@@ -41,10 +42,10 @@ class CSharpAnalyzer:
     extensions = _CSHARP_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _CSHARP_EXTENSIONS, _CSHARP_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _CSHARP_EXTENSIONS, _CSHARP_SYMBOL_PATTERNS, _strip_c_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _CSHARP_EXTENSIONS, _CSHARP_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _CSHARP_EXTENSIONS, _CSHARP_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         ns_to_files: dict[str, list[str]] = {}
@@ -116,10 +117,10 @@ class RubyAnalyzer:
     extensions = _RUBY_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _RUBY_EXTENSIONS, _RUBY_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _RUBY_EXTENSIONS, _RUBY_SYMBOL_PATTERNS, _strip_hash_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _RUBY_EXTENSIONS, _RUBY_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _RUBY_EXTENSIONS, _RUBY_TYPED_PATTERNS, _strip_hash_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _RUBY_EXTENSIONS)
@@ -172,6 +173,8 @@ _PHP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*trait\s+(\w+)"), "trait"),
     (re.compile(r"(?:^|\n)\s*enum\s+(\w+)"), "enum"),
     (re.compile(r"(?:^|\n)\s*function\s+(\w+)"), "function"),
+    # Class methods (public/protected/private/static/abstract/final)
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|static|abstract|final)\s+)*function\s+(\w+)"), "method"),
 ]
 
 _PHP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _PHP_TYPED_PATTERNS]
@@ -187,10 +190,10 @@ class PhpAnalyzer:
     extensions = _PHP_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _PHP_EXTENSIONS, _PHP_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _PHP_EXTENSIONS, _PHP_SYMBOL_PATTERNS, _strip_php_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _PHP_EXTENSIONS, _PHP_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _PHP_EXTENSIONS, _PHP_TYPED_PATTERNS, _strip_php_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         ns_to_files: dict[str, list[str]] = {}
@@ -269,10 +272,10 @@ class SwiftAnalyzer:
     extensions = _SWIFT_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _SWIFT_EXTENSIONS, _SWIFT_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _SWIFT_EXTENSIONS, _SWIFT_SYMBOL_PATTERNS, _strip_c_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _SWIFT_EXTENSIONS, _SWIFT_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _SWIFT_EXTENSIONS, _SWIFT_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _SWIFT_EXTENSIONS)
@@ -324,6 +327,8 @@ _DART_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*enum\s+(\w+)"), "enum"),
     (re.compile(r"(?:^|\n)\s*typedef\s+(\w+)"), "type_alias"),
     (re.compile(r"(?:^|\n)\s*(?:[\w<>?]+\s+)?(\w+)\s*\([^)]*\)\s*(?:async\s*)?[{=]"), "function"),
+    # Factory and named constructors: factory ClassName.name(...) or ClassName.name(...)
+    (re.compile(r"(?:^|\n)\s*(?:factory\s+)?(\w+\.\w+)\s*\("), "constructor"),
 ]
 
 _DART_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _DART_TYPED_PATTERNS]
@@ -338,10 +343,10 @@ class DartAnalyzer:
     extensions = _DART_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _DART_EXTENSIONS, _DART_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _DART_EXTENSIONS, _DART_SYMBOL_PATTERNS, _strip_c_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _DART_EXTENSIONS, _DART_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _DART_EXTENSIONS, _DART_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _DART_EXTENSIONS)
@@ -408,10 +413,10 @@ class ZigAnalyzer:
     extensions = _ZIG_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _collect_symbols_regex(project_root, _ZIG_EXTENSIONS, _ZIG_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _ZIG_EXTENSIONS, _ZIG_SYMBOL_PATTERNS, _strip_c_comments)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _collect_typed_symbols_regex(project_root, _ZIG_EXTENSIONS, _ZIG_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _ZIG_EXTENSIONS, _ZIG_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _ZIG_EXTENSIONS)
