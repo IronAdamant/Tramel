@@ -7,6 +7,8 @@ Pure-Python, **stdlib-only** planning and execution harness for LLM-assisted cod
 
 Trammel is a tool **for** LLMs, not a tool that calls LLMs. It provides the planning discipline, verification scaffolding, and failure memory that coding assistants need to tackle multi-step tasks reliably.
 
+![Trammel Plan & Explore Demo](docs/demo-plan-explore.png)
+
 ## Installation
 
 ```bash
