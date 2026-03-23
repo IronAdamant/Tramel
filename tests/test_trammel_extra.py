@@ -155,7 +155,8 @@ class TestPlannerExtra(unittest.TestCase):
         self.assertLessEqual(_default_beam_count(100), 12)
         self.assertGreaterEqual(_default_beam_count(100), 3)
 
-    def test_beams_have_different_variants(self) -> None:
+    @patch("trammel.core.os.cpu_count", return_value=12)
+    def test_beams_have_different_variants(self, _mock_cpu: object) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
             planner = Planner(store=RecipeStore(os.path.join(d, "x.db")))
@@ -853,15 +854,25 @@ class TestCLIDryRun(unittest.TestCase):
 # ── Concurrent write safety ──────────────────────────────────────────────────
 
 class TestConcurrentWrites(unittest.TestCase):
+    def _make_db(self, d: str, name: str) -> str:
+        """Pre-initialize DB schema before concurrent access."""
+        db_path = os.path.join(d, name)
+        RecipeStore(db_path).close()
+        return db_path
+
     def test_concurrent_plan_creation(self) -> None:
         import threading
         with tempfile.TemporaryDirectory() as d:
-            db_path = os.path.join(d, "conc.db")
+            db_path = self._make_db(d, "conc.db")
             errors: list[Exception] = []
 
             def create_plans(thread_id: int) -> None:
                 try:
-                    store = RecipeStore(db_path)
+                    from trammel.utils import db_connect
+                    conn = db_connect(db_path)
+                    store = RecipeStore.__new__(RecipeStore)
+                    store.db_path = db_path
+                    store.conn = conn
                     for i in range(5):
                         store.create_plan(f"goal-{thread_id}-{i}", {"steps": []})
                     store.close()
@@ -873,7 +884,7 @@ class TestConcurrentWrites(unittest.TestCase):
                 t.start()
             for t in threads:
                 t.join()
-            self.assertEqual(errors, [])
+            self.assertEqual(errors, [], msg=f"Errors: {errors}")
             store = RecipeStore(db_path)
             plans = store.list_plans()
             self.assertEqual(len(plans), 20)
@@ -882,12 +893,16 @@ class TestConcurrentWrites(unittest.TestCase):
     def test_concurrent_recipe_saves(self) -> None:
         import threading
         with tempfile.TemporaryDirectory() as d:
-            db_path = os.path.join(d, "conc2.db")
+            db_path = self._make_db(d, "conc2.db")
             errors: list[Exception] = []
 
             def save_recipes(thread_id: int) -> None:
                 try:
-                    store = RecipeStore(db_path)
+                    from trammel.utils import db_connect
+                    conn = db_connect(db_path)
+                    store = RecipeStore.__new__(RecipeStore)
+                    store.db_path = db_path
+                    store.conn = conn
                     for i in range(5):
                         strat = {"steps": [{"file": f"t{thread_id}_f{i}.py"}], "tid": thread_id, "i": i}
                         store.save_recipe(f"goal {thread_id} {i}", strat, True)
@@ -900,7 +915,7 @@ class TestConcurrentWrites(unittest.TestCase):
                 t.start()
             for t in threads:
                 t.join()
-            self.assertEqual(errors, [])
+            self.assertEqual(errors, [], msg=f"Errors: {errors}")
             store = RecipeStore(db_path)
             recipes = store.list_recipes(limit=100)
             self.assertEqual(len(recipes), 20)
@@ -909,12 +924,16 @@ class TestConcurrentWrites(unittest.TestCase):
     def test_concurrent_constraint_adds(self) -> None:
         import threading
         with tempfile.TemporaryDirectory() as d:
-            db_path = os.path.join(d, "conc3.db")
+            db_path = self._make_db(d, "conc3.db")
             errors: list[Exception] = []
 
             def add_constraints(thread_id: int) -> None:
                 try:
-                    store = RecipeStore(db_path)
+                    from trammel.utils import db_connect
+                    conn = db_connect(db_path)
+                    store = RecipeStore.__new__(RecipeStore)
+                    store.db_path = db_path
+                    store.conn = conn
                     for i in range(5):
                         store.add_constraint("avoid", f"t{thread_id}-c{i}")
                     store.close()
@@ -926,7 +945,7 @@ class TestConcurrentWrites(unittest.TestCase):
                 t.start()
             for t in threads:
                 t.join()
-            self.assertEqual(errors, [])
+            self.assertEqual(errors, [], msg=f"Errors: {errors}")
             store = RecipeStore(db_path)
             constraints = store.get_active_constraints()
             self.assertEqual(len(constraints), 20)

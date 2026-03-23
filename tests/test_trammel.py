@@ -7,6 +7,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -379,7 +380,8 @@ class TestPlanAndExecute(unittest.TestCase):
             out = plan_and_execute("make tests pass", d, num_beams=2, db_path=db)
             self.assertEqual(out.get("status"), "ok")
 
-    def test_explore_returns_beams(self) -> None:
+    @patch("trammel.core.os.cpu_count", return_value=12)
+    def test_explore_returns_beams(self, _mock_cpu: object) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
             ex = explore("add logging", d, num_beams=6, db_path=os.path.join(d, "e.db"))
