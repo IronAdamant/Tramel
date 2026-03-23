@@ -8,6 +8,7 @@ import os
 import sys
 
 from . import __version__, explore, plan_and_execute
+from .utils import DEFAULT_DB_PATH
 
 
 def main() -> None:
@@ -18,7 +19,7 @@ def main() -> None:
     parser.add_argument("goal", nargs="?", default=None, help="High-level goal string")
     parser.add_argument("--root", default=os.getcwd(), help="Project root (default: cwd)")
     parser.add_argument("--beams", type=int, default=3, help="Requested beam count (capped by CPU)")
-    parser.add_argument("--db", default="trammel.db", help="SQLite path for recipes and plans")
+    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite path for recipes and plans")
     parser.add_argument(
         "--test-cmd", nargs="+", default=None,
         help="Custom test command (default: unittest discover)",

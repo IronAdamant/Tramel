@@ -7,7 +7,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
-import unittest.mock
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -93,7 +93,7 @@ class TestStrategyRegistry(unittest.TestCase):
         with self.assertRaises(ValueError):
             register_strategy("bottom_up", "duplicate", lambda s, d: s)
 
-    @unittest.mock.patch("trammel.core.os.cpu_count", return_value=12)
+    @patch("trammel.core.os.cpu_count", return_value=12)
     def test_custom_used_in_beams(self, _mock_cpu: object) -> None:
         name = "_test_beam_strat"
         try:

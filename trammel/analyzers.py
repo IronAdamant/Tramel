@@ -15,6 +15,10 @@ from .utils import (
     _read_workspace_packages, _resolve_workspace_import,
     _strip_c_comments,
 )
+from .analyzers_ext import CppAnalyzer, GoAnalyzer, JavaAnalyzer, RustAnalyzer
+from .analyzers_ext2 import (
+    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
+)
 
 
 class LanguageAnalyzer(Protocol):
@@ -331,13 +335,6 @@ class TypeScriptAnalyzer:
 
 # ── Registry + detection ─────────────────────────────────────────────────────
 
-# Extended analyzers (Go, Rust, C/C++, Java/Kotlin) live in analyzers_ext.py
-# to keep this file under 500 LOC. Re-exported here for public API.
-from .analyzers_ext import CppAnalyzer, GoAnalyzer, JavaAnalyzer, RustAnalyzer
-from .analyzers_ext2 import (
-    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
-)
-
 _ANALYZER_REGISTRY: dict[str, type[LanguageAnalyzer]] = {
     "python": PythonAnalyzer,
     "typescript": TypeScriptAnalyzer,
@@ -388,7 +385,7 @@ def _detect_from_config(project_root: str) -> str | None:
         return "cpp"
     # .NET / C#
     try:
-        csharp_match = any(has(f) for f in os.listdir(project_root) if f.endswith((".csproj", ".sln")))
+        csharp_match = any(f.endswith((".csproj", ".sln")) for f in os.listdir(project_root))
     except OSError:
         csharp_match = False
     if csharp_match:

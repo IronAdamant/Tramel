@@ -141,6 +141,7 @@ def _order_critical_path(
                 depth[node] = 1 + max((depth.get(c, 0) for c in children), default=0)
                 continue
             if node in in_stack:
+                in_stack.discard(node)
                 depth[node] = 0  # cycle: assign depth 0
                 continue
             in_stack.add(node)

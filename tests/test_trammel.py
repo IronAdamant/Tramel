@@ -289,7 +289,7 @@ class TestHarness(unittest.TestCase):
                 encoding="utf-8",
             )
             h = ExecutionHarness(timeout_s=30)
-            r = h.run([], d)
+            r = h.verify_step([], d)
             self.assertTrue(r["success"], msg=r.get("trace"))
 
     def test_verify_step_with_prior(self) -> None:
@@ -315,7 +315,7 @@ class TestHarness(unittest.TestCase):
                 encoding="utf-8",
             )
             h = ExecutionHarness(timeout_s=30)
-            r = h.run([], d)
+            r = h.verify_step([], d)
             self.assertFalse(r["success"])
             self.assertIn("failure_analysis", r)
 

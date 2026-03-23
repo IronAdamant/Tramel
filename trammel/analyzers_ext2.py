@@ -229,7 +229,7 @@ class PhpAnalyzer:
             for m in _PHP_USE_GROUP_RE.finditer(src):
                 prefix = m.group(1)
                 for item in m.group(2).split(","):
-                    item = item.strip()
+                    item = item.split(" as ")[0].strip()
                     if item:
                         use_paths.append(prefix + "\\" + item)
             for use_path in use_paths:

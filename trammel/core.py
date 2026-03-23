@@ -10,15 +10,10 @@ from .store import RecipeStore
 from .strategies import (
     StrategyEntry, _STRATEGY_REGISTRY, _default_beam_count, _split_active_skipped,
 )
-from .utils import topological_sort, trigram_signature
+from .utils import sha256_json, topological_sort
 
 if TYPE_CHECKING:
     from .analyzers import LanguageAnalyzer
-
-_SUPPORTED_LANGUAGES = frozenset({
-    "python", "typescript", "go", "rust", "cpp", "java",
-    "csharp", "ruby", "php", "swift", "dart", "zig",
-})
 
 
 # ── Step generation ──────────────────────────────────────────────────────────
@@ -263,7 +258,8 @@ class Planner:
                 "total": round(t4 - t0, 3),
             },
         }
-        if lang_name not in _SUPPORTED_LANGUAGES:
+        from .analyzers import _ANALYZER_REGISTRY
+        if lang_name not in _ANALYZER_REGISTRY:
             analysis_meta["warning"] = (
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
             )
@@ -274,7 +270,7 @@ class Planner:
             "dependency_graph": relevant_graph,
             "constraints": [c.get("description", "") for c in active_constraints],
             "constraints_applied": [c.get("description", "") for c in applied],
-            "goal_fingerprint": trigram_signature(goal)[:8],
+            "goal_fingerprint": sha256_json(goal)[:16],
             "analysis_meta": analysis_meta,
         }
 

@@ -20,6 +20,7 @@ from typing import Any
 
 from .mcp_server import _TOOL_SCHEMAS, dispatch_tool
 from .store import RecipeStore
+from .utils import DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ def _configure_server(store: RecipeStore) -> Server:
 
 async def _run_server() -> None:
     """Start the stdio MCP server and run until the client disconnects."""
-    db_path = os.environ.get("TRAMMEL_DB_PATH", "trammel.db")
+    db_path = os.environ.get("TRAMMEL_DB_PATH", DEFAULT_DB_PATH)
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
     with RecipeStore(db_path) as store:
         server = _configure_server(store)

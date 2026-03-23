@@ -154,6 +154,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.7.0 — Comprehensive audit, bug fixes & modernization
+- **8 bug fixes**: Critical-path cycle leak, `log_event` bare commit, schema migration over-broad catch, inconsistent win-rate formulas, `trigram_signature` fingerprint type bug, Rust cargo relpath bug, Java import comment stripping, PHP grouped-use alias stripping.
+- **Dead code**: Removed `ExecutionHarness.run()` alias.
+- **Simplification**: N+1 query fix in recipe retrieval, SQL-side recipe pruning, `_walk_project_sources` shared generator, `DEFAULT_DB_PATH` constant consolidation.
+- **Modernization**: `_SUPPORTED_LANGUAGES` derived from registry, language/analyzer sync assertion, mid-file imports moved to top, premature Python 3.14 classifier removed.
+- **239 tests** (all passing).
+
 ### v3.6.0 — Codebase audit, bug fixes & modernization
 - **Bug fixes**: Fixed TOCTOU race in `record_failure_pattern` and `resolve_failure_pattern` (wrapped in transactions). Fixed `JavaAnalyzer.pick_test_cmd` fallback to use system `gradle` instead of nonexistent `./gradlew`.
 - **Duplication elimination**: Extracted `_count_importers()`, `_is_claimed_by_other()`, `_try_resolve()` helpers. `run()` now delegates to `verify_step()`. Removed redundant `_collect_files` wrappers. Merged two transactions in `validate_recipes`.

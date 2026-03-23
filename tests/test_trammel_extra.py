@@ -205,7 +205,7 @@ class TestHarnessExtra(unittest.TestCase):
                 raise subprocess.TimeoutExpired(cmd="python", timeout=1)
 
             with patch("trammel.harness.subprocess.run", side_effect=boom):
-                r = h.run([], d)
+                r = h.verify_step([], d)
             self.assertFalse(r["success"])
             self.assertEqual(r["output"], "timeout")
 

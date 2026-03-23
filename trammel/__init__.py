@@ -20,6 +20,7 @@ from .core import Planner
 from .strategies import get_strategies, register_strategy
 from .harness import ExecutionHarness
 from .store import RecipeStore
+from .utils import DEFAULT_DB_PATH
 
 try:
     __version__ = _meta_version("trammel")
@@ -57,7 +58,7 @@ def plan_and_execute(
     goal: str,
     project_root: str,
     num_beams: int = 3,
-    db_path: str = "trammel.db",
+    db_path: str = DEFAULT_DB_PATH,
     test_cmd: list[str] | None = None,
     language: str | None = None,
     scope: str | None = None,
@@ -108,7 +109,7 @@ def explore(
     goal: str,
     project_root: str,
     num_beams: int = 3,
-    db_path: str = "trammel.db",
+    db_path: str = DEFAULT_DB_PATH,
     language: str | None = None,
     scope: str | None = None,
 ) -> dict[str, Any]:
@@ -128,6 +129,7 @@ def synthesize(goal: str, strategy: dict[str, Any], db_path: str = "trammel.db")
 
 
 __all__ = [
+    "DEFAULT_DB_PATH",
     "CSharpAnalyzer",
     "CppAnalyzer",
     "DartAnalyzer",

@@ -254,7 +254,7 @@ class RustAnalyzer:
                 except OSError:
                     pass
             src_dir = os.path.join(member_path, "src")
-            crates[crate_name] = os.path.relpath(src_dir, ".") if os.path.isdir(os.path.join(project_root, src_dir)) else member_path
+            crates[crate_name] = src_dir if os.path.isdir(os.path.join(project_root, src_dir)) else member_path
         return crates
 
     def pick_test_cmd(self, project_root: str) -> list[str]:
@@ -401,6 +401,7 @@ class JavaAnalyzer:
                             src = fp.read()
                     except OSError:
                         continue
+                    src = _strip_c_comments(src)
                     file_sources[rel] = src
                     m = _JAVA_PACKAGE_RE.search(src)
                     if m:

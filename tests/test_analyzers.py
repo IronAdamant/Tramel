@@ -21,6 +21,10 @@ from trammel.analyzers import (  # noqa: E402
     TypeScriptAnalyzer,
     detect_language,
 )
+from trammel.analyzers_ext2 import (  # noqa: E402
+    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer,
+    RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
+)
 
 
 # ── PythonAnalyzer ───────────────────────────────────────────────────────────
@@ -707,11 +711,6 @@ class TestDetectLanguageCppJava(unittest.TestCase):
 
 
 # ── New language analyzers (batch 2) ─────────────────────────────────────────
-
-from trammel.analyzers_ext2 import (  # noqa: E402
-    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer,
-    RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
-)
 
 
 class TestCSharpAnalyzer(unittest.TestCase):

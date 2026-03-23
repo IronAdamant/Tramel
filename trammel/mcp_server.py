@@ -406,6 +406,11 @@ assert set(_TOOL_SCHEMAS) == set(_DISPATCH), (
     f"Schema/dispatch mismatch: {set(_TOOL_SCHEMAS) ^ set(_DISPATCH)}"
 )
 
+from .analyzers import _ANALYZER_REGISTRY  # noqa: E402
+assert set(_LANGUAGES) == set(_ANALYZER_REGISTRY), (
+    f"Language/analyzer mismatch: {set(_LANGUAGES) ^ set(_ANALYZER_REGISTRY)}"
+)
+
 
 def dispatch_tool(
     store: RecipeStore, tool_name: str, arguments: dict[str, Any]

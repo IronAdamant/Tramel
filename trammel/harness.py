@@ -113,10 +113,6 @@ class ExecutionHarness:
                 self._effective_error_patterns(),
             )
 
-    def run(self, edits: list[dict[str, Any]], project_root: str) -> dict[str, Any]:
-        """Full verification: apply all edits, run tests once."""
-        return self.verify_step(edits, project_root)
-
     def verify_step(
         self,
         edits: list[dict[str, Any]],

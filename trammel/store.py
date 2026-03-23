@@ -10,11 +10,11 @@ from typing import Any
 
 from .store_agents import AgentStoreMixin
 from .store_recipes import RecipeStoreMixin
-from .utils import db_connect, dumps_json, transaction
+from .utils import DEFAULT_DB_PATH, db_connect, dumps_json, transaction
 
 
 class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
-    def __init__(self, db_path: str = "trammel.db") -> None:
+    def __init__(self, db_path: str = DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
         self.conn = db_connect(db_path)
         self._init_schema()
@@ -145,8 +145,9 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         for col, default in [("claimed_by TEXT", "NULL"), ("claimed_at REAL", "NULL")]:
             try:
                 self.conn.execute(f"ALTER TABLE steps ADD COLUMN {col} DEFAULT {default}")
-            except sqlite3.OperationalError:
-                pass  # column already exists
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e):
+                    raise
         self.conn.commit()
         self._rebuild_trigram_index()
         self._backfill_files()
@@ -464,11 +465,11 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
     def log_event(self, event_type: str, detail: str = "", value: float | None = None) -> None:
         """Record a usage event for telemetry."""
         try:
-            self.conn.execute(
-                "INSERT INTO usage_events (event_type, detail, value, created) VALUES (?, ?, ?, ?)",
-                (event_type, detail, value, time.time()),
-            )
-            self.conn.commit()
+            with transaction(self.conn):
+                self.conn.execute(
+                    "INSERT INTO usage_events (event_type, detail, value, created) VALUES (?, ?, ?, ?)",
+                    (event_type, detail, value, time.time()),
+                )
         except Exception:
             logging.getLogger(__name__).debug("telemetry write failed", exc_info=True)
 
@@ -496,7 +497,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             "recipe_hit_rate": hits / total if total > 0 else 0.0,
             "avg_hit_score": sum(scores) / len(scores) if scores else 0.0,
             "strategy_win_rates": {
-                n: s / (s + f) if (s + f) > 0 else 0.0
+                n: s / (s + f + 1)
                 for n, (s, f) in self.get_strategy_stats().items()
             },
             "days": days, "total_events": len(rows),

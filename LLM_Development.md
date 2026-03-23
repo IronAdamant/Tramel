@@ -8,10 +8,46 @@
 
 ## Active context
 
-- **Version:** 3.6.0
+- **Version:** 3.7.0
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.0 — Comprehensive audit, bug fixes, and modernization
+
+**Date:** 2026-03-23
+
+### Summary
+Deep codebase audit across all 15 source files and 4 test files. Fixed 8 bugs (including 3 data-corrupting ones), removed dead code, eliminated duplication, consolidated constants, and modernized imports. All 239 tests pass.
+
+### Bug fixes
+- **`_order_critical_path` cycle leak** (strategies.py): Cycle detection did not remove nodes from `in_stack`, causing subsequent dependent nodes to be falsely flagged as cycles. Fixed by adding `in_stack.discard(node)`.
+- **`log_event` bare commit** (store.py): Used `self.conn.commit()` outside `transaction()` context manager, bypassing BUSY retry logic. Now wrapped in `with transaction()`.
+- **Schema migration too-broad catch** (store.py): `ALTER TABLE` migration caught all `OperationalError`, potentially masking real errors. Now only suppresses "duplicate column" errors.
+- **Inconsistent win-rate formulas** (store.py vs core.py): `get_usage_stats` used raw ratio while `explore_trajectories` used Laplace smoothing. Unified to Laplace smoothing (`s / (s + f + 1)`).
+- **`trigram_signature()[:8]` produced `list[float]`** (core.py): Goal fingerprint was a list of floats, not a string. Replaced with `sha256_json(goal)[:16]` for a proper hex hash fingerprint.
+- **Rust `_read_cargo_crates` relpath bug** (analyzers_ext.py): `os.path.relpath(src_dir, ".")` computed paths relative to CWD instead of project root. Fixed to use `src_dir` directly.
+- **Java `analyze_imports` missing comment stripping** (analyzers_ext.py): Import statements inside block comments were falsely included in the dependency graph. Added `_strip_c_comments()` call.
+- **PHP grouped-use alias stripping** (analyzers_ext2.py): `use Foo\{Bar, Baz as B}` produced `Foo\Baz as B` instead of `Foo\Baz`. Added `item.split(" as ")[0]`.
+
+### Dead code removal
+- Removed `ExecutionHarness.run()` (harness.py): trivial one-line alias for `verify_step()`, never called externally. Updated 3 test call sites.
+
+### Code simplification
+- **N+1 query eliminated** (store_recipes.py): `retrieve_best_recipe` fetched file paths per-candidate in a loop. Replaced with single batch-fetch query.
+- **`prune_recipes` SQL-side filtering** (store_recipes.py): Replaced Python-side loop with SQL `WHERE` clause for candidate selection.
+- **`_walk_project_sources` generator** (utils.py): Extracted shared os.walk + dir-filter + file-read logic from `_collect_symbols_regex` and `_collect_typed_symbols_regex`, eliminating ~30 lines of duplication.
+- **`DEFAULT_DB_PATH` constant** (utils.py): Consolidated `"trammel.db"` hardcoded in 6 locations (cli.py, mcp_stdio.py, store.py, __init__.py ×3) into a single `DEFAULT_DB_PATH` constant.
+- **Redundant `has()` in C# detection** (analyzers.py): `any(has(f) for f in os.listdir(...) if f.endswith(...))` redundantly stat'd files already listed. Simplified to direct `.endswith()` check.
+
+### Modernization
+- **`_SUPPORTED_LANGUAGES` derived from registry** (core.py): Removed hardcoded frozenset that could drift from `_ANALYZER_REGISTRY`. Now imports registry directly.
+- **Language/analyzer sync assertion** (mcp_server.py): Added `assert set(_LANGUAGES) == set(_ANALYZER_REGISTRY)` to catch language list drift at import time.
+- **Mid-file imports moved to top** (analyzers.py, test_analyzers.py): `analyzers_ext`/`analyzers_ext2` imports moved from mid-file to top-level imports block.
+- **Removed premature Python 3.14 classifier** (pyproject.toml): Python 3.14 is still in pre-release.
+- **Consistent `unittest.mock` import** (test_strategies.py): Changed `import unittest.mock` + `@unittest.mock.patch` to `from unittest.mock import patch` + `@patch`.
 
 ---
 

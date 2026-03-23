@@ -46,14 +46,12 @@ def _strip_php_comments(src: str) -> str:
     return _HASH_COMMENT_RE.sub("", src)
 
 
-def _collect_symbols_regex(
+def _walk_project_sources(
     project_root: str,
     extensions: tuple[str, ...],
-    patterns: list[re.Pattern[str]],
     preprocess: Callable[[str], str] | None = None,
-) -> dict[str, list[str]]:
-    """Shared symbol collection for regex-based analyzers."""
-    symbols: dict[str, list[str]] = {}
+) -> Generator[tuple[str, str], None, None]:
+    """Yield (relative_path, source) for matching files, skipping ignored dirs."""
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
         for fname in files:
@@ -68,14 +66,26 @@ def _collect_symbols_regex(
                 continue
             if preprocess:
                 src = preprocess(src)
-            names: list[str] = []
-            for pat in patterns:
-                for m in pat.finditer(src):
-                    name = m.group(1)
-                    if name and name not in names:
-                        names.append(name)
-            if names:
-                symbols[rel] = names
+            yield rel, src
+
+
+def _collect_symbols_regex(
+    project_root: str,
+    extensions: tuple[str, ...],
+    patterns: list[re.Pattern[str]],
+    preprocess: Callable[[str], str] | None = None,
+) -> dict[str, list[str]]:
+    """Shared symbol collection for regex-based analyzers."""
+    symbols: dict[str, list[str]] = {}
+    for rel, src in _walk_project_sources(project_root, extensions, preprocess):
+        names: list[str] = []
+        for pat in patterns:
+            for m in pat.finditer(src):
+                name = m.group(1)
+                if name and name not in names:
+                    names.append(name)
+        if names:
+            symbols[rel] = names
     return symbols
 
 
@@ -87,30 +97,17 @@ def _collect_typed_symbols_regex(
 ) -> dict[str, list[tuple[str, str]]]:
     """Shared typed symbol collection: returns file -> [(name, type_label)]."""
     symbols: dict[str, list[tuple[str, str]]] = {}
-    for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-        for fname in files:
-            if not fname.endswith(extensions):
-                continue
-            path = os.path.join(root, fname)
-            rel = os.path.relpath(path, project_root)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
-            except OSError:
-                continue
-            if preprocess:
-                src = preprocess(src)
-            seen: set[str] = set()
-            entries: list[tuple[str, str]] = []
-            for pat, type_label in typed_patterns:
-                for m in pat.finditer(src):
-                    name = m.group(1)
-                    if name and name not in seen:
-                        seen.add(name)
-                        entries.append((name, type_label))
-            if entries:
-                symbols[rel] = entries
+    for rel, src in _walk_project_sources(project_root, extensions, preprocess):
+        seen: set[str] = set()
+        entries: list[tuple[str, str]] = []
+        for pat, type_label in typed_patterns:
+            for m in pat.finditer(src):
+                name = m.group(1)
+                if name and name not in seen:
+                    seen.add(name)
+                    entries.append((name, type_label))
+        if entries:
+            symbols[rel] = entries
     return symbols
 
 
@@ -343,11 +340,13 @@ def goal_similarity(a: str, b: str) -> float:
 
 # ── Database ─────────────────────────────────────────────────────────────────
 
+DEFAULT_DB_PATH = "trammel.db"
+
 _BUSY_RETRIES = 5
 _BUSY_BASE_DELAY = 0.05
 
 
-def db_connect(path: str = "trammel.db") -> sqlite3.Connection:
+def db_connect(path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

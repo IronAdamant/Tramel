@@ -126,19 +126,29 @@ class RecipeStoreMixin:
             f"WHERE sig IN ({sig_ph})",
             sig_tuple,
         )
+        # Batch-fetch file paths for all candidates to avoid N+1 queries
+        candidates = cur.fetchall()
+        sig_files: dict[str, set[str]] = {}
+        if context_files is not None and candidates:
+            all_sigs = tuple(row[0] for row in candidates)
+            file_ph = ",".join("?" for _ in all_sigs)
+            file_rows = self.conn.execute(
+                f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig IN ({file_ph})",
+                all_sigs,
+            ).fetchall()
+            for fsig, fpath in file_rows:
+                sig_files.setdefault(fsig, set()).add(fpath)
+
         best: dict[str, Any] | None = None
         best_score = -1.0
         now = time.time()
-        for sig, pattern, strategy_str, succ, fail, updated in cur:
+        for sig, pattern, strategy_str, succ, fail, updated in candidates:
             text_sim = goal_similarity(goal, pattern)
             if text_sim < min_similarity:
                 continue
 
             if context_files is not None:
-                recipe_file_rows = self.conn.execute(
-                    "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
-                ).fetchall()
-                recipe_files = {r[0] for r in recipe_file_rows}
+                recipe_files = sig_files.get(sig, set())
                 if recipe_files and context_files:
                     file_overlap = len(context_files & recipe_files) / len(context_files | recipe_files)
                 else:
@@ -207,15 +217,13 @@ class RecipeStoreMixin:
     def prune_recipes(self, max_age_days: int = 90, min_success_ratio: float = 0.1) -> int:
         """Remove stale, low-quality recipes. Returns count of pruned recipes."""
         cutoff = time.time() - (max_age_days * 86400)
-        candidates = self.conn.execute(
-            "SELECT sig, successes, failures FROM recipes WHERE updated < ?",
-            (cutoff,),
-        ).fetchall()
-        pruned: list[str] = []
-        for sig, succ, fail in candidates:
-            total = succ + fail
-            if total == 0 or (succ / total) < min_success_ratio:
-                pruned.append(sig)
+        pruned = [
+            row[0] for row in self.conn.execute(
+                "SELECT sig FROM recipes WHERE updated < ? AND "
+                "(successes + failures = 0 OR CAST(successes AS REAL) / (successes + failures) < ?)",
+                (cutoff, min_success_ratio),
+            ).fetchall()
+        ]
         if not pruned:
             return 0
         ph = ",".join("?" for _ in pruned)
