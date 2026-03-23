@@ -8,10 +8,54 @@
 
 ## Active context
 
-- **Version:** 3.4.1
+- **Version:** 3.6.0
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.6.0 — Codebase audit, bug fixes, and modernization
+
+**Date:** 2026-03-23
+
+### Summary
+Comprehensive codebase audit and cleanup: fixed 3 bugs, eliminated 10 instances of duplicated logic, simplified code, modernized imports, and improved packaging. All 239 tests pass.
+
+### Bug fixes
+- **TOCTOU race in `record_failure_pattern`** (store.py): SELECT + INSERT/UPDATE was outside a transaction — concurrent agents could create duplicate patterns. Now wrapped in `with transaction()`.
+- **Missing transaction in `resolve_failure_pattern`** (store.py): UPDATE + commit was bare — now wrapped in `with transaction()`.
+- **`JavaAnalyzer.pick_test_cmd` fallback** (analyzers_ext.py): Fell back to `./gradlew test` even when no `gradlew` file existed. Changed to `gradle test` (system binary).
+
+### Duplication elimination
+- **`_count_importers()` helper** (strategies.py): Extracted from 3x identical importer-counting blocks in `_order_risk_first`, `_order_leaf_first`, `_order_hub_first`.
+- **`run()` delegates to `verify_step()`** (harness.py): `run()` duplicated `verify_step()` body verbatim — now a one-line delegation.
+- **`_is_claimed_by_other()` helper** (store_agents.py): Extracted stale-claim check duplicated between `claim_step` and `get_available_steps`.
+- **`_try_resolve()` helper** (analyzers.py): Extracted identical extension-try loop from `_resolve_ts_path` and `_resolve_alias`.
+- **Removed redundant `_collect_files` wrappers**: `TypeScriptAnalyzer._collect_files` and `CppAnalyzer._collect_files` were one-liner wrappers around `_collect_project_files` — callers now call the utility directly.
+- **Merged two transactions into one** in `validate_recipes` (store_recipes.py).
+
+### Dead code removal
+- Removed always-true `self.store is not None` guard (core.py)
+- Removed unnecessary `or ""` on `subprocess.run(text=True)` output (harness.py)
+- Removed redundant `success = False` assignment (store.py)
+- Removed ineffective deferred import of `explore` in cli.py (module already loaded)
+
+### Modernization
+- `Callable` and `Generator` imported from `collections.abc` instead of deprecated `typing` (utils.py, strategies.py, mcp_server.py)
+- Added PEP 561 `py.typed` marker file (matches `Typing :: Typed` classifier)
+- Added `get_analyzer` to `__init__.py` `__all__` (was importable but undiscoverable)
+- Added `.mypy_cache/` and `.ruff_cache/` to `.gitignore` (consistent with `_IGNORED_DIRS`)
+
+### Simplifications
+- `_split_active_skipped` now single-pass (was iterating list twice)
+- `_handle_list_strategies` eliminated redundant `stats.get()` double-call
+- Fragile `c["description"]` changed to `c.get("description", "")` in core.py
+
+### Test improvements
+- `{(n, t) for n, t in entries}` simplified to `set(entries)` in test_analyzers.py
+- Hardcoded tool count `27` replaced with `len(_TOOL_SCHEMAS)` in test_trammel_extra.py
+- Removed stale migration comment in test_strategies.py
 
 ---
 

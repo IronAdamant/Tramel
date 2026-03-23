@@ -368,7 +368,6 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         stats: dict[str, list[int]] = {}
         for variant, outcome_str in rows:
             pair = stats.setdefault(variant, [0, 0])
-            success = False
             try:
                 success = json.loads(outcome_str).get("success", False)
             except (json.JSONDecodeError, TypeError):
@@ -397,32 +396,32 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         self, file_path: str, error_type: str, error_message: str = "", test_file: str | None = None,
     ) -> None:
         now = time.time()
-        existing = self.conn.execute(
-            "SELECT id FROM failure_patterns WHERE file_path = ? AND error_type = ?",
-            (file_path, error_type),
-        ).fetchone()
-        if existing:
-            self.conn.execute(
-                "UPDATE failure_patterns SET occurrences = occurrences + 1, "
-                "error_message = ?, last_seen = ? WHERE id = ?",
-                (error_message[:200], now, existing[0]),
-            )
-        else:
-            self.conn.execute(
-                "INSERT INTO failure_patterns "
-                "(file_path, error_type, error_message, test_file, first_seen, last_seen) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (file_path, error_type, error_message[:200], test_file, now, now),
-            )
-        self.conn.commit()
+        with transaction(self.conn):
+            existing = self.conn.execute(
+                "SELECT id FROM failure_patterns WHERE file_path = ? AND error_type = ?",
+                (file_path, error_type),
+            ).fetchone()
+            if existing:
+                self.conn.execute(
+                    "UPDATE failure_patterns SET occurrences = occurrences + 1, "
+                    "error_message = ?, last_seen = ? WHERE id = ?",
+                    (error_message[:200], now, existing[0]),
+                )
+            else:
+                self.conn.execute(
+                    "INSERT INTO failure_patterns "
+                    "(file_path, error_type, error_message, test_file, first_seen, last_seen) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (file_path, error_type, error_message[:200], test_file, now, now),
+                )
 
     def resolve_failure_pattern(self, file_path: str, error_type: str, resolution: str) -> None:
-        self.conn.execute(
-            "UPDATE failure_patterns SET last_resolution = ? "
-            "WHERE file_path = ? AND error_type = ?",
-            (resolution[:200], file_path, error_type),
-        )
-        self.conn.commit()
+        with transaction(self.conn):
+            self.conn.execute(
+                "UPDATE failure_patterns SET last_resolution = ? "
+                "WHERE file_path = ? AND error_type = ?",
+                (resolution[:200], file_path, error_type),
+            )
 
     def get_failure_history(
         self, file_path: str | None = None, limit: int = 20,

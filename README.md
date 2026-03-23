@@ -154,6 +154,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.6.0 — Codebase audit, bug fixes & modernization
+- **Bug fixes**: Fixed TOCTOU race in `record_failure_pattern` and `resolve_failure_pattern` (wrapped in transactions). Fixed `JavaAnalyzer.pick_test_cmd` fallback to use system `gradle` instead of nonexistent `./gradlew`.
+- **Duplication elimination**: Extracted `_count_importers()`, `_is_claimed_by_other()`, `_try_resolve()` helpers. `run()` now delegates to `verify_step()`. Removed redundant `_collect_files` wrappers. Merged two transactions in `validate_recipes`.
+- **Dead code removal**: Always-true guard, unnecessary `or ""`, redundant assignment, ineffective deferred import.
+- **Modernization**: `collections.abc.Callable`/`Generator` imports, PEP 561 `py.typed` marker, `get_analyzer` added to `__all__`, `.mypy_cache`/`.ruff_cache` in `.gitignore`.
+- **Simplifications**: Single-pass `_split_active_skipped`, defensive `.get()` for constraint descriptions, simplified test assertions.
+- **239 tests** (all passing).
+
 ### v3.5.2 — Codebase cleanup & modernization
 - **Consolidated comment strippers**: removed duplicate `_strip_js_comments` and `_strip_cpp_comments`, all analyzers now use the shared `_strip_c_comments` from utils
 - **Consistent import analysis**: all regex-based analyzers now strip comments before extracting imports (fixes false positives from commented-out imports in Ruby, Dart, Zig, C#, PHP)

@@ -886,7 +886,7 @@ class TestPythonTypedSymbols(unittest.TestCase):
             )
             typed = PythonAnalyzer().collect_typed_symbols(d)
             entries = typed.get("mod.py", [])
-            names_types = {(n, t) for n, t in entries}
+            names_types = set(entries)
             self.assertIn(("Foo", "class"), names_types)
             self.assertIn(("bar", "function"), names_types)
             self.assertIn(("baz", "function"), names_types)
@@ -902,7 +902,7 @@ class TestTypescriptTypedSymbols(unittest.TestCase):
             )
             typed = TypeScriptAnalyzer().collect_typed_symbols(d)
             entries = typed.get("app.ts", [])
-            names_types = {(n, t) for n, t in entries}
+            names_types = set(entries)
             self.assertIn(("IUser", "interface"), names_types)
             self.assertIn(("UserService", "class"), names_types)
             self.assertIn(("Role", "enum"), names_types)
@@ -919,7 +919,7 @@ class TestGoTypedSymbols(unittest.TestCase):
             )
             typed = GoAnalyzer().collect_typed_symbols(d)
             entries = typed.get("main.go", [])
-            names_types = {(n, t) for n, t in entries}
+            names_types = set(entries)
             self.assertIn(("main", "function"), names_types)
             self.assertIn(("Config", "struct"), names_types)
             self.assertIn(("MaxRetries", "constant"), names_types)

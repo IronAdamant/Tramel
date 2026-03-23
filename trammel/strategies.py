@@ -6,7 +6,8 @@ Extracted from core.py to keep each module under 500 LOC.
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 from .utils import topological_sort
 
@@ -45,10 +46,21 @@ def _default_beam_count(requested: int) -> int:
 def _split_active_skipped(
     steps: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Separate active steps from skipped steps."""
-    active = [s for s in steps if s.get("status") != "skipped"]
-    skipped = [s for s in steps if s.get("status") == "skipped"]
+    """Separate active steps from skipped steps (single pass)."""
+    active: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for s in steps:
+        (skipped if s.get("status") == "skipped" else active).append(s)
     return active, skipped
+
+
+def _count_importers(dep_graph: dict[str, list[str]]) -> dict[str, int]:
+    """Count how many files import each file."""
+    counts: dict[str, int] = {}
+    for deps in dep_graph.values():
+        for d in deps:
+            counts[d] = counts.get(d, 0) + 1
+    return counts
 
 
 def _order_bottom_up(
@@ -73,11 +85,7 @@ def _order_risk_first(
     steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     """Most-imported files first. Incompatible steps isolated, skipped at end."""
-    import_counts: dict[str, int] = {}
-    for deps in dep_graph.values():
-        for d in deps:
-            import_counts[d] = import_counts.get(d, 0) + 1
-
+    import_counts = _count_importers(dep_graph)
     active, skipped = _split_active_skipped(steps)
 
     isolated = [s for s in active if s.get("incompatible_with")]
@@ -93,7 +101,7 @@ def _order_risk_first(
         pkg_groups.setdefault(pkg, []).append(s)
     sorted_groups = sorted(
         pkg_groups.values(),
-        key=lambda g: max(import_counts.get(s.get("file", ""), 0) for s in g),
+        key=lambda g: max(import_counts.get(st.get("file", ""), 0) for st in g),
         reverse=True,
     )
 
@@ -215,12 +223,7 @@ def _order_leaf_first(
 ) -> list[dict[str, Any]]:
     """Files with zero importers first (safe, isolated changes). Skipped at end."""
     active, skipped = _split_active_skipped(steps)
-
-    importer_counts: dict[str, int] = {}
-    for deps in dep_graph.values():
-        for d in deps:
-            importer_counts[d] = importer_counts.get(d, 0) + 1
-
+    importer_counts = _count_importers(dep_graph)
     active.sort(key=lambda s: importer_counts.get(s.get("file", ""), 0))
     return active + skipped
 
@@ -230,11 +233,7 @@ def _order_hub_first(
 ) -> list[dict[str, Any]]:
     """Network hubs first (both import many and imported by many). Skipped at end."""
     active, skipped = _split_active_skipped(steps)
-
-    importer_counts: dict[str, int] = {}
-    for deps in dep_graph.values():
-        for d in deps:
-            importer_counts[d] = importer_counts.get(d, 0) + 1
+    importer_counts = _count_importers(dep_graph)
 
     def hub_score(s: dict[str, Any]) -> float:
         f = s.get("file", "")

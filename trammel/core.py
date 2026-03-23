@@ -272,8 +272,8 @@ class Planner:
             "goal": goal,
             "steps": steps,
             "dependency_graph": relevant_graph,
-            "constraints": [c["description"] for c in active_constraints],
-            "constraints_applied": [c["description"] for c in applied],
+            "constraints": [c.get("description", "") for c in active_constraints],
+            "constraints_applied": [c.get("description", "") for c in applied],
             "goal_fingerprint": trigram_signature(goal)[:8],
             "analysis_meta": analysis_meta,
         }
@@ -291,15 +291,14 @@ class Planner:
         entries = list(_STRATEGY_REGISTRY.values())
 
         # Sort strategies by historical success rate
-        if self.store is not None:
-            stats = self.store.get_strategy_stats()
-            def _success_rate(entry: StrategyEntry) -> float:
-                pair = stats.get(entry.name)
-                if pair is None:
-                    return -1.0  # no history: keep registration order
-                succ, fail = pair
-                return succ / (succ + fail + 1)
-            entries = sorted(entries, key=_success_rate, reverse=True)
+        stats = self.store.get_strategy_stats()
+        def _success_rate(entry: StrategyEntry) -> float:
+            pair = stats.get(entry.name)
+            if pair is None:
+                return -1.0  # no history: keep registration order
+            succ, fail = pair
+            return succ / (succ + fail + 1)
+        entries = sorted(entries, key=_success_rate, reverse=True)
 
         ordered_variants = [
             (e.name, e.description, e.fn(steps, dep_graph)) for e in entries

@@ -10,7 +10,8 @@ from typing import Any
 
 from .analyzers import (
     CppAnalyzer, GoAnalyzer, JavaAnalyzer, PythonAnalyzer,
-    RustAnalyzer, TypeScriptAnalyzer, detect_language, get_analyzer,
+    RustAnalyzer, TypeScriptAnalyzer, detect_language,
+    get_analyzer,
 )
 from .analyzers_ext2 import (
     CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
@@ -145,6 +146,7 @@ __all__ = [
     "__version__",
     "detect_language",
     "explore",
+    "get_analyzer",
     "get_strategies",
     "plan_and_execute",
     "register_strategy",

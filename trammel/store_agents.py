@@ -13,6 +13,14 @@ class AgentStoreMixin:
 
     _CLAIM_TIMEOUT = 600  # 10 minutes — stale claims auto-expire
 
+    def _is_claimed_by_other(
+        self, claimed_by: str | None, claimed_at: float | None, agent_id: str, now: float,
+    ) -> bool:
+        """Check if a step is actively claimed by a different agent."""
+        if not claimed_by or claimed_by == agent_id:
+            return False
+        return bool(claimed_at and (now - claimed_at) < self._CLAIM_TIMEOUT)
+
     def claim_step(self, plan_id: int, step_id: int, agent_id: str) -> bool:
         """Claim a step for an agent. Returns False if already claimed by another."""
         now = time.time()
@@ -23,10 +31,8 @@ class AgentStoreMixin:
             ).fetchone()
             if not row:
                 return False
-            current_owner, claimed_at = row
-            if current_owner and current_owner != agent_id:
-                if claimed_at and (now - claimed_at) < self._CLAIM_TIMEOUT:
-                    return False
+            if self._is_claimed_by_other(row[0], row[1], agent_id, now):
+                return False
             self.conn.execute(
                 "UPDATE steps SET claimed_by = ?, claimed_at = ? WHERE id = ?",
                 (agent_id, now, step_id),
@@ -55,10 +61,7 @@ class AgentStoreMixin:
                 continue
             if not all(d in passed for d in step.get("depends_on", [])):
                 continue
-            claimed_by = step.get("claimed_by")
-            claimed_at = step.get("claimed_at")
-            if claimed_by and claimed_by != agent_id:
-                if claimed_at and (now - claimed_at) < self._CLAIM_TIMEOUT:
-                    continue
+            if self._is_claimed_by_other(step.get("claimed_by"), step.get("claimed_at"), agent_id, now):
+                continue
             available.append(step)
         return available

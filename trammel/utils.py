@@ -11,7 +11,8 @@ import re
 import sqlite3
 import time
 from collections import Counter, deque
-from typing import Any, Callable, Generator
+from collections.abc import Callable, Generator
+from typing import Any
 
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",

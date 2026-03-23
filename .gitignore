@@ -19,6 +19,10 @@ htmlcov/
 .coverage
 coverage.xml
 
+# Type checking / linting caches
+.mypy_cache/
+.ruff_cache/
+
 # SQLite databases (generated at runtime)
 *.db
 *.db-shm

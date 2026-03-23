@@ -313,7 +313,7 @@ class CppAnalyzer:
         )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
-        file_set = self._collect_files(project_root)
+        file_set = _collect_project_files(project_root, _CPP_EXTENSIONS)
         graph: dict[str, list[str]] = {}
         for rel in file_set:
             path = os.path.join(project_root, rel)
@@ -348,10 +348,6 @@ class CppAnalyzer:
             ("fatal error:", "fatal_error", "Check include paths and dependencies"),
             ("FAILED", "test_failure", "One or more tests failed"),
         ]
-
-    @staticmethod
-    def _collect_files(project_root: str) -> set[str]:
-        return _collect_project_files(project_root, _CPP_EXTENSIONS)
 
 
 # ── Java / Kotlin ─────────────────────────────────────────────────────────────
@@ -476,7 +472,7 @@ class JavaAnalyzer:
             return ["./gradlew", "test"]
         if os.path.isfile(os.path.join(project_root, "pom.xml")):
             return ["mvn", "test"]
-        return ["./gradlew", "test"]
+        return ["gradle", "test"]
 
     def error_patterns(self) -> list[tuple[str, str, str]]:
         return [

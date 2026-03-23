@@ -7,7 +7,8 @@ based router used by the stdio MCP server.
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .core import Planner
 from .strategies import get_strategies
@@ -308,12 +309,9 @@ def _handle_status(store: RecipeStore, args: dict[str, Any]) -> Any:
 def _handle_list_strategies(store: RecipeStore, args: dict[str, Any]) -> Any:
     stats = store.get_strategy_stats()
     return [
-        {
-            "name": name,
-            "successes": stats.get(name, (0, 0))[0],
-            "failures": stats.get(name, (0, 0))[1],
-        }
+        {"name": name, "successes": s, "failures": f}
         for name in get_strategies()
+        for s, f in [stats.get(name, (0, 0))]
     ]
 
 

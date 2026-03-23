@@ -31,8 +31,6 @@ from trammel.mcp_server import dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 
 
-# ── Moved from test_trammel_extra.py ─────────────────────────────────────────
-
 class TestBeamStrategies(unittest.TestCase):
     def test_skipped_excluded_from_edits(self) -> None:
         with tempfile.TemporaryDirectory() as d:

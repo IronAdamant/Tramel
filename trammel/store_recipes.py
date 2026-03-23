@@ -254,18 +254,18 @@ class RecipeStoreMixin:
             files_removed += len(missing)
             if len(missing) == len(file_list):
                 invalidated.append(sig)
-        # Single transaction for all file removals
-        if stale_pairs:
+        # Single transaction for all removals
+        if stale_pairs or invalidated:
             with transaction(self.conn):
-                self.conn.executemany(
-                    "DELETE FROM recipe_files WHERE recipe_sig = ? AND file_path = ?",
-                    stale_pairs,
-                )
-        if invalidated:
-            ph = ",".join("?" for _ in invalidated)
-            with transaction(self.conn):
-                self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(invalidated))
-                self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(invalidated))
+                if stale_pairs:
+                    self.conn.executemany(
+                        "DELETE FROM recipe_files WHERE recipe_sig = ? AND file_path = ?",
+                        stale_pairs,
+                    )
+                if invalidated:
+                    ph = ",".join("?" for _ in invalidated)
+                    self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(invalidated))
+                    self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(invalidated))
         return {
             "recipes_checked": len(rows),
             "files_removed": files_removed,

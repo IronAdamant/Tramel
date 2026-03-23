@@ -145,7 +145,7 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (21 tools)
+## Tool reference (27 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -170,6 +170,12 @@ Analysis (symbol collection, import resolution) runs only within the scope. Test
 | `resume` | Get plan progress with prior_edits for resumption |
 | `validate_recipes` | Remove stale recipe file entries; prune fully-stale recipes |
 | `estimate` | Quick file count for project/scope; recommends whether to scope |
+| `usage_stats` | Usage telemetry: tool call counts, recipe hit/miss rates, strategy win rates |
+| `failure_history` | Historical failure patterns for a file or project-wide |
+| `resolve_failure` | Record what fixed a known failure pattern |
+| `claim_step` | Claim a step for an agent (multi-agent coordination) |
+| `release_step` | Release a step claim |
+| `available_steps` | Get steps ready for work (deps satisfied, unclaimed) |
 
 ## Multi-language support
 

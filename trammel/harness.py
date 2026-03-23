@@ -59,8 +59,8 @@ def _run_tests(
         return {"success": False, "output": "", "trace": str(e)[:500], "score": 0.0}
 
     success = result.returncode == 0
-    out = (result.stdout or "")[:500]
-    err = (result.stderr or "")[:500]
+    out = result.stdout[:500]
+    err = result.stderr[:500]
     outcome: dict[str, Any] = {
         "success": success,
         "output": out,
@@ -115,17 +115,7 @@ class ExecutionHarness:
 
     def run(self, edits: list[dict[str, Any]], project_root: str) -> dict[str, Any]:
         """Full verification: apply all edits, run tests once."""
-        project_root = os.path.abspath(project_root)
-        with tempfile.TemporaryDirectory() as tmp:
-            shutil.copytree(
-                project_root, tmp, dirs_exist_ok=True, ignore=_ignore_copy,
-            )
-            _apply_edits(tmp, edits)
-            return _run_tests(
-                tmp, self.timeout_s,
-                self._effective_test_cmd(project_root),
-                self._effective_error_patterns(),
-            )
+        return self.verify_step(edits, project_root)
 
     def verify_step(
         self,

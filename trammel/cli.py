@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-from . import __version__, plan_and_execute
+from . import __version__, explore, plan_and_execute
 
 
 def main() -> None:
@@ -42,7 +42,6 @@ def main() -> None:
         goal = args.goal
 
     if args.dry_run:
-        from . import explore
         result = explore(
             goal, args.root, num_beams=args.beams, db_path=args.db,
             language=args.language, scope=args.scope,

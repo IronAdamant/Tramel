@@ -198,7 +198,7 @@ class TypeScriptAnalyzer:
         )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
-        file_set = self._collect_files(project_root)
+        file_set = _collect_project_files(project_root, _TS_EXTENSIONS)
         base_url, aliases = self._read_ts_path_aliases(project_root)
         workspace_pkgs = _read_workspace_packages(project_root)
         graph: dict[str, list[str]] = {}
@@ -267,8 +267,17 @@ class TypeScriptAnalyzer:
         ]
 
     @staticmethod
-    def _collect_files(project_root: str) -> set[str]:
-        return _collect_project_files(project_root, _TS_EXTENSIONS)
+    def _try_resolve(base: str, file_set: set[str]) -> str | None:
+        """Try resolving a base path with TS extensions, index files, or bare path."""
+        for ext in _TS_EXTENSIONS:
+            candidate = base + ext
+            if candidate in file_set:
+                return candidate
+        for ext in _TS_EXTENSIONS:
+            candidate = os.path.join(base, f"index{ext}")
+            if candidate in file_set:
+                return candidate
+        return base if base in file_set else None
 
     @staticmethod
     def _resolve_ts_path(importing_file: str, import_path: str, file_set: set[str]) -> str | None:
@@ -278,17 +287,7 @@ class TypeScriptAnalyzer:
                 import_path = import_path[: -len(js_ext)]
                 break
         base = os.path.normpath(os.path.join(os.path.dirname(importing_file), import_path))
-        for ext in _TS_EXTENSIONS:
-            candidate = base + ext
-            if candidate in file_set:
-                return candidate
-        for ext in _TS_EXTENSIONS:
-            candidate = os.path.join(base, f"index{ext}")
-            if candidate in file_set:
-                return candidate
-        if base in file_set:
-            return base
-        return None
+        return TypeScriptAnalyzer._try_resolve(base, file_set)
 
     @staticmethod
     def _read_ts_path_aliases(project_root: str) -> tuple[str, dict[str, str]]:
@@ -325,17 +324,7 @@ class TypeScriptAnalyzer:
                 resolved_base = os.path.normpath(
                     os.path.join(base_url, real_prefix + remainder),
                 )
-                for ext in _TS_EXTENSIONS:
-                    candidate = resolved_base + ext
-                    if candidate in file_set:
-                        return candidate
-                for ext in _TS_EXTENSIONS:
-                    candidate = os.path.join(resolved_base, f"index{ext}")
-                    if candidate in file_set:
-                        return candidate
-                if resolved_base in file_set:
-                    return resolved_base
-                break
+                return TypeScriptAnalyzer._try_resolve(resolved_base, file_set)
         return None
 
 
