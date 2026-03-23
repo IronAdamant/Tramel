@@ -53,7 +53,7 @@ def _configure_server(store: RecipeStore) -> Server:
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         try:
-            result = await asyncio.to_thread(dispatch_tool, store, name, arguments)
+            result = dispatch_tool(store, name, arguments)
         except Exception as exc:
             logger.exception("Error executing tool %s", name)
             return [TextContent(type="text", text=f"Error: {exc}")]

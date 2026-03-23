@@ -1,7 +1,7 @@
 # Trammel — Project documentation index
 
-**Updated:** 2026-03-23
-**Version:** 3.7.9
+**Updated:** 2026-03-24
+**Version:** 3.7.10
 **Purpose:** Stdlib-only planning harness: dependency-aware decomposition (15 languages: Python, TypeScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig), parallel beam execution (9 strategies), typed symbol analysis, incremental verification, failure constraint propagation, structural recipe matching (with abbreviation expansion), recipe pruning, SQLite recipe/plan/step/constraint/trajectory persistence. MCP server (27 tools) for LLM integration with reference system prompt. PEP 561 typed (`py.typed` marker).
 
 ## Root files
@@ -11,7 +11,7 @@
 | `README.md` | Overview, quickstart, CLI, MCP setup, architecture, version notes |
 | `COMPLETE_PROJECT_DOCUMENTATION.md` | This file: inventory and data flows |
 | `LLM_Development.md` | Chronological change log |
-| `pyproject.toml` | Package metadata (`trammel` 3.7.9), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
+| `pyproject.toml` | Package metadata (`trammel` 3.7.10), `requires-python >=3.10`, `mcp` optional dep, console scripts `trammel` + `trammel-mcp` |
 | `SYSTEM_PROMPT.md` | Reference orchestration guide for LLM clients: plan-verify-store loop |
 
 ## wiki-local/
@@ -40,7 +40,7 @@
 | `trammel/store_agents.py` | `AgentStoreMixin` (with typed `conn`/`get_plan` stubs that raise `NotImplementedError` for safety): multi-agent step coordination. `_is_claimed_by_other` helper, `claim_step` (rejects non-pending steps), `release_step`, `available_steps`. `_CLAIM_TIMEOUT` for stale claim expiry. | `utils` |
 | `trammel/utils.py` | Trigrams, `_cosine` (private), `unique_trigrams`, `transaction`, `topological_sort`, `analyze_failure` (accepts optional `error_patterns`), `_is_ignored_dir`, `_walk_project_sources` (shared generator), `_collect_project_files`, `_walk_and_map_namespaces` (shared namespace-to-files walk for CSharp/PHP/Java analyzers), `_resolve_namespace_import` (shared prefix-matching resolver for Java/C#/PHP), `_collect_symbols_regex` (uses set-based deduplication for O(1) membership checks) and `_collect_typed_symbols_regex` (shared symbol collection for regex-based analyzers, built on `_walk_project_sources`), `_ERROR_PATTERNS`, `dumps_json`, `sha256_json`, `db_connect` (with `sqlite3.Row` factory for named column access), `DEFAULT_DB_PATH`, `_VERB_SYNONYMS`, `_ABBREVIATIONS`, `normalize_goal`, `word_jaccard`, `word_substring_score`, `goal_similarity`. Uses `collections.abc.Callable`/`Generator` (modernized). ~435 LOC | stdlib |
 | `trammel/mcp_server.py` | MCP tool schemas (27 tools) + dispatch-dict `dispatch_tool` routing. Refactored with `_schema()` and `_prop()` helpers. Language enums include 15 entries. `verify_step` accepts `language` parameter. `resume`, `validate_recipes`, `estimate`, `usage_stats`, `failure_history`, `resolve_failure`, `claim_step`, `release_step`, `available_steps` tools. `_validate_registries()` function for schema/dispatch sync validation via `RuntimeError` (replaces fragile `assert`). Language/analyzer registry sync validation. `_detect_language()` wrapper. Simplified `_handle_list_strategies` comprehension. Uses `collections.abc.Callable` (modernized). | `core`, `harness`, `store` |
-| `trammel/mcp_stdio.py` | MCP stdio server entry point (`trammel-mcp` console script). Uses `asyncio.to_thread` (Python 3.9+) for executor dispatch. Logger configured at module level for early error capture. `KeyboardInterrupt` handling for graceful shutdown. | `mcp_server`, `store`, `mcp` (optional) |
+| `trammel/mcp_stdio.py` | MCP stdio server entry point (`trammel-mcp` console script). Synchronous `dispatch_tool` calls (no `to_thread` — avoids cross-thread SQLite errors on Python 3.14+). Logger configured at module level for early error capture. `KeyboardInterrupt` handling for graceful shutdown. | `mcp_server`, `store`, `mcp` (optional) |
 
 ## Tests
 

@@ -8,10 +8,29 @@
 
 ## Active context
 
-- **Version:** 3.7.9
+- **Version:** 3.7.10
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.10 — Fix cross-thread SQLite error on Python 3.14+
+
+**Date:** 2026-03-24
+
+### Summary
+Fixed MCP stdio server completely broken on Python 3.14: `asyncio.to_thread(dispatch_tool, ...)` dispatched every tool call to a worker thread, but the `sqlite3.Connection` was created on the main (event-loop) thread. Python 3.14 enforces `check_same_thread=True` by default, raising `ProgrammingError` on every call. Fix: removed `asyncio.to_thread` wrapper — `dispatch_tool` now runs synchronously in the async handler. This is correct because MCP stdio servers are single-client and tool calls are sequential, so there is no concurrency benefit from `to_thread`.
+
+### Changes
+
+**Bug fix:**
+- `mcp_stdio.py` — Replaced `await asyncio.to_thread(dispatch_tool, store, name, arguments)` with direct `dispatch_tool(store, name, arguments)` call. Eliminates cross-thread SQLite connection sharing that broke all tool calls on Python 3.14+.
+
+### Files changed
+- `trammel/mcp_stdio.py` — Synchronous dispatch (cross-thread SQLite fix)
+- `pyproject.toml` — Version 3.7.10
+- `COMPLETE_PROJECT_DOCUMENTATION.md` — Updated version, mcp_stdio.py description
 
 ---
 
