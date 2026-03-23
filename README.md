@@ -151,6 +151,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### 3.3.0
+
+- **Typed symbol analysis**: New `collect_typed_symbols()` method on all 15 analyzers returns symbols with type classification (function, class, interface, enum, struct, trait, etc.).
+- **3 new beam strategies** (9 total): `leaf_first` (zero-importer files first), `hub_first` (network hub files by in*out degree), `test_adjacent` (files with matching test files first).
+- **Analyzer fixes**: Ruby basename overwriting, Swift overly broad directory mapping, Java packageless file gap.
+- **Store refactor**: `_init_schema()` decomposed into class-level SQL constants.
+- **242 tests** (12 new).
+
 ### 3.2.1
 
 - **Bug fix**: `retrieve_best_recipe` scoring bug where `best_score` was updated before JSON validation — corrupted entries could shadow valid recipes.

@@ -875,5 +875,109 @@ class TestDetectNewLanguages(unittest.TestCase):
             self.assertEqual(detect_language(d).name, "zig")
 
 
+# ── Typed symbols tests ──────────────────────────────────────────────────────
+
+class TestPythonTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "mod.py").write_text(
+                "class Foo:\n    pass\n\ndef bar():\n    pass\n\nasync def baz():\n    pass\n",
+                encoding="utf-8",
+            )
+            typed = PythonAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("mod.py", [])
+            names_types = {(n, t) for n, t in entries}
+            self.assertIn(("Foo", "class"), names_types)
+            self.assertIn(("bar", "function"), names_types)
+            self.assertIn(("baz", "function"), names_types)
+
+
+class TestTypescriptTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.ts").write_text(
+                "interface IUser {}\nclass UserService {}\nenum Role { Admin }\n"
+                "type ID = string;\nfunction getUser() {}\n",
+                encoding="utf-8",
+            )
+            typed = TypeScriptAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("app.ts", [])
+            names_types = {(n, t) for n, t in entries}
+            self.assertIn(("IUser", "interface"), names_types)
+            self.assertIn(("UserService", "class"), names_types)
+            self.assertIn(("Role", "enum"), names_types)
+            self.assertIn(("ID", "type_alias"), names_types)
+            self.assertIn(("getUser", "function"), names_types)
+
+
+class TestGoTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.go").write_text(
+                "package main\nfunc main() {}\ntype Config struct {}\nconst MaxRetries = 3\n",
+                encoding="utf-8",
+            )
+            typed = GoAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("main.go", [])
+            names_types = {(n, t) for n, t in entries}
+            self.assertIn(("main", "function"), names_types)
+            self.assertIn(("Config", "struct"), names_types)
+            self.assertIn(("MaxRetries", "constant"), names_types)
+
+
+class TestRubyBasenameOverwrite(unittest.TestCase):
+    def test_different_dirs_same_basename(self) -> None:
+        """Ruby analyzer should not overwrite when two files share a basename."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "lib"))
+            os.makedirs(os.path.join(d, "utils"))
+            pathlib.Path(d, "lib", "helpers.rb").write_text("def lib_help; end\n", encoding="utf-8")
+            pathlib.Path(d, "utils", "helpers.rb").write_text("def util_help; end\n", encoding="utf-8")
+            pathlib.Path(d, "main.rb").write_text(
+                "require_relative 'lib/helpers'\nrequire_relative 'utils/helpers'\n",
+                encoding="utf-8",
+            )
+            graph = RubyAnalyzer().analyze_imports(d)
+            self.assertIn("main.rb", graph)
+            deps = graph["main.rb"]
+            self.assertIn(os.path.join("lib", "helpers.rb"), deps)
+            self.assertIn(os.path.join("utils", "helpers.rb"), deps)
+
+
+class TestSwiftImmediateParent(unittest.TestCase):
+    def test_only_immediate_parent_mapped(self) -> None:
+        """Swift analyzer should only map files to their immediate parent directory."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "Sources", "MyModule"))
+            pathlib.Path(d, "Sources", "MyModule", "Model.swift").write_text(
+                "struct Model {}\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "Sources", "MyModule", "View.swift").write_text(
+                "import MyModule\nstruct View {}\n", encoding="utf-8",
+            )
+            graph = SwiftAnalyzer().analyze_imports(d)
+            # View imports MyModule → should find Model.swift (immediate parent is MyModule)
+            view_path = os.path.join("Sources", "MyModule", "View.swift")
+            model_path = os.path.join("Sources", "MyModule", "Model.swift")
+            self.assertIn(view_path, graph)
+            self.assertIn(model_path, graph[view_path])
+
+
+class TestJavaPackagelessFallback(unittest.TestCase):
+    def test_unpackaged_files_linked_by_directory(self) -> None:
+        """Java files without package declarations should be linked by directory."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "App.java").write_text(
+                "public class App { }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "Helper.java").write_text(
+                "public class Helper { }\n", encoding="utf-8",
+            )
+            graph = JavaAnalyzer().analyze_imports(d)
+            # Both files have no package → should be co-dependent via directory fallback
+            self.assertIn("App.java", graph)
+            self.assertIn("Helper.java", graph["App.java"])
+
+
 if __name__ == "__main__":
     unittest.main()

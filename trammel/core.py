@@ -387,6 +387,66 @@ def _order_minimal_change(
     return active + skipped
 
 
+def _order_leaf_first(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Files with zero importers first (safe, isolated changes). Skipped at end."""
+    active, skipped = _split_active_skipped(steps)
+
+    # Count how many files import each file (importer count)
+    importer_counts: dict[str, int] = {}
+    for deps in dep_graph.values():
+        for d in deps:
+            importer_counts[d] = importer_counts.get(d, 0) + 1
+
+    active.sort(key=lambda s: importer_counts.get(s.get("file", ""), 0))
+    return active + skipped
+
+
+def _order_hub_first(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Network hubs first (both import many and imported by many). Skipped at end."""
+    active, skipped = _split_active_skipped(steps)
+
+    # Importer count: how many files depend on this file
+    importer_counts: dict[str, int] = {}
+    for deps in dep_graph.values():
+        for d in deps:
+            importer_counts[d] = importer_counts.get(d, 0) + 1
+
+    def hub_score(s: dict[str, Any]) -> float:
+        f = s.get("file", "")
+        imports_out = len(dep_graph.get(f, []))
+        imports_in = importer_counts.get(f, 0)
+        return imports_out * imports_in  # product measures "hub-ness"
+
+    active.sort(key=hub_score, reverse=True)
+    return active + skipped
+
+
+def _order_test_adjacent(
+    steps: list[dict[str, Any]], dep_graph: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Files with corresponding test files first (verifiable changes prioritized). Skipped at end."""
+    active, skipped = _split_active_skipped(steps)
+
+    all_files = {s.get("file", "") for s in active}
+
+    def has_test(s: dict[str, Any]) -> int:
+        f = s.get("file", "")
+        base = os.path.splitext(os.path.basename(f))[0]
+        test_patterns = [f"test_{base}", f"{base}_test", f"{base}_spec"]
+        for af in all_files:
+            af_base = os.path.splitext(os.path.basename(af))[0]
+            if af_base in test_patterns:
+                return 1
+        return 0
+
+    active.sort(key=has_test, reverse=True)
+    return active + skipped
+
+
 # ── Register built-in strategies ──────────────────────────────────────────────
 
 register_strategy("bottom_up", "Modify dependencies first, then dependents (safest)", _order_bottom_up)
@@ -395,6 +455,9 @@ register_strategy("risk_first", "Modify most-imported files first (highest impac
 register_strategy("critical_path", "Longest dependency chain first (bottleneck feedback)", _order_critical_path)
 register_strategy("cohesion", "Tightly coupled files grouped together", _order_cohesion)
 register_strategy("minimal_change", "Fewest symbols first (quick wins)", _order_minimal_change)
+register_strategy("leaf_first", "Files with zero importers first (safe isolated changes)", _order_leaf_first)
+register_strategy("hub_first", "Network hub files first (highest connectivity risk)", _order_hub_first)
+register_strategy("test_adjacent", "Files with matching test files first (verifiable changes)", _order_test_adjacent)
 
 
 # ── Planner ──────────────────────────────────────────────────────────────────

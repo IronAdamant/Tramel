@@ -21,6 +21,13 @@ def _get_collect_symbols_regex() -> Callable:
     return fn
 
 
+@functools.cache
+def _get_collect_typed_symbols_regex() -> Callable:
+    """Lazy import for typed symbol collection."""
+    from .analyzers import _collect_typed_symbols_regex as fn
+    return fn
+
+
 # ── Go ────────────────────────────────────────────────────────────────────────
 
 _GO_EXTENSIONS = (".go",)
@@ -29,6 +36,15 @@ _GO_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*func\s+(?:\([^)]+\)\s+)?(\w+)"),
     re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+"),
     re.compile(r"(?:^|\n)\s*(?:var|const)\s+(\w+)\s"),
+]
+
+_GO_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*func\s+(?:\([^)]+\)\s+)?(\w+)"), "function"),
+    (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+struct"), "struct"),
+    (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+interface"), "interface"),
+    (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+"), "type"),
+    (re.compile(r"(?:^|\n)\s*const\s+(\w+)\s"), "constant"),
+    (re.compile(r"(?:^|\n)\s*var\s+(\w+)\s"), "variable"),
 ]
 
 _GO_IMPORT_SINGLE_RE = re.compile(r'import\s+"([^"]+)"')
@@ -45,6 +61,9 @@ class GoAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _GO_EXTENSIONS, _GO_SYMBOL_PATTERNS)
+
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _GO_EXTENSIONS, _GO_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         module_path, go_mod_dir = self._read_go_mod(project_root)
@@ -141,6 +160,15 @@ class GoAnalyzer:
 
 _RUST_EXTENSIONS = (".rs",)
 
+_RUST_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)"), "function"),
+    (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)"), "struct"),
+    (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)"), "enum"),
+    (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?trait\s+(\w+)"), "trait"),
+    (re.compile(r"(?:^|\n)\s*impl(?:<[^>]*>)?\s+(\w+)"), "impl"),
+    (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)"), "type_alias"),
+]
+
 _RUST_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)"),
@@ -159,6 +187,9 @@ class RustAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _RUST_EXTENSIONS, _RUST_SYMBOL_PATTERNS)
+
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _RUST_EXTENSIONS, _RUST_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _RUST_EXTENSIONS)
@@ -208,6 +239,15 @@ _CPP_EXTENSIONS = (".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx")
 
 _CPP_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
 
+_CPP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:template\s*<[^>]*>\s*)?class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*(?:typedef\s+)?struct\s+(\w+)"), "struct"),
+    (re.compile(r"(?:^|\n)\s*namespace\s+(\w+)"), "namespace"),
+    (re.compile(r"(?:^|\n)\s*enum\s+(?:class\s+)?(\w+)"), "enum"),
+    (re.compile(r"(?:^|\n)\s*typedef\s+[\w\s*&:<>,]+\s+(\w+)\s*;"), "type_alias"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:static|inline|constexpr|virtual|explicit|extern)\s+)*(?:[\w:*&<>]+\s+)+(\w+)\s*\([^;)]*\)"), "function"),
+]
+
 _CPP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:template\s*<[^>]*>\s*)?class\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*(?:typedef\s+)?struct\s+(\w+)"),
@@ -243,6 +283,11 @@ class CppAnalyzer:
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(
             project_root, _CPP_EXTENSIONS, _CPP_SYMBOL_PATTERNS, _strip_cpp_comments,
+        )
+
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(
+            project_root, _CPP_EXTENSIONS, _CPP_TYPED_PATTERNS, _strip_cpp_comments,
         )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
@@ -291,6 +336,15 @@ class CppAnalyzer:
 
 _JAVA_EXTENSIONS = (".java", ".kt", ".kts")
 
+_JAVA_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|abstract|final|static|open|internal|data|sealed)\s+)*class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|sealed)\s+)*interface\s+(\w+)"), "interface"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal)\s+)*enum\s+(?:class\s+)?(\w+)"), "enum"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|override|open|suspend|inline)\s+)*fun\s+(?:<[^>]*>\s*)?(\w+)"), "function"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:internal|private)\s+)?(?:companion\s+)?object\s+(\w+)"), "object"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private)\s+)*@interface\s+(\w+)"), "annotation"),
+]
+
 _JAVA_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     # Class (Java + Kotlin)
     re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|abstract|final|static|open|internal|data|sealed)\s+)*class\s+(\w+)"),
@@ -319,11 +373,16 @@ class JavaAnalyzer:
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _JAVA_EXTENSIONS, _JAVA_SYMBOL_PATTERNS)
 
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _JAVA_EXTENSIONS, _JAVA_TYPED_PATTERNS)
+
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         source_roots = self._detect_source_roots(project_root)
         # Build mapping: package → list of project files declaring that package
         pkg_to_files: dict[str, list[str]] = {}
-        file_set: set[str] = set()
+        file_sources: dict[str, str] = {}
+        # Directory-based fallback for files without package declarations
+        dir_to_files: dict[str, list[str]] = {}
         for src_root in source_roots:
             for root, dirs, files in os.walk(src_root):
                 dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
@@ -332,24 +391,20 @@ class JavaAnalyzer:
                         continue
                     path = os.path.join(root, fname)
                     rel = os.path.relpath(path, project_root)
-                    file_set.add(rel)
                     try:
                         with open(path, encoding="utf-8", errors="replace") as fp:
                             src = fp.read()
                     except OSError:
                         continue
+                    file_sources[rel] = src
+                    rel_dir = os.path.dirname(rel)
+                    dir_to_files.setdefault(rel_dir, []).append(rel)
                     m = _JAVA_PACKAGE_RE.search(src)
                     if m:
                         pkg_to_files.setdefault(m.group(1), []).append(rel)
 
         graph: dict[str, list[str]] = {}
-        for rel in file_set:
-            path = os.path.join(project_root, rel)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
-            except OSError:
-                continue
+        for rel, src in file_sources.items():
             deps: set[str] = set()
             for m in _JAVA_IMPORT_RE.finditer(src):
                 import_path = m.group(1)
@@ -361,6 +416,11 @@ class JavaAnalyzer:
                             if dep_file != rel:
                                 deps.add(dep_file)
                         break
+            # Fallback: files in same directory are co-dependent
+            if not deps:
+                for sibling in dir_to_files.get(os.path.dirname(rel), []):
+                    if sibling != rel:
+                        deps.add(sibling)
             if deps:
                 graph[rel] = sorted(deps)
         return graph

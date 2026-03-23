@@ -18,8 +18,11 @@ from trammel.core import (  # noqa: E402
     _order_bottom_up,
     _order_cohesion,
     _order_critical_path,
+    _order_hub_first,
+    _order_leaf_first,
     _order_minimal_change,
     _order_risk_first,
+    _order_test_adjacent,
     _order_top_down,
     get_strategies,
     register_strategy,
@@ -73,9 +76,10 @@ class TestBeamStrategies(unittest.TestCase):
 class TestStrategyRegistry(unittest.TestCase):
     def test_builtins_registered(self) -> None:
         names = get_strategies()
-        for expected in ("bottom_up", "top_down", "risk_first", "critical_path", "cohesion", "minimal_change"):
+        for expected in ("bottom_up", "top_down", "risk_first", "critical_path",
+                         "cohesion", "minimal_change", "leaf_first", "hub_first", "test_adjacent"):
             self.assertIn(expected, names)
-        self.assertEqual(len(names), 6)
+        self.assertEqual(len(names), 9)
 
     def test_register_custom(self) -> None:
         name = "_test_custom_strat"
@@ -103,7 +107,7 @@ class TestStrategyRegistry(unittest.TestCase):
                 pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
                 planner = Planner(store=RecipeStore(os.path.join(d, "x.db")))
                 strat = planner.decompose("task", d)
-                beams = planner.explore_trajectories(strat, num_beams=7)
+                beams = planner.explore_trajectories(strat, num_beams=10)
                 variants = {b["variant"] for b in beams}
                 self.assertIn(name, variants)
         finally:
@@ -254,7 +258,7 @@ class TestListStrategiesMCP(unittest.TestCase):
             names = [r["name"] for r in result]
             self.assertIn("bottom_up", names)
             self.assertIn("critical_path", names)
-            self.assertEqual(len(result), 6)
+            self.assertEqual(len(result), 9)
             self.assertIn("successes", result[0])
             self.assertIn("failures", result[0])
 
@@ -281,6 +285,62 @@ class TestEnhancedStrategies(unittest.TestCase):
         ordered = _order_top_down(steps, dep_graph)
         files = [s["file"] for s in ordered if s.get("status") != "skipped"]
         self.assertEqual(files, ["b.py", "c.py", "a.py"])
+
+
+class TestLeafFirstStrategy(unittest.TestCase):
+    def test_leaf_files_first(self) -> None:
+        steps = [
+            {"file": "a.py"},
+            {"file": "b.py"},
+            {"file": "c.py"},
+        ]
+        dep_graph = {"b.py": ["a.py"], "c.py": ["a.py"]}
+        ordered = _order_leaf_first(steps, dep_graph)
+        files = [s["file"] for s in ordered]
+        # b.py and c.py have 0 importers; a.py is imported by 2
+        self.assertEqual(files[-1], "a.py")
+
+    def test_leaf_first_skipped_at_end(self) -> None:
+        steps = [{"file": "a.py", "status": "skipped"}, {"file": "b.py"}]
+        ordered = _order_leaf_first(steps, {})
+        self.assertEqual(ordered[-1].get("status"), "skipped")
+
+
+class TestHubFirstStrategy(unittest.TestCase):
+    def test_hub_comes_first(self) -> None:
+        steps = [
+            {"file": "a.py"},
+            {"file": "hub.py"},
+            {"file": "c.py"},
+        ]
+        # hub.py imports a.py AND is imported by c.py → hub score = 1*1 = 1
+        dep_graph = {"hub.py": ["a.py"], "c.py": ["hub.py"]}
+        ordered = _order_hub_first(steps, dep_graph)
+        files = [s["file"] for s in ordered]
+        self.assertEqual(files[0], "hub.py")
+
+    def test_hub_first_skipped_at_end(self) -> None:
+        steps = [{"file": "a.py", "status": "skipped"}, {"file": "b.py"}]
+        ordered = _order_hub_first(steps, {})
+        self.assertEqual(ordered[-1].get("status"), "skipped")
+
+
+class TestTestAdjacentStrategy(unittest.TestCase):
+    def test_files_with_tests_come_first(self) -> None:
+        steps = [
+            {"file": "utils.py"},
+            {"file": "test_auth.py"},
+            {"file": "auth.py"},
+        ]
+        ordered = _order_test_adjacent(steps, {})
+        files = [s["file"] for s in ordered]
+        # auth.py has a corresponding test_auth.py, so it should come first
+        self.assertEqual(files[0], "auth.py")
+
+    def test_test_adjacent_skipped_at_end(self) -> None:
+        steps = [{"file": "a.py", "status": "skipped"}, {"file": "b.py"}]
+        ordered = _order_test_adjacent(steps, {})
+        self.assertEqual(ordered[-1].get("status"), "skipped")
 
 
 if __name__ == "__main__":

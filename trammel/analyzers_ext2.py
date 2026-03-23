@@ -21,9 +21,25 @@ def _get_collect_symbols_regex() -> Callable:
     return fn
 
 
+@functools.cache
+def _get_collect_typed_symbols_regex() -> Callable:
+    """Lazy import for typed symbol collection."""
+    from .analyzers import _collect_typed_symbols_regex as fn
+    return fn
+
+
 # ── C# ──────────────────────────────────────────────────────────────────────
 
 _CSHARP_EXTENSIONS = (".cs",)
+
+_CSHARP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|async)\s+)*class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|protected|internal)\s+)*interface\s+(\w+)"), "interface"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|protected|internal)\s+)*struct\s+(\w+)"), "struct"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|protected|internal)\s+)*enum\s+(\w+)"), "enum"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|protected|internal)\s+)*record\s+(\w+)"), "record"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract|async)\s+)*[\w<>\[\],\s]+\s+(\w+)\s*\("), "function"),
+]
 
 _CSHARP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|async)\s+)*class\s+(\w+)"),
@@ -46,6 +62,9 @@ class CSharpAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _CSHARP_EXTENSIONS, _CSHARP_SYMBOL_PATTERNS)
+
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _CSHARP_EXTENSIONS, _CSHARP_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         ns_to_files: dict[str, list[str]] = {}
@@ -99,6 +118,12 @@ class CSharpAnalyzer:
 
 _RUBY_EXTENSIONS = (".rb",)
 
+_RUBY_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*module\s+(\w+)"), "module"),
+    (re.compile(r"(?:^|\n)\s*def\s+(?:self\.)?(\w+)"), "function"),
+]
+
 _RUBY_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*class\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*module\s+(\w+)"),
@@ -117,13 +142,18 @@ class RubyAnalyzer:
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _RUBY_EXTENSIONS, _RUBY_SYMBOL_PATTERNS)
 
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _RUBY_EXTENSIONS, _RUBY_TYPED_PATTERNS)
+
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _RUBY_EXTENSIONS)
+        # Full-path stems (highest priority) and basename stems (fallback)
         stem_to_file: dict[str, str] = {}
-        for rel in file_set:
+        basename_to_file: dict[str, str] = {}
+        for rel in sorted(file_set):
             stem = rel.removesuffix(".rb")
             stem_to_file[stem] = rel
-            stem_to_file[os.path.basename(stem)] = rel
+            basename_to_file.setdefault(os.path.basename(stem), rel)
         graph: dict[str, list[str]] = {}
         for rel in file_set:
             path = os.path.join(project_root, rel)
@@ -135,7 +165,7 @@ class RubyAnalyzer:
             deps: set[str] = set()
             for m in _RUBY_REQUIRE_RE.finditer(src):
                 req = m.group(1)
-                resolved = stem_to_file.get(req)
+                resolved = stem_to_file.get(req) or basename_to_file.get(req)
                 if resolved and resolved != rel:
                     deps.add(resolved)
             if deps:
@@ -160,6 +190,14 @@ class RubyAnalyzer:
 
 _PHP_EXTENSIONS = (".php",)
 
+_PHP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:(?:abstract|final)\s+)?class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*interface\s+(\w+)"), "interface"),
+    (re.compile(r"(?:^|\n)\s*trait\s+(\w+)"), "trait"),
+    (re.compile(r"(?:^|\n)\s*enum\s+(\w+)"), "enum"),
+    (re.compile(r"(?:^|\n)\s*function\s+(\w+)"), "function"),
+]
+
 _PHP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:(?:abstract|final)\s+)?class\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*interface\s+(\w+)"),
@@ -180,6 +218,9 @@ class PhpAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _PHP_EXTENSIONS, _PHP_SYMBOL_PATTERNS)
+
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _PHP_EXTENSIONS, _PHP_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         ns_to_files: dict[str, list[str]] = {}
@@ -235,6 +276,17 @@ class PhpAnalyzer:
 
 _SWIFT_EXTENSIONS = (".swift",)
 
+_SWIFT_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal|fileprivate|open)\s+)?class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal|fileprivate|open)\s+)?struct\s+(\w+)"), "struct"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal|fileprivate|open)\s+)?enum\s+(\w+)"), "enum"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal|fileprivate|open)\s+)?protocol\s+(\w+)"), "protocol"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal|fileprivate|open|override|static|class)\s+)*func\s+(\w+)"), "function"),
+    (re.compile(r"(?:^|\n)\s*extension\s+(\w+)"), "extension"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal)\s+)?typealias\s+(\w+)"), "type_alias"),
+    (re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal)\s+)?actor\s+(\w+)"), "actor"),
+]
+
 _SWIFT_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal|fileprivate|open)\s+)?class\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*(?:(?:public|private|internal|fileprivate|open)\s+)?struct\s+(\w+)"),
@@ -258,14 +310,17 @@ class SwiftAnalyzer:
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _SWIFT_EXTENSIONS, _SWIFT_SYMBOL_PATTERNS)
 
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _SWIFT_EXTENSIONS, _SWIFT_TYPED_PATTERNS)
+
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _SWIFT_EXTENSIONS)
-        # Map directory names to files (Swift modules often map to directories)
+        # Map immediate parent directory name to files (Swift modules map to directories)
         dir_to_files: dict[str, list[str]] = {}
         for rel in file_set:
             parts = rel.replace(os.sep, "/").split("/")
-            for part in parts[:-1]:
-                dir_to_files.setdefault(part, []).append(rel)
+            if len(parts) >= 2:
+                dir_to_files.setdefault(parts[-2], []).append(rel)
         graph: dict[str, list[str]] = {}
         for rel in file_set:
             path = os.path.join(project_root, rel)
@@ -301,6 +356,15 @@ class SwiftAnalyzer:
 
 _DART_EXTENSIONS = (".dart",)
 
+_DART_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:abstract\s+)?class\s+(\w+)"), "class"),
+    (re.compile(r"(?:^|\n)\s*mixin\s+(\w+)"), "mixin"),
+    (re.compile(r"(?:^|\n)\s*extension\s+(\w+)"), "extension"),
+    (re.compile(r"(?:^|\n)\s*enum\s+(\w+)"), "enum"),
+    (re.compile(r"(?:^|\n)\s*typedef\s+(\w+)"), "type_alias"),
+    (re.compile(r"(?:^|\n)\s*(?:[\w<>?]+\s+)?(\w+)\s*\([^)]*\)\s*(?:async\s*)?[{=]"), "function"),
+]
+
 _DART_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:abstract\s+)?class\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*mixin\s+(\w+)"),
@@ -321,6 +385,9 @@ class DartAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _DART_EXTENSIONS, _DART_SYMBOL_PATTERNS)
+
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _DART_EXTENSIONS, _DART_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _DART_EXTENSIONS)
@@ -360,6 +427,15 @@ class DartAnalyzer:
 
 _ZIG_EXTENSIONS = (".zig",)
 
+_ZIG_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|\n)\s*(?:pub\s+)?fn\s+(\w+)"), "function"),
+    (re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*=\s*struct"), "struct"),
+    (re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*=\s*enum"), "enum"),
+    (re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*=\s*union"), "union"),
+    (re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*=\s*@import"), "import_const"),
+    (re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*:\s*type"), "type_alias"),
+]
+
 _ZIG_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:pub\s+)?fn\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*=\s*(?:struct|enum|union)"),
@@ -378,6 +454,9 @@ class ZigAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _get_collect_symbols_regex()(project_root, _ZIG_EXTENSIONS, _ZIG_SYMBOL_PATTERNS)
+
+    def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
+        return _get_collect_typed_symbols_regex()(project_root, _ZIG_EXTENSIONS, _ZIG_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _ZIG_EXTENSIONS)

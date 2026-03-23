@@ -32,82 +32,87 @@ class RecipeStore(RecipeStoreMixin):
         except Exception:
             pass
 
+    _SCHEMA_RECIPE_TABLES = """
+        CREATE TABLE IF NOT EXISTS recipes (
+            sig TEXT PRIMARY KEY,
+            pattern TEXT NOT NULL,
+            strategy TEXT NOT NULL,
+            constraints TEXT NOT NULL DEFAULT '[]',
+            successes INTEGER NOT NULL DEFAULT 0,
+            failures INTEGER NOT NULL DEFAULT 0,
+            created REAL NOT NULL,
+            updated REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS recipe_trigrams (
+            trigram TEXT NOT NULL,
+            recipe_sig TEXT NOT NULL,
+            FOREIGN KEY (recipe_sig) REFERENCES recipes(sig)
+        );
+        CREATE INDEX IF NOT EXISTS idx_recipe_trigrams_tri
+            ON recipe_trigrams(trigram);
+        CREATE TABLE IF NOT EXISTS recipe_files (
+            recipe_sig TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            FOREIGN KEY (recipe_sig) REFERENCES recipes(sig)
+        );
+        CREATE INDEX IF NOT EXISTS idx_recipe_files_sig
+            ON recipe_files(recipe_sig);
+        CREATE INDEX IF NOT EXISTS idx_recipe_files_path
+            ON recipe_files(file_path);
+    """
+
+    _SCHEMA_PLAN_TABLES = """
+        CREATE TABLE IF NOT EXISTS plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal TEXT NOT NULL,
+            strategy TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            current_step INTEGER NOT NULL DEFAULT 0,
+            total_steps INTEGER NOT NULL DEFAULT 0,
+            created REAL NOT NULL,
+            updated REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            step_index INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            rationale TEXT NOT NULL DEFAULT '',
+            depends_on TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'pending',
+            edits_json TEXT NOT NULL DEFAULT '[]',
+            verification TEXT,
+            constraints_found TEXT NOT NULL DEFAULT '[]',
+            created REAL NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES plans(id)
+        );
+        CREATE TABLE IF NOT EXISTS constraints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER,
+            step_id INTEGER,
+            constraint_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            context TEXT NOT NULL DEFAULT '{}',
+            active INTEGER NOT NULL DEFAULT 1,
+            created REAL NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES plans(id),
+            FOREIGN KEY (step_id) REFERENCES steps(id)
+        );
+        CREATE TABLE IF NOT EXISTS trajectories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            beam_id INTEGER NOT NULL,
+            strategy_variant TEXT NOT NULL,
+            steps_completed INTEGER NOT NULL DEFAULT 0,
+            outcome TEXT NOT NULL,
+            failure_reason TEXT,
+            created REAL NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES plans(id)
+        );
+    """
+
     def _init_schema(self) -> None:
-        self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS recipes (
-                sig TEXT PRIMARY KEY,
-                pattern TEXT NOT NULL,
-                strategy TEXT NOT NULL,
-                constraints TEXT NOT NULL DEFAULT '[]',
-                successes INTEGER NOT NULL DEFAULT 0,
-                failures INTEGER NOT NULL DEFAULT 0,
-                created REAL NOT NULL,
-                updated REAL NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS plans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                goal TEXT NOT NULL,
-                strategy TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                current_step INTEGER NOT NULL DEFAULT 0,
-                total_steps INTEGER NOT NULL DEFAULT 0,
-                created REAL NOT NULL,
-                updated REAL NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS steps (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plan_id INTEGER NOT NULL,
-                step_index INTEGER NOT NULL,
-                description TEXT NOT NULL,
-                rationale TEXT NOT NULL DEFAULT '',
-                depends_on TEXT NOT NULL DEFAULT '[]',
-                status TEXT NOT NULL DEFAULT 'pending',
-                edits_json TEXT NOT NULL DEFAULT '[]',
-                verification TEXT,
-                constraints_found TEXT NOT NULL DEFAULT '[]',
-                created REAL NOT NULL,
-                FOREIGN KEY (plan_id) REFERENCES plans(id)
-            );
-            CREATE TABLE IF NOT EXISTS constraints (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plan_id INTEGER,
-                step_id INTEGER,
-                constraint_type TEXT NOT NULL,
-                description TEXT NOT NULL,
-                context TEXT NOT NULL DEFAULT '{}',
-                active INTEGER NOT NULL DEFAULT 1,
-                created REAL NOT NULL,
-                FOREIGN KEY (plan_id) REFERENCES plans(id),
-                FOREIGN KEY (step_id) REFERENCES steps(id)
-            );
-            CREATE TABLE IF NOT EXISTS trajectories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plan_id INTEGER NOT NULL,
-                beam_id INTEGER NOT NULL,
-                strategy_variant TEXT NOT NULL,
-                steps_completed INTEGER NOT NULL DEFAULT 0,
-                outcome TEXT NOT NULL,
-                failure_reason TEXT,
-                created REAL NOT NULL,
-                FOREIGN KEY (plan_id) REFERENCES plans(id)
-            );
-            CREATE TABLE IF NOT EXISTS recipe_trigrams (
-                trigram TEXT NOT NULL,
-                recipe_sig TEXT NOT NULL,
-                FOREIGN KEY (recipe_sig) REFERENCES recipes(sig)
-            );
-            CREATE INDEX IF NOT EXISTS idx_recipe_trigrams_tri
-                ON recipe_trigrams(trigram);
-            CREATE TABLE IF NOT EXISTS recipe_files (
-                recipe_sig TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                FOREIGN KEY (recipe_sig) REFERENCES recipes(sig)
-            );
-            CREATE INDEX IF NOT EXISTS idx_recipe_files_sig
-                ON recipe_files(recipe_sig);
-            CREATE INDEX IF NOT EXISTS idx_recipe_files_path
-                ON recipe_files(file_path);
-        """)
+        self.conn.executescript(self._SCHEMA_RECIPE_TABLES + self._SCHEMA_PLAN_TABLES)
         self.conn.commit()
         self._rebuild_trigram_index()
         self._backfill_files()
