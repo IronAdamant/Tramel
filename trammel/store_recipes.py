@@ -234,29 +234,37 @@ class RecipeStoreMixin:
         rows = self.conn.execute(
             "SELECT DISTINCT recipe_sig FROM recipe_files"
         ).fetchall()
+        # Batch-fetch all file entries
+        all_file_rows = self.conn.execute(
+            "SELECT recipe_sig, file_path FROM recipe_files"
+        ).fetchall()
+        sig_files: dict[str, list[str]] = {}
+        for sig, fpath in all_file_rows:
+            sig_files.setdefault(sig, []).append(fpath)
+
         files_removed = 0
         invalidated: list[str] = []
+        stale_pairs: list[tuple[str, str]] = []
         for (sig,) in rows:
-            file_rows = self.conn.execute(
-                "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
-            ).fetchall()
-            missing = [r[0] for r in file_rows if not os.path.isfile(os.path.join(project_root, r[0]))]
+            file_list = sig_files.get(sig, [])
+            missing = [f for f in file_list if not os.path.isfile(os.path.join(project_root, f))]
             if not missing:
                 continue
-            with transaction(self.conn):
-                for f in missing:
-                    self.conn.execute(
-                        "DELETE FROM recipe_files WHERE recipe_sig = ? AND file_path = ?",
-                        (sig, f),
-                    )
+            stale_pairs.extend((sig, f) for f in missing)
             files_removed += len(missing)
-            if len(missing) == len(file_rows):
+            if len(missing) == len(file_list):
                 invalidated.append(sig)
+        # Single transaction for all file removals
+        if stale_pairs:
+            with transaction(self.conn):
+                self.conn.executemany(
+                    "DELETE FROM recipe_files WHERE recipe_sig = ? AND file_path = ?",
+                    stale_pairs,
+                )
         if invalidated:
             ph = ",".join("?" for _ in invalidated)
             with transaction(self.conn):
                 self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(invalidated))
-                # recipe_files already deleted per-file above; clean up remaining entries
                 self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(invalidated))
         return {
             "recipes_checked": len(rows),

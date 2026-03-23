@@ -964,8 +964,8 @@ class TestSwiftImmediateParent(unittest.TestCase):
 
 
 class TestJavaPackagelessFallback(unittest.TestCase):
-    def test_unpackaged_files_linked_by_directory(self) -> None:
-        """Java files without package declarations should be linked by directory."""
+    def test_unpackaged_files_not_spuriously_linked(self) -> None:
+        """Java files without package or imports should not be linked."""
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "App.java").write_text(
                 "public class App { }\n", encoding="utf-8",
@@ -974,9 +974,8 @@ class TestJavaPackagelessFallback(unittest.TestCase):
                 "public class Helper { }\n", encoding="utf-8",
             )
             graph = JavaAnalyzer().analyze_imports(d)
-            # Both files have no package → should be co-dependent via directory fallback
-            self.assertIn("App.java", graph)
-            self.assertIn("Helper.java", graph["App.java"])
+            # No package, no imports → no spurious dependency edges
+            self.assertEqual(graph, {})
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ _GO_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*func\s+(?:\([^)]+\)\s+)?(\w+)"), "function"),
     (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+struct"), "struct"),
     (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+interface"), "interface"),
-    (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+"), "type"),
+    (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+(?!struct|interface)"), "type"),
     (re.compile(r"(?:^|\n)\s*const\s+(\w+)\s"), "constant"),
     (re.compile(r"(?:^|\n)\s*var\s+(\w+)\s"), "variable"),
 ]
@@ -392,8 +392,6 @@ class JavaAnalyzer:
         # Build mapping: package -> list of project files declaring that package
         pkg_to_files: dict[str, list[str]] = {}
         file_sources: dict[str, str] = {}
-        # Directory-based fallback for files without package declarations
-        dir_to_files: dict[str, list[str]] = {}
         for src_root in source_roots:
             for root, dirs, files in os.walk(src_root):
                 dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
@@ -408,8 +406,6 @@ class JavaAnalyzer:
                     except OSError:
                         continue
                     file_sources[rel] = src
-                    rel_dir = os.path.dirname(rel)
-                    dir_to_files.setdefault(rel_dir, []).append(rel)
                     m = _JAVA_PACKAGE_RE.search(src)
                     if m:
                         pkg_to_files.setdefault(m.group(1), []).append(rel)
@@ -427,11 +423,13 @@ class JavaAnalyzer:
                             if dep_file != rel:
                                 deps.add(dep_file)
                         break
-            # Fallback: files in same directory are co-dependent
+            # Fallback: files sharing the same package are co-dependent
             if not deps:
-                for sibling in dir_to_files.get(os.path.dirname(rel), []):
-                    if sibling != rel:
-                        deps.add(sibling)
+                m = _JAVA_PACKAGE_RE.search(src)
+                if m:
+                    for sibling in pkg_to_files.get(m.group(1), []):
+                        if sibling != rel:
+                            deps.add(sibling)
             if deps:
                 graph[rel] = sorted(deps)
         return graph

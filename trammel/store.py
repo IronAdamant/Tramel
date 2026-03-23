@@ -182,7 +182,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             return None
         steps = self.conn.execute(
             "SELECT id, step_index, description, rationale, depends_on, status, "
-            "edits_json, verification, constraints_found "
+            "edits_json, verification, constraints_found, claimed_by, claimed_at "
             "FROM steps WHERE plan_id = ? ORDER BY step_index",
             (plan_id,),
         ).fetchall()
@@ -194,7 +194,8 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
                 {"id": s[0], "step_index": s[1], "description": s[2], "rationale": s[3],
                  "depends_on": json.loads(s[4]), "status": s[5], "edits": json.loads(s[6]),
                  "verification": json.loads(s[7]) if s[7] else None,
-                 "constraints_found": json.loads(s[8])}
+                 "constraints_found": json.loads(s[8]),
+                 "claimed_by": s[9], "claimed_at": s[10]}
                 for s in steps
             ],
         }

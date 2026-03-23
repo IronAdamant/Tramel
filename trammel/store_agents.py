@@ -55,12 +55,10 @@ class AgentStoreMixin:
                 continue
             if not all(d in passed for d in step.get("depends_on", [])):
                 continue
-            row = self.conn.execute(
-                "SELECT claimed_by, claimed_at FROM steps WHERE id = ?", (step["id"],),
-            ).fetchone()
-            claimed_by, claimed_at = row if row else (None, None)
+            claimed_by = step.get("claimed_by")
+            claimed_at = step.get("claimed_at")
             if claimed_by and claimed_by != agent_id:
                 if claimed_at and (now - claimed_at) < self._CLAIM_TIMEOUT:
                     continue
-            available.append({**step, "claimed_by": claimed_by, "claimed_at": claimed_at})
+            available.append(step)
         return available

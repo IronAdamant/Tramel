@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
+import time as _time
 import unittest
 from unittest.mock import patch
 
@@ -13,12 +15,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, explore, plan_and_execute, synthesize  # noqa: E402
-from trammel.analyzers import PythonAnalyzer  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.utils import (  # noqa: E402
     cosine,
+    dumps_json,
     goal_similarity,
     normalize_goal,
+    sha256_json,
     topological_sort,
     trigram_bag_cosine,
     trigram_signature,
@@ -62,25 +65,6 @@ class TestTopologicalSort(unittest.TestCase):
         deps = {"a.py": ["b.py"], "b.py": ["a.py"]}
         result = topological_sort(deps)
         self.assertEqual(set(result), {"a.py", "b.py"})
-
-
-class TestImportAnalysis(unittest.TestCase):
-    def test_detects_internal_import(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            pkg = pathlib.Path(d) / "pkg"
-            pkg.mkdir()
-            (pkg / "__init__.py").write_text("", encoding="utf-8")
-            (pkg / "a.py").write_text("X = 1\n", encoding="utf-8")
-            (pkg / "b.py").write_text("from pkg.a import X\n", encoding="utf-8")
-            graph = PythonAnalyzer().analyze_imports(d)
-            b_deps = graph.get(os.path.join("pkg", "b.py"), [])
-            self.assertIn(os.path.join("pkg", "a.py"), b_deps)
-
-    def test_ignores_external_imports(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            pathlib.Path(d, "mod.py").write_text("import os\nimport json\n", encoding="utf-8")
-            graph = PythonAnalyzer().analyze_imports(d)
-            self.assertEqual(graph.get("mod.py", []), [])
 
 
 class TestStore(unittest.TestCase):
@@ -146,7 +130,6 @@ class TestStore(unittest.TestCase):
             store = RecipeStore(os.path.join(d, "t.db"))
             strat = {"steps": [{"file": "a.py"}]}
             store.save_recipe("refactor auth module", strat, True)
-            from trammel.utils import sha256_json
             sig = sha256_json(strat)
             rows = store.conn.execute(
                 "SELECT trigram FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
@@ -167,8 +150,6 @@ class TestStore(unittest.TestCase):
     def test_backfill_on_upgrade(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             store = RecipeStore(os.path.join(d, "t.db"))
-            from trammel.utils import sha256_json, dumps_json
-            import time as _time
             sig = sha256_json({"manual": True})
             now = _time.time()
             store.conn.execute(
@@ -251,9 +232,8 @@ class TestRecipePruning(unittest.TestCase):
             strat = {"steps": [{"file": "a.py", "description": "old bad"}]}
             store.save_recipe("old bad goal", strat, False)
             # Backdate the recipe to 100 days ago
-            from trammel.utils import sha256_json
             sig = sha256_json(strat)
-            old_time = __import__("time").time() - (100 * 86400)
+            old_time = _time.time() - (100 * 86400)
             store.conn.execute(
                 "UPDATE recipes SET updated = ?, created = ? WHERE sig = ?",
                 (old_time, old_time, sig),
@@ -282,9 +262,8 @@ class TestRecipePruning(unittest.TestCase):
             # Save as success multiple times to build up ratio
             for _ in range(5):
                 store.save_recipe("good old goal", strat, True)
-            from trammel.utils import sha256_json
             sig = sha256_json(strat)
-            old_time = __import__("time").time() - (100 * 86400)
+            old_time = _time.time() - (100 * 86400)
             store.conn.execute(
                 "UPDATE recipes SET updated = ?, created = ? WHERE sig = ?",
                 (old_time, old_time, sig),
@@ -352,7 +331,6 @@ class TestHarnessBaseCache(unittest.TestCase):
                 encoding="utf-8",
             )
             h = ExecutionHarness(timeout_s=30)
-            import shutil
             base = h.prepare_base(d)
             try:
                 r = h.run_from_base([], base)
@@ -367,7 +345,6 @@ class TestHarnessBaseCache(unittest.TestCase):
             (nm / "pkg.js").write_text("", encoding="utf-8")
             pathlib.Path(d, "app.py").write_text("x = 1\n", encoding="utf-8")
             h = ExecutionHarness(timeout_s=30)
-            import shutil
             base = h.prepare_base(d)
             try:
                 self.assertFalse(os.path.isdir(os.path.join(base, "node_modules")))

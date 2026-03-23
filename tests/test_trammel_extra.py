@@ -8,6 +8,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time as _time
 import unittest
 from unittest.mock import patch
 
@@ -18,8 +19,10 @@ from trammel import ExecutionHarness, plan_and_execute  # noqa: E402
 from trammel.core import Planner, _apply_constraints, _default_beam_count  # noqa: E402
 from trammel.mcp_server import _TOOL_SCHEMAS, dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
+from trammel.analyzers import detect_language  # noqa: E402
 from trammel.utils import (  # noqa: E402
     analyze_failure,
+    dumps_json,
     sha256_json,
     topological_sort,
     transaction,
@@ -260,12 +263,6 @@ class TestMCPDispatch(unittest.TestCase):
             with self.assertRaises(ValueError):
                 dispatch_tool(store, "nonexistent", {})
 
-    def test_all_schemas_have_required_fields(self) -> None:
-        for name, schema in _TOOL_SCHEMAS.items():
-            self.assertIn("name", schema, msg=f"{name} missing 'name'")
-            self.assertIn("description", schema, msg=f"{name} missing 'description'")
-            self.assertIn("parameters", schema, msg=f"{name} missing 'parameters'")
-            self.assertEqual(schema["name"], name)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -442,8 +439,6 @@ class TestRecipeFiles(unittest.TestCase):
     def test_backfill_files(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             store = RecipeStore(os.path.join(d, "bf.db"))
-            from trammel.utils import dumps_json
-            import time as _time
             sig = sha256_json({"steps": [{"file": "x.py"}]})
             now = _time.time()
             store.conn.execute(
@@ -551,7 +546,6 @@ class TestNewMCPTools(unittest.TestCase):
             self.assertEqual(result["tools"], 27)
 
     def test_all_27_schemas_valid(self) -> None:
-        from trammel.mcp_server import _TOOL_SCHEMAS
         self.assertEqual(len(_TOOL_SCHEMAS), 27)
         for name, schema in _TOOL_SCHEMAS.items():
             self.assertIn("name", schema)
@@ -575,7 +569,6 @@ class TestPruneRecipesMCP(unittest.TestCase):
             strat = {"steps": [{"file": "old.py"}]}
             store.save_recipe("old goal", strat, False)
             sig = sha256_json(strat)
-            import time as _time
             old_time = _time.time() - (100 * 86400)
             store.conn.execute(
                 "UPDATE recipes SET updated = ?, created = ? WHERE sig = ?",
@@ -772,49 +765,42 @@ class TestRecipeValidation(unittest.TestCase):
 
 class TestConfigDetection(unittest.TestCase):
     def test_detect_from_cargo_toml(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "Cargo.toml").write_text("[package]\n", encoding="utf-8")
             a = detect_language(d)
             self.assertEqual(a.name, "rust")
 
     def test_detect_from_go_mod(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "go.mod").write_text("module example\n", encoding="utf-8")
             a = detect_language(d)
             self.assertEqual(a.name, "go")
 
     def test_detect_from_tsconfig(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "tsconfig.json").write_text("{}\n", encoding="utf-8")
             a = detect_language(d)
             self.assertEqual(a.name, "typescript")
 
     def test_detect_from_package_json(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "package.json").write_text("{}\n", encoding="utf-8")
             a = detect_language(d)
             self.assertEqual(a.name, "typescript")
 
     def test_detect_from_gradle(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "build.gradle").write_text("apply plugin: 'java'\n", encoding="utf-8")
             a = detect_language(d)
             self.assertEqual(a.name, "java")
 
     def test_detect_from_cmake(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "CMakeLists.txt").write_text("cmake_minimum_required()\n", encoding="utf-8")
             a = detect_language(d)
             self.assertEqual(a.name, "cpp")
 
     def test_detect_fallback_to_extension_count(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "a.py").write_text("x = 1\n", encoding="utf-8")
             pathlib.Path(d, "b.py").write_text("y = 2\n", encoding="utf-8")
@@ -822,7 +808,6 @@ class TestConfigDetection(unittest.TestCase):
             self.assertEqual(a.name, "python")
 
     def test_detect_config_takes_priority(self) -> None:
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             # Many .py files but Cargo.toml present → rust wins
             for i in range(10):
@@ -833,7 +818,6 @@ class TestConfigDetection(unittest.TestCase):
 
     def test_detect_pyproject_over_package_json(self) -> None:
         """Python projects with npm tooling should detect as Python, not TypeScript."""
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
             pathlib.Path(d, "package.json").write_text('{"name": "x"}\n', encoding="utf-8")
@@ -842,7 +826,6 @@ class TestConfigDetection(unittest.TestCase):
 
     def test_detect_sconstruct_as_cpp(self) -> None:
         """SConstruct (SCons build system) should detect as C++, not Python."""
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "SConstruct").write_text("env = Environment()\n", encoding="utf-8")
             pathlib.Path(d, "pyproject.toml").write_text("[tool.mypy]\n", encoding="utf-8")
@@ -863,7 +846,6 @@ class TestConfigDetection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "mod.py").write_text("def foo():\n    pass\n", encoding="utf-8")
             store = RecipeStore(os.path.join(d, "am.db"))
-            from trammel.core import Planner
             planner = Planner(store=store)
             strat = planner.decompose("task", d)
             self.assertIn("analysis_meta", strat)
@@ -875,7 +857,6 @@ class TestConfigDetection(unittest.TestCase):
 
     def test_detect_pyproject_without_project_section(self) -> None:
         """pyproject.toml with only tool config should not trigger Python detection."""
-        from trammel.analyzers import detect_language
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "pyproject.toml").write_text("[tool.ruff]\nline-length=100\n", encoding="utf-8")
             pathlib.Path(d, "main.go").write_text("package main\n", encoding="utf-8")
@@ -896,7 +877,6 @@ class TestCLIDryRun(unittest.TestCase):
                 capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            import json
             out = json.loads(result.stdout)
             self.assertIn("strategy", out)
             self.assertIn("beams", out)
