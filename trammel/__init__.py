@@ -12,6 +12,9 @@ from .analyzers import (
     CppAnalyzer, GoAnalyzer, JavaAnalyzer, PythonAnalyzer,
     RustAnalyzer, TypeScriptAnalyzer, detect_language,
 )
+from .analyzers_ext2 import (
+    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
+)
 from .core import Planner, get_strategies, register_strategy
 from .harness import ExecutionHarness
 from .store import RecipeStore
@@ -126,15 +129,21 @@ def synthesize(goal: str, strategy: dict[str, Any], db_path: str = "trammel.db")
 
 
 __all__ = [
+    "CSharpAnalyzer",
     "CppAnalyzer",
+    "DartAnalyzer",
     "ExecutionHarness",
     "GoAnalyzer",
     "JavaAnalyzer",
+    "PhpAnalyzer",
     "Planner",
     "PythonAnalyzer",
     "RecipeStore",
+    "RubyAnalyzer",
     "RustAnalyzer",
+    "SwiftAnalyzer",
     "TypeScriptAnalyzer",
+    "ZigAnalyzer",
     "__version__",
     "detect_language",
     "explore",

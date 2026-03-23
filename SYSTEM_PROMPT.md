@@ -181,6 +181,12 @@ Trammel auto-detects project language from file extensions. Override with the `l
 - `"rust"` — Regex-based analysis (functions, structs, enums, traits; resolves `use crate::` and `mod` declarations)
 - `"cpp"` / `"c"` — Regex-based analysis (class, struct, namespace, enum, function; resolves `#include "..."`)
 - `"java"` / `"kotlin"` — Regex-based analysis (class, interface, enum, function; detects source roots from `build.gradle`/`pom.xml`)
+- `"csharp"` — Regex-based analysis (class, interface, struct, enum, record, delegate; resolves `using` imports)
+- `"ruby"` — Regex-based analysis (class, module, def; resolves `require`/`require_relative`)
+- `"php"` — Regex-based analysis (class, interface, trait, enum, function; resolves `use`/`require`/`include`)
+- `"swift"` — Regex-based analysis (class, struct, enum, protocol, func, actor; resolves `import`)
+- `"dart"` — Regex-based analysis (class, mixin, extension, enum, typedef; resolves `import`/`part`)
+- `"zig"` — Regex-based analysis (pub fn, const, struct, enum, union; resolves `@import`)
 
 ## Resuming failed plans
 

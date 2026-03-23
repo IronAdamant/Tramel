@@ -88,7 +88,7 @@ Configure in `.claude/.mcp.json`:
 
 Trammel treats planning as a structured search problem:
 
-1. **Decompose** -- Analyze project imports (Python AST; TypeScript, Go, Rust, C/C++, Java/Kotlin regex), build dependency graph, topological sort, generate steps with ordering rationale
+1. **Decompose** -- Analyze project imports (Python AST; TypeScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig regex), build dependency graph, topological sort, generate steps with ordering rationale
 2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`, `critical_path`, `cohesion`, `minimal_change`), executed in parallel via `ProcessPoolExecutor`
 3. **Verify** -- Run edits in isolated temp copies, per-step or full-run; extract structured failure analysis on failure
 4. **Constrain** -- Propagate failure reasons as persistent constraints that block repetition across sessions
@@ -101,6 +101,7 @@ trammel/              Importable package
   __init__.py         plan_and_execute, explore, synthesize, __version__
   analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language (~370 LOC)
   analyzers_ext.py    GoAnalyzer, RustAnalyzer, CppAnalyzer (5-pattern symbol detection), JavaAnalyzer (source root detection) (~400 LOC)
+  analyzers_ext2.py   CSharpAnalyzer, RubyAnalyzer, PhpAnalyzer, SwiftAnalyzer, DartAnalyzer, ZigAnalyzer (~480 LOC)
   core.py             Planner: import analysis, toposort, beam strategies
   harness.py          ExecutionHarness: temp copy, edits, test runner, base-copy caching
   store.py            RecipeStore: SQLite persistence (7 tables), inherits RecipeStoreMixin (~342 LOC)
@@ -109,7 +110,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point (--dry-run, --language)
   mcp_server.py       MCP tool schemas and dispatch (21 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (215 tests, 4 modules)
+tests/                stdlib unittest (230 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -149,6 +150,16 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 3.2.0
+
+- **Six new language analyzers**: `CSharpAnalyzer` (.cs), `RubyAnalyzer` (.rb), `PhpAnalyzer` (.php), `SwiftAnalyzer` (.swift), `DartAnalyzer` (.dart), `ZigAnalyzer` (.zig) in new `analyzers_ext2.py` (~480 LOC). Total: 15 supported languages (Python, TypeScript, JavaScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig).
+- **Config-file detection expanded**: Package.swift (swift), build.zig (zig), pubspec.yaml (dart), .csproj/.sln (csharp), Gemfile (ruby), composer.json (php).
+- **Extension counting expanded**: `.cs`, `.rb`, `.php`, `.swift`, `.dart`, `.zig` all counted in `detect_language` fallback.
+- **Registry expanded**: 15 languages in `_ANALYZER_REGISTRY`. MCP `_LANGUAGES` list updated to match.
+- **Exports expanded**: `CSharpAnalyzer`, `DartAnalyzer`, `PhpAnalyzer`, `RubyAnalyzer`, `SwiftAnalyzer`, `ZigAnalyzer` exported from `__init__.py`.
+- **All 21 sample repos re-tested**: zero errors across all languages and scopes.
+- **230 tests** (15 new: symbols/imports for C#, Ruby, PHP, Swift, Dart, Zig + 6 config detection).
 
 ### 3.1.0
 

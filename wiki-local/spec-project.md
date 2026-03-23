@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 3.1.0
+**Version:** 3.2.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -33,7 +33,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 ## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
 
-Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, registry, and detection. `analyzers_ext.py` (~400 LOC) holds Go, Rust, C/C++, and Java/Kotlin. All existing imports preserved via re-export from `analyzers.py`.
+Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, registry, and detection. `analyzers_ext.py` (~400 LOC) holds Go, Rust, C/C++, and Java/Kotlin. `analyzers_ext2.py` (~480 LOC) holds C#, Ruby, PHP, Swift, Dart, and Zig. All existing imports preserved via re-export from `analyzers.py`.
 
 - **`LanguageAnalyzer` protocol**: Defines `collect_symbols(root) -> dict[str, list[str]]`, `analyze_imports(root) -> dict[str, list[str]]`, `test_command() -> list[str]`, `error_patterns() -> list[str]`.
 - **`PythonAnalyzer`**: AST-based symbol collection and import analysis (moved from `core.py` and `utils.py`).
@@ -42,10 +42,16 @@ Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, 
 - **`RustAnalyzer`**: Regex-based analysis for `.rs` files. Resolves `use crate::` imports and `mod` declarations to project-relative file paths.
 - **`CppAnalyzer`**: Regex-based analysis for `.c/.cpp/.cc/.cxx/.h/.hpp/.hxx` files. 5-pattern symbol detection: template functions, qualified functions (static/inline/constexpr), operator overloading, constructor/destructor, macro-prefixed functions (EXPORT_API etc). `#include "..."` import resolution with comment stripping. Registered as "cpp" and "c".
 - **`JavaAnalyzer`**: Regex-based analysis for `.java/.kt/.kts` files. Symbol detection for class, interface, enum, fun, object, and @interface declarations. `_detect_source_roots(project_root)` reads `build.gradle`/`build.gradle.kts`/`pom.xml` for standard source directories (`src/main/java`, `src/main/kotlin`, etc); falls back to project root. `analyze_imports` walks detected source roots instead of project root. Registered as "java" and "kotlin".
-- **Shared `_collect_symbols_regex` helper**: Common symbol collection logic used by `TypeScriptAnalyzer`, `GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, and `JavaAnalyzer` (regex-based analyzers).
-- **`_detect_from_config(root)`**: Config-file detection (Cargo.toml → rust, go.mod → go, tsconfig.json/package.json → typescript, build.gradle/pom.xml → java, CMakeLists.txt → cpp, pyproject.toml/setup.py → python). Takes priority over extension counting.
-- **`detect_language(root)`**: Config-file detection first, falling back to extension counting. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, and `.java`/`.kt` files.
-- **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 9 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin.
+- **`CSharpAnalyzer`**: Regex-based analysis for `.cs` files in `analyzers_ext2.py`. Symbol detection for class, interface, struct, enum, record, and delegate declarations. `using` import resolution. Registered as "csharp".
+- **`RubyAnalyzer`**: Regex-based analysis for `.rb` files in `analyzers_ext2.py`. Symbol detection for class, module, and def declarations. `require`/`require_relative` import resolution. Registered as "ruby".
+- **`PhpAnalyzer`**: Regex-based analysis for `.php` files in `analyzers_ext2.py`. Symbol detection for class, interface, trait, enum, and function declarations. `use`/`require`/`include` import resolution. Registered as "php".
+- **`SwiftAnalyzer`**: Regex-based analysis for `.swift` files in `analyzers_ext2.py`. Symbol detection for class, struct, enum, protocol, func, and actor declarations. `import` resolution. Registered as "swift".
+- **`DartAnalyzer`**: Regex-based analysis for `.dart` files in `analyzers_ext2.py`. Symbol detection for class, mixin, extension, enum, and typedef declarations. `import`/`part` resolution. Registered as "dart".
+- **`ZigAnalyzer`**: Regex-based analysis for `.zig` files in `analyzers_ext2.py`. Symbol detection for pub fn, const, struct, enum, and union declarations. `@import` resolution. Registered as "zig".
+- **Shared `_collect_symbols_regex` helper**: Common symbol collection logic used by `TypeScriptAnalyzer`, `GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, `JavaAnalyzer`, and all `analyzers_ext2` analyzers (regex-based analyzers).
+- **`_detect_from_config(root)`**: Config-file detection (Cargo.toml → rust, go.mod → go, tsconfig.json/package.json → typescript, build.gradle/pom.xml → java, CMakeLists.txt → cpp, pyproject.toml/setup.py → python, Package.swift → swift, build.zig → zig, pubspec.yaml → dart, .csproj/.sln → csharp, Gemfile → ruby, composer.json → php). Takes priority over extension counting.
+- **`detect_language(root)`**: Config-file detection first, falling back to extension counting. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, `.java`/`.kt`, `.cs`, `.rb`, `.php`, `.swift`, `.dart`, and `.zig` files.
+- **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 15 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin, csharp, ruby, php, swift, dart, zig.
 
 ## 5. Planner (`core.py`)
 
@@ -156,6 +162,6 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 - Emit real `content` in edits from an LLM (the primary integration point).
 - Register custom beam strategies via `register_strategy()` beyond the six built-in.
 - Add constraint types beyond the four built-in (avoid/dependency/incompatible/requires).
-- Implement `LanguageAnalyzer` protocol for additional languages beyond the nine built-in (Python, TypeScript, JavaScript, Go, Rust, C/C++, Java, Kotlin).
+- Implement `LanguageAnalyzer` protocol for additional languages beyond the 15 built-in (Python, TypeScript, JavaScript, Go, Rust, C/C++, Java, Kotlin, C#, Ruby, PHP, Swift, Dart, Zig).
 - Use `SYSTEM_PROMPT.md` as a reference for building LLM client orchestration loops.
 - Connect to Stele/Chisel via MCP for context-aware planning and risk-aware step ordering.

@@ -13,7 +13,10 @@ from .core import Planner, get_strategies
 from .harness import ExecutionHarness
 from .store import RecipeStore
 
-_LANGUAGES = ["python", "typescript", "javascript", "go", "rust", "cpp", "c", "java", "kotlin"]
+_LANGUAGES = [
+    "python", "typescript", "javascript", "go", "rust", "cpp", "c", "java", "kotlin",
+    "csharp", "ruby", "php", "swift", "dart", "zig",
+]
 
 
 def _prop(type_: str, desc: str, **kw: Any) -> dict[str, Any]:

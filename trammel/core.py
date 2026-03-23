@@ -453,7 +453,8 @@ class Planner:
         t4 = _time.monotonic()
 
         # Supported language list for unsupported-language warning
-        _SUPPORTED = {"python", "typescript", "go", "rust", "cpp", "java"}
+        _SUPPORTED = {"python", "typescript", "go", "rust", "cpp", "java",
+                      "csharp", "ruby", "php", "swift", "dart", "zig"}
         lang_name = getattr(analyzer, "name", "unknown")
         warning = None
         if lang_name not in _SUPPORTED:

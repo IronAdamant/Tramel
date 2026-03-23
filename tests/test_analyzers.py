@@ -706,5 +706,174 @@ class TestDetectLanguageCppJava(unittest.TestCase):
             self.assertEqual(analyzer.name, "java")
 
 
+# ── New language analyzers (batch 2) ─────────────────────────────────────────
+
+from trammel.analyzers_ext2 import (  # noqa: E402
+    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer,
+    RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
+)
+
+
+class TestCSharpAnalyzer(unittest.TestCase):
+    def test_collect_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Service.cs").write_text(
+                "namespace App {\n"
+                "    public class UserService {\n"
+                "        public void GetUser(int id) { }\n"
+                "    }\n"
+                "    public interface IService { }\n"
+                "    public enum Status { Active, Inactive }\n"
+                "    public record UserDto(string Name);\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            symbols = CSharpAnalyzer().collect_symbols(d)
+            names = symbols.get("Service.cs", [])
+            self.assertIn("UserService", names)
+            self.assertIn("IService", names)
+            self.assertIn("Status", names)
+            self.assertIn("UserDto", names)
+
+    def test_analyze_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Models.cs").write_text(
+                "namespace App.Models {\n    public class User { }\n}\n",
+                encoding="utf-8",
+            )
+            pathlib.Path(d, "Service.cs").write_text(
+                "using App.Models;\nnamespace App.Services {\n    public class Svc { }\n}\n",
+                encoding="utf-8",
+            )
+            graph = CSharpAnalyzer().analyze_imports(d)
+            self.assertIn("Service.cs", graph)
+            self.assertIn("Models.cs", graph["Service.cs"])
+
+
+class TestRubyAnalyzer(unittest.TestCase):
+    def test_collect_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.rb").write_text(
+                "module MyApp\n  class User\n    def initialize(name)\n    end\n  end\nend\n",
+                encoding="utf-8",
+            )
+            symbols = RubyAnalyzer().collect_symbols(d)
+            names = symbols.get("app.rb", [])
+            self.assertIn("MyApp", names)
+            self.assertIn("User", names)
+            self.assertIn("initialize", names)
+
+    def test_analyze_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "helper.rb").write_text("def help; end\n", encoding="utf-8")
+            pathlib.Path(d, "main.rb").write_text("require_relative 'helper'\n", encoding="utf-8")
+            graph = RubyAnalyzer().analyze_imports(d)
+            self.assertIn("main.rb", graph)
+            self.assertIn("helper.rb", graph["main.rb"])
+
+
+class TestPhpAnalyzer(unittest.TestCase):
+    def test_collect_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "User.php").write_text(
+                "<?php\nnamespace App;\nclass User {}\ninterface Loggable {}\ntrait HasName {}\n",
+                encoding="utf-8",
+            )
+            symbols = PhpAnalyzer().collect_symbols(d)
+            names = symbols.get("User.php", [])
+            self.assertIn("User", names)
+            self.assertIn("Loggable", names)
+            self.assertIn("HasName", names)
+
+
+class TestSwiftAnalyzer(unittest.TestCase):
+    def test_collect_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Model.swift").write_text(
+                "public class User {\n    func getName() -> String { return \"\" }\n}\n"
+                "struct Config {}\nenum Status { case active }\nprotocol Fetchable {}\n"
+                "actor DataStore {}\n",
+                encoding="utf-8",
+            )
+            symbols = SwiftAnalyzer().collect_symbols(d)
+            names = symbols.get("Model.swift", [])
+            self.assertIn("User", names)
+            self.assertIn("Config", names)
+            self.assertIn("Status", names)
+            self.assertIn("Fetchable", names)
+            self.assertIn("DataStore", names)
+
+
+class TestDartAnalyzer(unittest.TestCase):
+    def test_collect_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "model.dart").write_text(
+                "class User {}\nmixin Printable {}\nenum Color { red, green }\n",
+                encoding="utf-8",
+            )
+            symbols = DartAnalyzer().collect_symbols(d)
+            names = symbols.get("model.dart", [])
+            self.assertIn("User", names)
+            self.assertIn("Printable", names)
+            self.assertIn("Color", names)
+
+
+class TestZigAnalyzer(unittest.TestCase):
+    def test_collect_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.zig").write_text(
+                "pub fn main() void {}\nconst Config = struct {};\nfn helper() void {}\n",
+                encoding="utf-8",
+            )
+            symbols = ZigAnalyzer().collect_symbols(d)
+            names = symbols.get("main.zig", [])
+            self.assertIn("main", names)
+            self.assertIn("Config", names)
+            self.assertIn("helper", names)
+
+    def test_analyze_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "util.zig").write_text("pub fn help() void {}\n", encoding="utf-8")
+            pathlib.Path(d, "main.zig").write_text(
+                'const util = @import("util.zig");\npub fn main() void {}\n',
+                encoding="utf-8",
+            )
+            graph = ZigAnalyzer().analyze_imports(d)
+            self.assertIn("main.zig", graph)
+            self.assertIn("util.zig", graph["main.zig"])
+
+
+class TestDetectNewLanguages(unittest.TestCase):
+    def test_detect_csharp(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "App.csproj").write_text("<Project />\n", encoding="utf-8")
+            self.assertEqual(detect_language(d).name, "csharp")
+
+    def test_detect_ruby(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Gemfile").write_text("source 'https://rubygems.org'\n", encoding="utf-8")
+            self.assertEqual(detect_language(d).name, "ruby")
+
+    def test_detect_php(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "composer.json").write_text("{}\n", encoding="utf-8")
+            self.assertEqual(detect_language(d).name, "php")
+
+    def test_detect_swift(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Package.swift").write_text("// swift-tools-version:5.5\n", encoding="utf-8")
+            self.assertEqual(detect_language(d).name, "swift")
+
+    def test_detect_dart(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "pubspec.yaml").write_text("name: myapp\n", encoding="utf-8")
+            self.assertEqual(detect_language(d).name, "dart")
+
+    def test_detect_zig(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "build.zig").write_text("const std = @import(\"std\");\n", encoding="utf-8")
+            self.assertEqual(detect_language(d).name, "zig")
+
+
 if __name__ == "__main__":
     unittest.main()

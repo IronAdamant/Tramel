@@ -359,9 +359,18 @@ class TypeScriptAnalyzer:
 # Extended analyzers (Go, Rust, C/C++, Java/Kotlin) live in analyzers_ext.py
 # to keep this file under 500 LOC. Re-exported here for public API.
 from .analyzers_ext import CppAnalyzer, GoAnalyzer, JavaAnalyzer, RustAnalyzer
+from .analyzers_ext2 import (
+    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
+)
 
 _CPP_EXTENSIONS = CppAnalyzer.extensions
 _JAVA_EXTENSIONS = JavaAnalyzer.extensions
+_CSHARP_EXTENSIONS = CSharpAnalyzer.extensions
+_RUBY_EXTENSIONS = RubyAnalyzer.extensions
+_PHP_EXTENSIONS = PhpAnalyzer.extensions
+_SWIFT_EXTENSIONS = SwiftAnalyzer.extensions
+_DART_EXTENSIONS = DartAnalyzer.extensions
+_ZIG_EXTENSIONS = ZigAnalyzer.extensions
 
 _ANALYZER_REGISTRY: dict[str, type] = {
     "python": PythonAnalyzer,
@@ -373,6 +382,12 @@ _ANALYZER_REGISTRY: dict[str, type] = {
     "c": CppAnalyzer,
     "java": JavaAnalyzer,
     "kotlin": JavaAnalyzer,
+    "csharp": CSharpAnalyzer,
+    "ruby": RubyAnalyzer,
+    "php": PhpAnalyzer,
+    "swift": SwiftAnalyzer,
+    "dart": DartAnalyzer,
+    "zig": ZigAnalyzer,
 }
 
 
@@ -385,25 +400,29 @@ def get_analyzer(name: str) -> LanguageAnalyzer:
 def _detect_from_config(project_root: str) -> str | None:
     """Detect language from project config files (more reliable than extension counting).
 
-    Priority: Cargo.toml/go.mod (unambiguous) > tsconfig.json (TS-specific) >
-    SConstruct/CMake (C++ build systems) > setup.py or pyproject.toml with
-    [project] section (Python-specific) > package.json (ambiguous) > build files.
-
-    pyproject.toml without [project] is treated as tooling config, not a Python
-    project indicator (e.g., Godot uses it for mypy settings).
+    Priority: unambiguous config files first, then language-specific, then ambiguous.
     """
     has = lambda f: os.path.isfile(os.path.join(project_root, f))  # noqa: E731
+    # Unambiguous single-language config files
     if has("Cargo.toml"):
         return "rust"
     if has("go.mod"):
         return "go"
+    if has("Package.swift"):
+        return "swift"
+    if has("build.zig"):
+        return "zig"
+    if has("pubspec.yaml"):
+        return "dart"
     if has("tsconfig.json"):
         return "typescript"
-    # C++ build systems (checked before Python to avoid false positives from
-    # pyproject.toml used purely for linting config in C++ projects like Godot)
+    # C++ build systems
     if has("CMakeLists.txt") or has("SConstruct"):
         return "cpp"
-    # setup.py is unambiguous Python; pyproject.toml must have [project] to qualify
+    # .NET / C#
+    if any(has(f) for f in os.listdir(project_root) if f.endswith((".csproj", ".sln"))):
+        return "csharp"
+    # Python (setup.py unambiguous; pyproject.toml needs [project])
     if has("setup.py") or has("setup.cfg"):
         return "python"
     if has("pyproject.toml"):
@@ -413,8 +432,16 @@ def _detect_from_config(project_root: str) -> str | None:
                     return "python"
         except OSError:
             pass
+    # Ruby
+    if has("Gemfile"):
+        return "ruby"
+    # PHP
+    if has("composer.json"):
+        return "php"
+    # JS/TS (ambiguous — many projects use npm for tooling)
     if has("package.json"):
         return "typescript"
+    # Java/Kotlin
     for gradle in ("build.gradle", "build.gradle.kts", "pom.xml"):
         if has(gradle):
             return "java"
@@ -428,6 +455,7 @@ def detect_language(project_root: str) -> LanguageAnalyzer:
         return get_analyzer(config_lang)
     counts: dict[str, int] = {
         "python": 0, "typescript": 0, "go": 0, "rust": 0, "cpp": 0, "java": 0,
+        "csharp": 0, "ruby": 0, "php": 0, "swift": 0, "dart": 0, "zig": 0,
     }
     for root, dirs, files in os.walk(project_root):
         dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
@@ -444,6 +472,18 @@ def detect_language(project_root: str) -> LanguageAnalyzer:
                 counts["cpp"] += 1
             elif any(fname.endswith(ext) for ext in _JAVA_EXTENSIONS):
                 counts["java"] += 1
+            elif fname.endswith(".cs"):
+                counts["csharp"] += 1
+            elif fname.endswith(".rb"):
+                counts["ruby"] += 1
+            elif fname.endswith(".php"):
+                counts["php"] += 1
+            elif fname.endswith(".swift"):
+                counts["swift"] += 1
+            elif fname.endswith(".dart"):
+                counts["dart"] += 1
+            elif fname.endswith(".zig"):
+                counts["zig"] += 1
     best = max(counts, key=lambda k: counts[k])
     if counts[best] == 0:
         return PythonAnalyzer()
