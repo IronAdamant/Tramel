@@ -8,10 +8,71 @@
 
 ## Active context
 
-- **Version:** 3.7.8
+- **Version:** 3.7.9
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.9 — Comprehensive cleanup: dead code, bug fixes, modernization, robustness
+
+**Date:** 2026-03-23
+
+### Summary
+Full codebase audit and cleanup: (1) fixed CLI goal validation bug (`str(None)` silently producing `"None"`), added `--root` directory validation, (2) added missing `created` column to `_STEP_COLUMNS`/`_step_to_dict`, (3) mixin stubs now raise `NotImplementedError` instead of silently returning `None`, (4) replaced all fragile positional unpacking of `sqlite3.Row` with named column access in `store_recipes.py`, (5) added empty-input guard to `_sql_in`, (6) renamed public `cosine` to private `_cosine`, (7) removed dead `_is_ignored_dir` import from `analyzers_ext2.py`, (8) pre-compiled Rust/Cargo regex patterns at module level instead of per-file, (9) pre-compiled Maven `sourceDirectory` regex, (10) simplified beam-count capping into named variable, extracted `_step_description` helper, (11) modernized `_extract_step_files` with walrus operator, (12) moved `sqlite3` imports under `TYPE_CHECKING` in store mixins, (13) moved late `_ANALYZER_REGISTRY` import into `_validate_registries()` function in `mcp_server.py`, replaced bare `detect_language` call with lazy `_detect_language()` wrapper, moved `_collect_project_files` to top-level import, (14) simplified `_handle_list_strategies` from obscure one-element tuple comprehension to readable loop, (15) added `KeyboardInterrupt` handling to MCP stdio entry point, (16) added `py.typed` to `[tool.setuptools.package-data]`, (17) fixed misleading Zig symbol patterns comment, (18) documented Laplace smoothing in `strategy_win_rates`, (19) fixed `test_beam_count_respects_cap` to actually test source code instead of local math, (20) consolidated `import threading` to module level in tests. All 248 tests pass.
+
+### Changes
+
+**Bug fixes:**
+- `cli.py` — `str(payload.get("goal", ""))` converted JSON `null` to string `"None"` silently; now validates goal is a non-empty string. Added `--root` directory existence check.
+- `store.py` — `_STEP_COLUMNS` was missing the `created` column; `_step_to_dict` now includes it.
+- `store_agents.py`, `store_recipes.py` — Mixin stub methods (`get_plan`, `log_event`) silently returned `None` via `...` body; now raise `NotImplementedError`.
+- `store_recipes.py` — `_sql_in([])` produced invalid `IN ()` SQL; now raises `ValueError`.
+
+**Dead code removal:**
+- `analyzers_ext2.py` — Removed unused `_is_ignored_dir` import.
+
+**Fragile code hardening:**
+- `store_recipes.py` — Replaced all positional `sqlite3.Row` unpacking (8 call sites: `_rebuild_trigram_index`, `_backfill_files`, `retrieve_best_recipe`, `list_recipes`, `validate_recipes`) with named column access.
+
+**Performance:**
+- `analyzers_ext.py` — Pre-compiled 5 Rust `use` regex patterns and 3 Cargo regex patterns at module level. Pre-compiled per-workspace-crate regexes once before the file loop (was N*M recompilation). Pre-compiled Maven `_MAVEN_SRC_DIR_RE`.
+
+**Modernization:**
+- `store_recipes.py` — `_extract_step_files` uses walrus operator (`:=`) instead of double `.get("file")` call.
+- `store_agents.py`, `store_recipes.py` — Moved `import sqlite3` under `TYPE_CHECKING` block (only needed for annotations).
+- `utils.py` — Renamed public `cosine()` to `_cosine()` (private naming convention).
+
+**Simplification:**
+- `core.py` — Beam-count capping `min(num_beams, max(3, min(12, cores)))` broken into named `cap` variable. Nested f-string in step description extracted to `_step_description()` helper.
+- `mcp_server.py` — `_handle_list_strategies` rewritten from obscure one-element tuple comprehension to plain loop. Late module-level `_ANALYZER_REGISTRY` import wrapped in `_validate_registries()` function. Inline imports in `_handle_estimate` moved to top-level `_collect_project_files` import and lazy `_detect_language()` wrapper.
+- `store.py` — Module-level `_log = logging.getLogger(__name__)` replaces per-call logger creation. Documented Laplace smoothing formula.
+
+**Robustness:**
+- `mcp_stdio.py` — `main()` now catches `KeyboardInterrupt` for clean exit.
+- `pyproject.toml` — Added `[tool.setuptools.package-data]` section including `py.typed` marker (was declared as typed but marker not packaged).
+- `analyzers_ext2.py` — Fixed misleading comment on `_ZIG_SYMBOL_PATTERNS` (said "omit type_alias" but type_alias was present).
+
+**Test fixes:**
+- `test_trammel_extra.py` — `test_beam_count_respects_cap` now actually calls `planner.explore_trajectories()` with mocked CPU count instead of testing local arithmetic. Consolidated 3 redundant inline `import threading` statements to single module-level import.
+- `test_trammel.py` — Updated `cosine` → `_cosine` references.
+
+### Files changed
+- `trammel/analyzers_ext.py` — Pre-compiled regex constants, crate regex pre-compilation
+- `trammel/analyzers_ext2.py` — Removed dead import, fixed Zig comment
+- `trammel/cli.py` — Goal validation, root validation
+- `trammel/core.py` — `_step_description()` helper, named beam cap variable
+- `trammel/harness.py` — No changes (reviewed, confirmed correct)
+- `trammel/mcp_server.py` — `_validate_registries()`, `_detect_language()`, simplified list_strategies, top-level import
+- `trammel/mcp_stdio.py` — KeyboardInterrupt handling
+- `trammel/store.py` — `created` in `_STEP_COLUMNS`, module-level logger, documented smoothing
+- `trammel/store_agents.py` — `NotImplementedError` stub, `TYPE_CHECKING` import
+- `trammel/store_recipes.py` — Named row access, `_sql_in` guard, walrus `_extract_step_files`, `NotImplementedError` stub, `TYPE_CHECKING` import
+- `trammel/utils.py` — `_cosine` rename
+- `pyproject.toml` — Version 3.7.9, `package-data` section
+- `tests/test_trammel.py` — `_cosine` references
+- `tests/test_trammel_extra.py` — Real beam cap test, consolidated imports
 
 ---
 

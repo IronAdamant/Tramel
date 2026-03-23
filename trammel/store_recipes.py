@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +13,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
+    import sqlite3
     from .store import RecipeStore  # noqa: F401 — documents mixin host
 
 
@@ -23,7 +23,12 @@ _NEAR_PERFECT_SIMILARITY = 0.9999
 
 
 def _sql_in(items: list[str] | tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
-    """Build an SQL IN clause and parameter tuple: ``'IN (?,?,?)' , (a, b, c)``."""
+    """Build an SQL IN clause and parameter tuple: ``'IN (?,?,?)' , (a, b, c)``.
+
+    Raises ValueError on empty input (produces invalid SQL).
+    """
+    if not items:
+        raise ValueError("_sql_in requires a non-empty sequence")
     ph = ",".join("?" for _ in items)
     return f"IN ({ph})", tuple(items)
 
@@ -40,7 +45,7 @@ class RecipeStoreMixin:
 
     def log_event(self, event_type: str, detail: str = "", value: float | None = None) -> None:
         """Provided by composing class."""
-        ...
+        raise NotImplementedError
 
     def _insert_trigrams(self, sig: str, tris: set[str]) -> None:
         """Insert trigram index entries for a recipe."""
@@ -53,7 +58,7 @@ class RecipeStoreMixin:
     @staticmethod
     def _extract_step_files(strategy: dict[str, Any]) -> set[str]:
         """Extract file paths from strategy steps."""
-        return {s.get("file") for s in strategy.get("steps", []) if s.get("file")}
+        return {f for s in strategy.get("steps", []) if (f := s.get("file"))}
 
     def _insert_file_entries(self, sig: str, files: set[str]) -> None:
         """Insert file entries for a recipe."""
@@ -70,8 +75,8 @@ class RecipeStoreMixin:
             return
         with transaction(self.conn):
             self.conn.execute("DELETE FROM recipe_trigrams")
-            for sig, pattern in rows:
-                self._insert_trigrams(sig, unique_trigrams(normalize_goal(pattern)))
+            for row in rows:
+                self._insert_trigrams(row["sig"], unique_trigrams(normalize_goal(row["pattern"])))
 
     def _backfill_files(self) -> None:
         """Populate recipe_files for recipes that lack file entries."""
@@ -82,7 +87,8 @@ class RecipeStoreMixin:
         if not orphans:
             return
         with transaction(self.conn):
-            for sig, strategy_str in orphans:
+            for row in orphans:
+                sig, strategy_str = row["sig"], row["strategy"]
                 try:
                     strategy = json.loads(strategy_str)
                 except (json.JSONDecodeError, TypeError):
@@ -163,13 +169,15 @@ class RecipeStoreMixin:
                 f"SELECT recipe_sig, file_path FROM recipe_files WHERE recipe_sig {file_in}",
                 file_params,
             ).fetchall()
-            for fsig, fpath in file_rows:
-                sig_files.setdefault(fsig, set()).add(fpath)
+            for frow in file_rows:
+                sig_files.setdefault(frow["recipe_sig"], set()).add(frow["file_path"])
 
         best: dict[str, Any] | None = None
         best_score = -1.0
         now = time.time()
-        for sig, pattern, strategy_str, succ, fail, updated in candidates:
+        for row in candidates:
+            sig, pattern = row["sig"], row["pattern"]
+            strategy_str, succ, fail, updated = row["strategy"], row["successes"], row["failures"], row["updated"]
             text_sim = goal_similarity(goal, pattern)
             if text_sim < min_similarity:
                 continue
@@ -227,18 +235,18 @@ class RecipeStoreMixin:
             sig_params,
         ).fetchall()
         sig_files: dict[str, list[str]] = {}
-        for sig, fpath in file_rows:
-            sig_files.setdefault(sig, []).append(fpath)
+        for frow in file_rows:
+            sig_files.setdefault(frow["recipe_sig"], []).append(frow["file_path"])
         return [
             {
-                "sig": sig[:12],
-                "pattern": pattern,
-                "successes": succ,
-                "failures": fail,
-                "files": sig_files.get(sig, []),
-                "updated": updated,
+                "sig": r["sig"][:12],
+                "pattern": r["pattern"],
+                "successes": r["successes"],
+                "failures": r["failures"],
+                "files": sig_files.get(r["sig"], []),
+                "updated": r["updated"],
             }
-            for sig, pattern, succ, fail, updated in rows
+            for r in rows
         ]
 
     def prune_recipes(self, max_age_days: int = 90, min_success_ratio: float = 0.1) -> int:
@@ -274,13 +282,14 @@ class RecipeStoreMixin:
             "SELECT recipe_sig, file_path FROM recipe_files"
         ).fetchall()
         sig_files: dict[str, list[str]] = {}
-        for sig, fpath in all_file_rows:
-            sig_files.setdefault(sig, []).append(fpath)
+        for frow in all_file_rows:
+            sig_files.setdefault(frow["recipe_sig"], []).append(frow["file_path"])
 
         files_removed = 0
         invalidated: list[str] = []
         stale_pairs: list[tuple[str, str]] = []
-        for (sig,) in rows:
+        for row in rows:
+            sig = row["recipe_sig"]
             file_list = sig_files.get(sig, [])
             missing = [f for f in file_list if not os.path.isfile(os.path.join(project_root, f))]
             if not missing:

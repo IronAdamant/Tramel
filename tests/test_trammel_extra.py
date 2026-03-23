@@ -8,6 +8,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
 import time as _time
 import unittest
 from unittest.mock import patch
@@ -154,13 +155,16 @@ class TestPlannerExtra(unittest.TestCase):
             strat = planner.decompose("goal", d)
             self.assertTrue(any(s.get("file") == "__project__" for s in strat["steps"]))
 
-    def test_beam_count_respects_cap(self) -> None:
+    @patch("trammel.core.os.cpu_count", return_value=4)
+    def test_beam_count_respects_cap(self, _mock_cpu: object) -> None:
         """Beam count is capped between 3 and 12 regardless of input."""
-        import os
-        cores = os.cpu_count() or 4
-        cap = min(12, max(3, cores))
-        self.assertLessEqual(min(100, cap), 12)
-        self.assertGreaterEqual(min(100, cap), 3)
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            planner = Planner(store=RecipeStore(os.path.join(d, "x.db")))
+            strat = planner.decompose("task", d)
+            beams = planner.explore_trajectories(strat, num_beams=100)
+            self.assertLessEqual(len(beams), 12)
+            self.assertGreaterEqual(len(beams), 3)
 
     @patch("trammel.core.os.cpu_count", return_value=12)
     def test_beams_have_different_variants(self, _mock_cpu: object) -> None:
@@ -896,7 +900,6 @@ class TestConcurrentWrites(unittest.TestCase):
         return db_path
 
     def test_concurrent_plan_creation(self) -> None:
-        import threading
         with tempfile.TemporaryDirectory() as d:
             db_path = self._make_db(d, "conc.db")
             errors: list[Exception] = []
@@ -926,7 +929,6 @@ class TestConcurrentWrites(unittest.TestCase):
             store.close()
 
     def test_concurrent_recipe_saves(self) -> None:
-        import threading
         with tempfile.TemporaryDirectory() as d:
             db_path = self._make_db(d, "conc2.db")
             errors: list[Exception] = []
@@ -957,7 +959,6 @@ class TestConcurrentWrites(unittest.TestCase):
             store.close()
 
     def test_concurrent_constraint_adds(self) -> None:
-        import threading
         with tempfile.TemporaryDirectory() as d:
             db_path = self._make_db(d, "conc3.db")
             errors: list[Exception] = []

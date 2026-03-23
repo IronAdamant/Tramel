@@ -154,6 +154,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.7.9 — Comprehensive cleanup: dead code, bug fixes, modernization, robustness
+- **Bug fixes**: CLI goal validation (`str(None)` bug), missing `created` column in step queries, mixin stubs now raise `NotImplementedError`, `_sql_in` empty-input guard.
+- **Dead code**: Removed unused `_is_ignored_dir` import from `analyzers_ext2.py`.
+- **Hardening**: Replaced all positional `sqlite3.Row` unpacking with named column access (8 sites). Pre-compiled Rust/Cargo/Maven regex patterns at module level.
+- **Simplification**: Beam-count capping, step description helper, list_strategies comprehension, `_validate_registries()` wrapper.
+- **Modernization**: Walrus operator in `_extract_step_files`, `TYPE_CHECKING` imports, private `_cosine` naming, KeyboardInterrupt handling in MCP stdio.
+- **248 tests** (all passing).
+
 ### v3.7.8 — Code quality: DRY step dicts, simplified helpers, consistent isinstance
 - **DRY step dicts**: Extracted `_STEP_COLUMNS` + `_step_to_dict()` in store.py — eliminates duplicated step-dict construction in `get_plan()` and `get_step()`.
 - **Simplified helpers**: `word_jaccard`, `cosine`, `_strip_php_comments` in utils.py condensed (reduced total LOC).

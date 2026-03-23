@@ -12,10 +12,12 @@ from .store_agents import AgentStoreMixin
 from .store_recipes import RecipeStoreMixin
 from .utils import DEFAULT_DB_PATH, db_connect, dumps_json, transaction
 
+_log = logging.getLogger(__name__)
+
 
 _STEP_COLUMNS = (
     "id, plan_id, step_index, description, rationale, depends_on, "
-    "status, edits_json, verification, constraints_found, claimed_by, claimed_at"
+    "status, edits_json, verification, constraints_found, claimed_by, claimed_at, created"
 )
 
 
@@ -30,6 +32,7 @@ def _step_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "verification": json.loads(row["verification"]) if row["verification"] else None,
         "constraints_found": json.loads(row["constraints_found"]),
         "claimed_by": row["claimed_by"], "claimed_at": row["claimed_at"],
+        "created": row["created"],
     }
 
 
@@ -477,7 +480,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
                     (event_type, detail, value, time.time()),
                 )
         except sqlite3.Error:
-            logging.getLogger(__name__).debug("telemetry write failed", exc_info=True)
+            _log.debug("telemetry write failed", exc_info=True)
 
     def get_usage_stats(self, days: int = 30) -> dict[str, Any]:
         """Aggregate usage telemetry over the given window."""
@@ -503,6 +506,8 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             "recipe_hits": hits, "recipe_misses": misses,
             "recipe_hit_rate": hits / total if total > 0 else 0.0,
             "avg_hit_score": sum(scores) / len(scores) if scores else 0.0,
+            # Laplace-smoothed win rate: +1 in denominator avoids division by zero
+            # and dampens rates for strategies with few observations
             "strategy_win_rates": {
                 n: s / (s + f + 1)
                 for n, (s, f) in self.get_strategy_stats().items()

@@ -14,6 +14,7 @@ from .core import Planner
 from .strategies import get_strategies
 from .harness import ExecutionHarness
 from .store import RecipeStore
+from .utils import _collect_project_files
 
 _LANGUAGES = [
     "python", "typescript", "javascript", "go", "rust", "cpp", "c", "java", "kotlin",
@@ -210,6 +211,12 @@ def _get_analyzer(args: dict[str, Any]) -> Any:
     return get_analyzer(lang) if lang else None
 
 
+def _detect_language(project_root: str) -> Any:
+    """Lazy wrapper to avoid circular import at module load."""
+    from .analyzers import detect_language
+    return detect_language(project_root)
+
+
 def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
     return Planner(store=store, analyzer=_get_analyzer(args)).decompose(
         args["goal"], args["project_root"], scope=args.get("scope"),
@@ -308,11 +315,11 @@ def _handle_status(store: RecipeStore, _args: dict[str, Any]) -> Any:
 
 def _handle_list_strategies(store: RecipeStore, _args: dict[str, Any]) -> Any:
     stats = store.get_strategy_stats()
-    return [
-        {"name": name, "successes": pair[0], "failures": pair[1]}
-        for name in get_strategies()
-        for pair in (stats.get(name, (0, 0)),)
-    ]
+    result = []
+    for name in get_strategies():
+        s, f = stats.get(name, (0, 0))
+        result.append({"name": name, "successes": s, "failures": f})
+    return result
 
 
 def _handle_resume(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -324,11 +331,9 @@ def _handle_validate_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_estimate(_store: RecipeStore, args: dict[str, Any]) -> Any:
-    from .analyzers import detect_language
-    from .utils import _collect_project_files
     scope = args.get("scope")
     analysis_root = os.path.join(args["project_root"], scope) if scope else args["project_root"]
-    analyzer = _get_analyzer(args) or detect_language(analysis_root)
+    analyzer = _get_analyzer(args) or _detect_language(analysis_root)
     files = _collect_project_files(analysis_root, analyzer.extensions)
     return {
         "language": analyzer.name,
@@ -406,11 +411,16 @@ _schema_dispatch_diff = set(_TOOL_SCHEMAS) ^ set(_DISPATCH)
 if _schema_dispatch_diff:
     raise RuntimeError(f"Schema/dispatch mismatch: {_schema_dispatch_diff}")
 
-from .analyzers import _ANALYZER_REGISTRY  # noqa: E402
 
-_lang_analyzer_diff = set(_LANGUAGES) ^ set(_ANALYZER_REGISTRY)
-if _lang_analyzer_diff:
-    raise RuntimeError(f"Language/analyzer mismatch: {_lang_analyzer_diff}")
+def _validate_registries() -> None:
+    """Verify _LANGUAGES stays in sync with the analyzer registry."""
+    from .analyzers import _ANALYZER_REGISTRY
+    diff = set(_LANGUAGES) ^ set(_ANALYZER_REGISTRY)
+    if diff:
+        raise RuntimeError(f"Language/analyzer mismatch: {diff}")
+
+
+_validate_registries()
 
 
 def dispatch_tool(

@@ -11,7 +11,7 @@ import re
 
 from .utils import (
     _collect_project_files, _collect_symbols_regex,
-    _collect_typed_symbols_regex, _is_ignored_dir,
+    _collect_typed_symbols_regex,
     _resolve_namespace_import, _strip_c_comments,
     _strip_hash_comments, _strip_php_comments,
     _walk_and_map_namespaces,
@@ -396,7 +396,7 @@ _ZIG_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*:\s*type"), "type_alias"),
 ]
 
-# Zig symbol patterns differ from typed: combine struct/enum/union and omit type_alias
+# Zig symbol patterns differ from typed: combine struct/enum/union into one pattern
 _ZIG_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:^|\n)\s*(?:pub\s+)?fn\s+(\w+)"),
     re.compile(r"(?:^|\n)\s*(?:pub\s+)?const\s+(\w+)\s*=\s*(?:struct|enum|union)"),

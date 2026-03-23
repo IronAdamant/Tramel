@@ -29,6 +29,10 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Preview decomposition without running tests")
     args = parser.parse_args()
 
+    if not os.path.isdir(args.root):
+        print(f"Error: project root does not exist: {args.root}", file=sys.stderr)
+        sys.exit(1)
+
     if args.goal is None:
         if sys.stdin.isatty():
             parser.print_help()
@@ -41,7 +45,11 @@ def main() -> None:
         if not isinstance(payload, dict):
             print("Error: JSON payload must be an object with a 'goal' key", file=sys.stderr)
             sys.exit(1)
-        goal = str(payload.get("goal", ""))
+        goal_raw = payload.get("goal")
+        if not goal_raw or not isinstance(goal_raw, str):
+            print("Error: JSON payload must contain a non-empty string 'goal' key", file=sys.stderr)
+            sys.exit(1)
+        goal = goal_raw
     else:
         goal = args.goal
 

@@ -96,7 +96,10 @@ def main() -> None:
         )
         sys.exit(1)
 
-    asyncio.run(_run_server())
+    try:
+        asyncio.run(_run_server())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

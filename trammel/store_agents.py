@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .utils import transaction
+
+if TYPE_CHECKING:
+    import sqlite3
 
 
 class AgentStoreMixin:
@@ -21,7 +23,7 @@ class AgentStoreMixin:
 
     def get_plan(self, plan_id: int) -> dict[str, Any] | None:
         """Provided by composing class."""
-        ...
+        raise NotImplementedError
 
     _CLAIM_TIMEOUT = 600  # 10 minutes — stale claims auto-expire
 

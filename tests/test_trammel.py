@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 from trammel import ExecutionHarness, explore, plan_and_execute, synthesize  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.utils import (  # noqa: E402
-    cosine,
+    _cosine,
     dumps_json,
     goal_similarity,
     normalize_goal,
@@ -34,7 +34,7 @@ class TestTrigrams(unittest.TestCase):
     def test_signature_self_similarity(self) -> None:
         a = trigram_signature("hello world")
         b = trigram_signature("hello world")
-        self.assertAlmostEqual(cosine(a, b), 1.0, places=5)
+        self.assertAlmostEqual(_cosine(a, b), 1.0, places=5)
 
     def test_signature_short_string(self) -> None:
         self.assertEqual(trigram_signature(""), [1.0])
@@ -45,8 +45,8 @@ class TestTrigrams(unittest.TestCase):
         self.assertGreaterEqual(trigram_bag_cosine("aaa", "bbb"), 0.0)
 
     def test_cosine_empty(self) -> None:
-        self.assertEqual(cosine([], [1.0, 2.0]), 0.0)
-        self.assertEqual(cosine([1.0], []), 0.0)
+        self.assertEqual(_cosine([], [1.0, 2.0]), 0.0)
+        self.assertEqual(_cosine([1.0], []), 0.0)
 
 
 class TestTopologicalSort(unittest.TestCase):

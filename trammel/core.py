@@ -49,8 +49,7 @@ def _generate_steps(
             "file": filepath,
             "symbols": sym_names,
             "symbol_count": len(sym_names),
-            "description": f"Modify {filepath}: {', '.join(sym_names[:5])}"
-                           f"{f' (+{len(sym_names)-5} more)' if len(sym_names) > 5 else ''}",
+            "description": _step_description(filepath, sym_names),
             "rationale": _step_rationale(dep_files, sym_names),
             "depends_on": depends_on,
         })
@@ -67,6 +66,13 @@ def _generate_steps(
         }]
 
     return steps
+
+
+def _step_description(filepath: str, sym_names: list[str]) -> str:
+    sym_summary = ", ".join(sym_names[:5])
+    if len(sym_names) > 5:
+        sym_summary += f" (+{len(sym_names) - 5} more)"
+    return f"Modify {filepath}: {sym_summary}"
 
 
 def _step_rationale(dep_files: list[str], sym_names: list[str]) -> str:
@@ -288,7 +294,8 @@ class Planner:
         num_beams: int = 3,
     ) -> list[dict[str, Any]]:
         cores = os.cpu_count() or 4
-        n = min(num_beams, max(3, min(12, cores)))
+        cap = max(3, min(12, cores))
+        n = min(num_beams, cap)
         steps = strategy.get("steps", [])
         dep_graph = strategy.get("dependency_graph", {})
 

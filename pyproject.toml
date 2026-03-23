@@ -1,6 +1,6 @@
 [project]
 name = "trammel"
-version = "3.7.8"
+version = "3.7.9"
 description = "Dependency-aware planning, incremental verification, and recipe memory for LLM-assisted coding (stdlib-only core)."
 readme = "README.md"
 license = "MIT"
@@ -47,6 +47,9 @@ trammel-mcp = "trammel.mcp_stdio:main"
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+trammel = ["py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["."]

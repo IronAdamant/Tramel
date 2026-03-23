@@ -160,6 +160,14 @@ _RUST_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 _RUST_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _RUST_TYPED_PATTERNS]
 
+_RUST_USE_CRATE_RE = re.compile(r"use\s+crate::(\w+(?:::\w+)*)")
+_RUST_USE_SUPER_RE = re.compile(r"use\s+super::(\w+(?:::\w+)*)")
+_RUST_USE_SELF_RE = re.compile(r"use\s+self::(\w+(?:::\w+)*)")
+_RUST_MOD_DECL_RE = re.compile(r"(?:^|\n)\s*mod\s+(\w+)\s*;")
+_CARGO_MEMBERS_RE = re.compile(r'members\s*=\s*\[(.*?)\]', re.DOTALL)
+_CARGO_QUOTED_RE = re.compile(r'"([^"]+)"')
+_CARGO_NAME_RE = re.compile(r'name\s*=\s*"([^"]+)"')
+
 
 class RustAnalyzer:
     """Rust code analysis via regex (stdlib-only)."""
@@ -176,6 +184,11 @@ class RustAnalyzer:
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _RUST_EXTENSIONS)
         workspace_crates = self._read_cargo_crates(project_root)
+        # Pre-compile per-crate regexes once (avoids N*M recompilation)
+        crate_regexes = [
+            (re.compile(rf"use\s+{re.escape(name)}::(\w+(?:::\w+)*)"), cdir)
+            for name, cdir in workspace_crates.items()
+        ]
         graph: dict[str, list[str]] = {}
         for rel in file_set:
             path = os.path.join(project_root, rel)
@@ -186,23 +199,23 @@ class RustAnalyzer:
                 continue
             deps: set[str] = set()
             # use crate::module
-            for m in re.finditer(r"use\s+crate::(\w+(?:::\w+)*)", src):
+            for m in _RUST_USE_CRATE_RE.finditer(src):
                 self._resolve_rust_mod(m.group(1).split("::")[0], "", file_set, deps)
             # use super::module (parent module)
             file_dir = os.path.dirname(rel)
-            for m in re.finditer(r"use\s+super::(\w+(?:::\w+)*)", src):
+            for m in _RUST_USE_SUPER_RE.finditer(src):
                 parent = os.path.dirname(file_dir) if file_dir else ""
                 self._resolve_rust_mod(m.group(1).split("::")[0], parent, file_set, deps)
             # use self::module (current module)
-            for m in re.finditer(r"use\s+self::(\w+(?:::\w+)*)", src):
+            for m in _RUST_USE_SELF_RE.finditer(src):
                 self._resolve_rust_mod(m.group(1).split("::")[0], file_dir, file_set, deps)
             # use workspace_crate::module
-            for crate_name, crate_dir in workspace_crates.items():
-                for m in re.finditer(rf"use\s+{re.escape(crate_name)}::(\w+(?:::\w+)*)", src):
+            for crate_re, crate_dir in crate_regexes:
+                for m in crate_re.finditer(src):
                     mod_path = m.group(1).split("::")[0]
                     self._resolve_rust_mod(mod_path, crate_dir, file_set, deps)
             # mod declarations
-            for m in re.finditer(r"(?:^|\n)\s*mod\s+(\w+)\s*;", src):
+            for m in _RUST_MOD_DECL_RE.finditer(src):
                 self._resolve_rust_mod(m.group(1), file_dir, file_set, deps)
             deps.discard(rel)
             if deps:
@@ -234,10 +247,10 @@ class RustAnalyzer:
         except OSError:
             return crates
         # Extract workspace members: members = ["crate1", "crate2"]
-        m = re.search(r'members\s*=\s*\[(.*?)\]', content, re.DOTALL)
+        m = _CARGO_MEMBERS_RE.search(content)
         if not m:
             return crates
-        for member_match in re.finditer(r'"([^"]+)"', m.group(1)):
+        for member_match in _CARGO_QUOTED_RE.finditer(m.group(1)):
             member_path = member_match.group(1)
             member_dir = os.path.join(project_root, member_path)
             if not os.path.isdir(member_dir):
@@ -250,7 +263,7 @@ class RustAnalyzer:
                 try:
                     with open(member_cargo, encoding="utf-8") as fp:
                         mc = fp.read()
-                    nm = re.search(r'name\s*=\s*"([^"]+)"', mc)
+                    nm = _CARGO_NAME_RE.search(mc)
                     if nm:
                         crate_name = nm.group(1).replace("-", "_")
                 except OSError:
@@ -371,6 +384,7 @@ _JAVA_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _JAVA_TYPED_PATTER
 
 _JAVA_PACKAGE_RE = re.compile(r"^\s*package\s+([\w.]+)", re.MULTILINE)
 _JAVA_IMPORT_RE = re.compile(r"^\s*import\s+(?:static\s+)?([\w.]+)", re.MULTILINE)
+_MAVEN_SRC_DIR_RE = re.compile(r"<sourceDirectory>\s*(.*?)\s*</sourceDirectory>")
 
 
 class JavaAnalyzer:
@@ -428,7 +442,7 @@ class JavaAnalyzer:
                 try:
                     with open(pom, encoding="utf-8", errors="replace") as fp:
                         pom_text = fp.read()
-                    m = re.search(r"<sourceDirectory>\s*(.*?)\s*</sourceDirectory>", pom_text)
+                    m = _MAVEN_SRC_DIR_RE.search(pom_text)
                     if m:
                         full = os.path.join(project_root, m.group(1))
                         if os.path.isdir(full):

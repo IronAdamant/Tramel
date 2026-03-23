@@ -304,10 +304,10 @@ def trigram_bag_cosine(a: str, b: str) -> float:
         return 1.0
     va = [float(ca[k]) for k in keys]
     vb = [float(cb[k]) for k in keys]
-    return cosine(va, vb)
+    return _cosine(va, vb)
 
 
-def cosine(a: list[float], b: list[float]) -> float:
+def _cosine(a: list[float], b: list[float]) -> float:
     if not a or not b:
         return 0.0
     na, nb = sum(x * x for x in a) ** 0.5, sum(y * y for y in b) ** 0.5
