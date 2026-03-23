@@ -287,6 +287,11 @@ class TypeScriptAnalyzer:
 
     @staticmethod
     def _resolve_ts_path(importing_file: str, import_path: str, file_set: set[str]) -> str | None:
+        # Strip .js/.mjs/.cjs extensions — TS projects import as .js but files are .ts
+        for js_ext in (".js", ".mjs", ".cjs"):
+            if import_path.endswith(js_ext):
+                import_path = import_path[: -len(js_ext)]
+                break
         base = os.path.normpath(os.path.join(os.path.dirname(importing_file), import_path))
         for ext in _TS_EXTENSIONS:
             candidate = base + ext

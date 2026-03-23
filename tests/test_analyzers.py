@@ -101,6 +101,21 @@ class TestTypeScriptAnalyzer(unittest.TestCase):
             self.assertIn("main.ts", graph)
             self.assertIn("utils.ts", graph["main.ts"])
 
+    def test_analyze_imports_js_extension(self) -> None:
+        """TS files importing with .js extension (modern TS convention)."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "utils.ts").write_text(
+                "export function greet() { return 'hi'; }\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "main.ts").write_text(
+                "import { greet } from './utils.js';\nconsole.log(greet());\n",
+                encoding="utf-8",
+            )
+            analyzer = TypeScriptAnalyzer()
+            graph = analyzer.analyze_imports(d)
+            self.assertIn("main.ts", graph)
+            self.assertIn("utils.ts", graph["main.ts"])
+
     def test_pick_test_cmd_with_package_json(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "package.json").write_text(
