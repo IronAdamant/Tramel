@@ -35,8 +35,15 @@ except ImportError:
     _MCP_AVAILABLE = False
 
 
-def _configure_server(store: RecipeStore) -> Server:
-    """Register all Trammel tools on an MCP Server instance."""
+def _configure_server(db_path: str) -> Server:
+    """Register all Trammel tools on an MCP Server instance.
+
+    Each tool call creates its own ``RecipeStore`` (and thus its own
+    ``sqlite3.Connection``) inside the worker thread spawned by
+    ``asyncio.to_thread``.  This avoids the *"SQLite objects created in a
+    thread can only be used in that same thread"* error that occurs when a
+    connection created on the event-loop thread is reused in a worker.
+    """
     server = Server("trammel")
 
     @server.list_tools()
@@ -53,7 +60,11 @@ def _configure_server(store: RecipeStore) -> Server:
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         try:
-            result = dispatch_tool(store, name, arguments)
+            def _run() -> object:
+                with RecipeStore(db_path) as thread_store:
+                    return dispatch_tool(thread_store, name, arguments)
+
+            result = await asyncio.to_thread(_run)
         except Exception as exc:
             logger.exception("Error executing tool %s", name)
             return [TextContent(type="text", text=f"Error: {exc}")]
@@ -67,15 +78,14 @@ def _configure_server(store: RecipeStore) -> Server:
 async def _run_server() -> None:
     """Start the stdio MCP server and run until the client disconnects."""
     db_path = os.environ.get("TRAMMEL_DB_PATH", DEFAULT_DB_PATH)
-    with RecipeStore(db_path) as store:
-        server = _configure_server(store)
+    server = _configure_server(db_path)
 
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options(),
-            )
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(),
+        )
 
 
 def main() -> None:

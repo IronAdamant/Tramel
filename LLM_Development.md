@@ -15,22 +15,28 @@
 
 ---
 
-## v3.7.10 — Fix cross-thread SQLite error on Python 3.14+
+## v3.7.10 — Fix cross-thread SQLite crash in MCP stdio server
 
 **Date:** 2026-03-24
 
 ### Summary
-Fixed MCP stdio server completely broken on Python 3.14: `asyncio.to_thread(dispatch_tool, ...)` dispatched every tool call to a worker thread, but the `sqlite3.Connection` was created on the main (event-loop) thread. Python 3.14 enforces `check_same_thread=True` by default, raising `ProgrammingError` on every call. Fix: removed `asyncio.to_thread` wrapper — `dispatch_tool` now runs synchronously in the async handler. This is correct because MCP stdio servers are single-client and tool calls are sequential, so there is no concurrency benefit from `to_thread`.
+Fixed the "SQLite objects created in a thread can only be used in that same thread" error that made every Trammel MCP tool call fail under Python 3.14. The root cause: `_configure_server` accepted a pre-built `RecipeStore` (created on the asyncio event-loop thread), but `call_tool` dispatched work via `asyncio.to_thread` to a worker thread — crossing the thread boundary that Python 3.14's sqlite3 now strictly enforces (`check_same_thread=True` by default).
+
+Fix: `_configure_server` now takes `db_path: str` instead of a shared `RecipeStore`. Each `call_tool` invocation creates a short-lived `RecipeStore` inside a `_run()` closure that executes within the `asyncio.to_thread` worker, so the `sqlite3.Connection` is created and consumed on the same thread. The `with` statement ensures the connection is closed after each call. `_run_server` no longer wraps the server lifecycle in a `RecipeStore` context manager.
 
 ### Changes
 
-**Bug fix:**
-- `mcp_stdio.py` — Replaced `await asyncio.to_thread(dispatch_tool, store, name, arguments)` with direct `dispatch_tool(store, name, arguments)` call. Eliminates cross-thread SQLite connection sharing that broke all tool calls on Python 3.14+.
+**mcp_stdio.py:**
+- `_configure_server(store: RecipeStore)` → `_configure_server(db_path: str)` — no longer receives a shared connection
+- `call_tool`: new `_run()` closure creates `RecipeStore(db_path)` per-call inside the worker thread
+- `_run_server`: removed `with RecipeStore(db_path) as store:` wrapper — connection lifecycle is now per-call
 
-### Files changed
-- `trammel/mcp_stdio.py` — Synchronous dispatch (cross-thread SQLite fix)
-- `pyproject.toml` — Version 3.7.10
-- `COMPLETE_PROJECT_DOCUMENTATION.md` — Updated version, mcp_stdio.py description
+**pyproject.toml:**
+- Version 3.7.10
+
+### Files modified
+- `trammel/mcp_stdio.py` — per-call connection fix
+- `pyproject.toml` — version bump
 
 ---
 
