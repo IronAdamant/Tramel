@@ -11,7 +11,7 @@ import re
 import sqlite3
 import time
 from collections import Counter, deque
-from typing import Any, Generator
+from typing import Any, Callable, Generator
 
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",
@@ -23,6 +23,74 @@ _IGNORED_DIRS = frozenset({
 def _is_ignored_dir(name: str) -> bool:
     """Check if a directory should be skipped during project traversal."""
     return name in _IGNORED_DIRS or name.endswith(".egg-info")
+
+
+def _collect_symbols_regex(
+    project_root: str,
+    extensions: tuple[str, ...],
+    patterns: list[re.Pattern[str]],
+    preprocess: Callable[[str], str] | None = None,
+) -> dict[str, list[str]]:
+    """Shared symbol collection for regex-based analyzers."""
+    symbols: dict[str, list[str]] = {}
+    for root, dirs, files in os.walk(project_root):
+        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+        for fname in files:
+            if not any(fname.endswith(ext) for ext in extensions):
+                continue
+            path = os.path.join(root, fname)
+            rel = os.path.relpath(path, project_root)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fp:
+                    src = fp.read()
+            except OSError:
+                continue
+            if preprocess:
+                src = preprocess(src)
+            names: list[str] = []
+            for pat in patterns:
+                for m in pat.finditer(src):
+                    name = m.group(1)
+                    if name and name not in names:
+                        names.append(name)
+            if names:
+                symbols[rel] = names
+    return symbols
+
+
+def _collect_typed_symbols_regex(
+    project_root: str,
+    extensions: tuple[str, ...],
+    typed_patterns: list[tuple[re.Pattern[str], str]],
+    preprocess: Callable[[str], str] | None = None,
+) -> dict[str, list[tuple[str, str]]]:
+    """Shared typed symbol collection: returns file -> [(name, type_label)]."""
+    symbols: dict[str, list[tuple[str, str]]] = {}
+    for root, dirs, files in os.walk(project_root):
+        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+        for fname in files:
+            if not any(fname.endswith(ext) for ext in extensions):
+                continue
+            path = os.path.join(root, fname)
+            rel = os.path.relpath(path, project_root)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fp:
+                    src = fp.read()
+            except OSError:
+                continue
+            if preprocess:
+                src = preprocess(src)
+            seen: set[str] = set()
+            entries: list[tuple[str, str]] = []
+            for pat, type_label in typed_patterns:
+                for m in pat.finditer(src):
+                    name = m.group(1)
+                    if name and name not in seen:
+                        seen.add(name)
+                        entries.append((name, type_label))
+            if entries:
+                symbols[rel] = entries
+    return symbols
 
 
 def _collect_project_files(project_root: str, extensions: tuple[str, ...]) -> set[str]:

@@ -7,77 +7,12 @@ import json
 import os
 import re
 import sys
-from typing import Callable, Protocol
+from typing import Protocol
 
-from .utils import _ERROR_PATTERNS, _collect_project_files, _is_ignored_dir
-
-
-def _collect_symbols_regex(
-    project_root: str,
-    extensions: tuple[str, ...],
-    patterns: list[re.Pattern[str]],
-    preprocess: Callable[[str], str] | None = None,
-) -> dict[str, list[str]]:
-    """Shared symbol collection for regex-based analyzers."""
-    symbols: dict[str, list[str]] = {}
-    for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-        for fname in files:
-            if not any(fname.endswith(ext) for ext in extensions):
-                continue
-            path = os.path.join(root, fname)
-            rel = os.path.relpath(path, project_root)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
-            except OSError:
-                continue
-            if preprocess:
-                src = preprocess(src)
-            names: list[str] = []
-            for pat in patterns:
-                for m in pat.finditer(src):
-                    name = m.group(1)
-                    if name and name not in names:
-                        names.append(name)
-            if names:
-                symbols[rel] = names
-    return symbols
-
-
-def _collect_typed_symbols_regex(
-    project_root: str,
-    extensions: tuple[str, ...],
-    typed_patterns: list[tuple[re.Pattern[str], str]],
-    preprocess: Callable[[str], str] | None = None,
-) -> dict[str, list[tuple[str, str]]]:
-    """Shared typed symbol collection: returns file → [(name, type_label)]."""
-    symbols: dict[str, list[tuple[str, str]]] = {}
-    for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-        for fname in files:
-            if not any(fname.endswith(ext) for ext in extensions):
-                continue
-            path = os.path.join(root, fname)
-            rel = os.path.relpath(path, project_root)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fp:
-                    src = fp.read()
-            except OSError:
-                continue
-            if preprocess:
-                src = preprocess(src)
-            seen: set[str] = set()
-            entries: list[tuple[str, str]] = []
-            for pat, type_label in typed_patterns:
-                for m in pat.finditer(src):
-                    name = m.group(1)
-                    if name and name not in seen:
-                        seen.add(name)
-                        entries.append((name, type_label))
-            if entries:
-                symbols[rel] = entries
-    return symbols
+from .utils import (
+    _ERROR_PATTERNS, _collect_project_files, _collect_symbols_regex,
+    _collect_typed_symbols_regex, _is_ignored_dir,
+)
 
 
 _JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
@@ -103,15 +38,19 @@ class LanguageAnalyzer(Protocol):
 
 # ── Python ───────────────────────────────────────────────────────────────────
 
+_PY_AST_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_PY_TYPE_MAP = {ast.FunctionDef: "function", ast.AsyncFunctionDef: "function", ast.ClassDef: "class"}
+
+
 class PythonAnalyzer:
     """Python code analysis via stdlib AST."""
 
     name = "python"
     extensions = (".py",)
 
-    def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        """Collect function/class symbol names grouped by relative file path."""
-        symbols: dict[str, list[str]] = {}
+    @staticmethod
+    def _iter_ast(project_root: str):
+        """Yield (rel_path, ast_tree) for all Python files under project_root."""
         for root, dirs, files in os.walk(project_root):
             dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
             for fname in files:
@@ -124,42 +63,24 @@ class PythonAnalyzer:
                         tree = ast.parse(fp.read(), filename=path)
                 except (OSError, SyntaxError):
                     continue
-                names = [
-                    node.name
-                    for node in ast.walk(tree)
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                ]
-                if names:
-                    symbols[rel] = names
+                yield rel, tree
+
+    def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
+        """Collect function/class symbol names grouped by relative file path."""
+        symbols: dict[str, list[str]] = {}
+        for rel, tree in self._iter_ast(project_root):
+            names = [n.name for n in ast.walk(tree) if isinstance(n, _PY_AST_TYPES)]
+            if names:
+                symbols[rel] = names
         return symbols
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
         """Collect symbols with type classification via AST."""
-        _TYPE_MAP = {
-            ast.FunctionDef: "function",
-            ast.AsyncFunctionDef: "function",
-            ast.ClassDef: "class",
-        }
         symbols: dict[str, list[tuple[str, str]]] = {}
-        for root, dirs, files in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in files:
-                if not fname.endswith(".py"):
-                    continue
-                path = os.path.join(root, fname)
-                rel = os.path.relpath(path, project_root)
-                try:
-                    with open(path, encoding="utf-8", errors="replace") as fp:
-                        tree = ast.parse(fp.read(), filename=path)
-                except (OSError, SyntaxError):
-                    continue
-                entries: list[tuple[str, str]] = []
-                for node in ast.walk(tree):
-                    label = _TYPE_MAP.get(type(node))
-                    if label:
-                        entries.append((node.name, label))
-                if entries:
-                    symbols[rel] = entries
+        for rel, tree in self._iter_ast(project_root):
+            entries = [(n.name, _PY_TYPE_MAP[type(n)]) for n in ast.walk(tree) if type(n) in _PY_TYPE_MAP]
+            if entries:
+                symbols[rel] = entries
         return symbols
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
@@ -234,25 +155,6 @@ class PythonAnalyzer:
 
 _TS_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs")
 
-_TS_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
-    # function/generator (export/default/async optional)
-    re.compile(r"(?:^|\n)\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\*?\s+(\w+)"),
-    # class (abstract, decorated)
-    re.compile(r"(?:^|\n)\s*(?:@\w+[^\n]*\n\s*)*(?:export\s+(?:default\s+)?)?(?:abstract\s+)?class\s+(\w+)"),
-    # interface
-    re.compile(r"(?:^|\n)\s*(?:export\s+(?:default\s+)?)?interface\s+(\w+)"),
-    # enum (including const enum)
-    re.compile(r"(?:^|\n)\s*(?:export\s+(?:default\s+)?)?(?:const\s+)?enum\s+(\w+)"),
-    # type alias
-    re.compile(r"(?:^|\n)\s*(?:export\s+)?type\s+(\w+)\s*[=<]"),
-    # arrow function assignment
-    re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\("),
-    # function expression assignment
-    re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function"),
-    # namespace
-    re.compile(r"(?:^|\n)\s*(?:export\s+)?namespace\s+(\w+)"),
-]
-
 _TS_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\*?\s+(\w+)"), "function"),
     (re.compile(r"(?:^|\n)\s*(?:@\w+[^\n]*\n\s*)*(?:export\s+(?:default\s+)?)?(?:abstract\s+)?class\s+(\w+)"), "class"),
@@ -263,6 +165,8 @@ _TS_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function"), "function"),
     (re.compile(r"(?:^|\n)\s*(?:export\s+)?namespace\s+(\w+)"), "namespace"),
 ]
+
+_TS_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _TS_TYPED_PATTERNS]
 
 # Relative imports (start with .)
 _TS_IMPORT_RE = re.compile(
@@ -530,7 +434,7 @@ def detect_language(project_root: str) -> LanguageAnalyzer:
     config_lang = _detect_from_config(project_root)
     if config_lang:
         return get_analyzer(config_lang)
-    # Map language → extensions for file counting (use tuples for shared analyzers)
+    # Map language -> extensions for file counting (use tuples for shared analyzers)
     _LANG_EXTENSIONS: list[tuple[str, tuple[str, ...]]] = [
         ("python", (".py",)),
         ("typescript", _TS_EXTENSIONS),

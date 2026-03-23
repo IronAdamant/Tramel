@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 3.3.0
+**Version:** 3.3.1
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -33,7 +33,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 
 ## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
 
-Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, registry, and detection. `analyzers_ext.py` (~400 LOC) holds Go, Rust, C/C++, and Java/Kotlin. `analyzers_ext2.py` (~480 LOC) holds C#, Ruby, PHP, Swift, Dart, and Zig. All existing imports preserved via re-export from `analyzers.py`.
+Module split: `analyzers.py` (~460 LOC) holds the protocol, Python, TypeScript, registry, and detection. `analyzers_ext.py` (~440 LOC) holds Go, Rust, C/C++, and Java/Kotlin. `analyzers_ext2.py` (~445 LOC) holds C#, Ruby, PHP, Swift, Dart, and Zig. Shared `_collect_symbols_regex` and `_collect_typed_symbols_regex` helpers live in `utils.py`. Where possible, `_*_SYMBOL_PATTERNS` are derived from `_*_TYPED_PATTERNS` to avoid regex duplication. All existing imports preserved via re-export from `analyzers.py`.
 
 - **`LanguageAnalyzer` protocol**: Defines `collect_symbols(root) -> dict[str, list[str]]`, `analyze_imports(root) -> dict[str, list[str]]`, `test_command() -> list[str]`, `error_patterns() -> list[str]`.
 - **`PythonAnalyzer`**: AST-based symbol collection and import analysis (moved from `core.py` and `utils.py`).
@@ -48,20 +48,22 @@ Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, 
 - **`SwiftAnalyzer`**: Regex-based analysis for `.swift` files in `analyzers_ext2.py`. Symbol detection for class, struct, enum, protocol, func, and actor declarations. `import` resolution. Registered as "swift".
 - **`DartAnalyzer`**: Regex-based analysis for `.dart` files in `analyzers_ext2.py`. Symbol detection for class, mixin, extension, enum, and typedef declarations. `import`/`part` resolution. Registered as "dart".
 - **`ZigAnalyzer`**: Regex-based analysis for `.zig` files in `analyzers_ext2.py`. Symbol detection for pub fn, const, struct, enum, and union declarations. `@import` resolution. Registered as "zig".
-- **Shared `_collect_symbols_regex` helper**: Common symbol collection logic used by `TypeScriptAnalyzer`, `GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, `JavaAnalyzer`, and all `analyzers_ext2` analyzers (regex-based analyzers).
+- **Shared `_collect_symbols_regex` and `_collect_typed_symbols_regex` helpers** (in `utils.py`): Common symbol collection logic used by all regex-based analyzers. Eliminates circular dependency workarounds (previously used `functools.cache` lazy imports).
 - **`_detect_from_config(root)`**: Config-file detection (Cargo.toml → rust, go.mod → go, tsconfig.json/package.json → typescript, build.gradle/pom.xml → java, CMakeLists.txt → cpp, pyproject.toml/setup.py → python, Package.swift → swift, build.zig → zig, pubspec.yaml → dart, .csproj/.sln → csharp, Gemfile → ruby, composer.json → php). Takes priority over extension counting.
 - **`detect_language(root)`**: Config-file detection first, falling back to extension counting. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, `.java`/`.kt`, `.cs`, `.rb`, `.php`, `.swift`, `.dart`, and `.zig` files.
 - **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 15 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin, csharp, ruby, php, swift, dart, zig.
 
-## 5. Planner (`core.py`)
+## 5. Planner (`core.py`) and Strategies (`strategies.py`)
+
+`core.py` (~325 LOC) holds the `Planner`, step generation, and constraint enforcement. `strategies.py` (~280 LOC) holds the strategy registry and 9 built-in orderings (extracted from `core.py` in v3.3.1).
 
 - **Recipe hit**: If `retrieve_best_recipe(goal, context_files)` returns a strategy (composite score >= 0.3), use it. Two-phase: text-only fast path, then structural scoring with file overlap.
 - **Scope support**: `decompose(goal, project_root, scope=None)` accepts an optional `scope` subdirectory. When provided, analysis is scoped to `os.path.join(project_root, scope)` while the full project remains available for test execution. Enables monorepo workflows.
 - **Import analysis**: Delegated to language-specific analyzers. `Planner` accepts optional `analyzer` and auto-detects language if not provided.
 - **Topological sort**: Kahn's algorithm orders files so dependencies come first. Cycles are appended at end.
 - **Step generation**: Each file with symbols becomes a step with `description`, `rationale`, `depends_on` (indices of prior steps this depends on).
-- **Beam strategies (6 built-in)**: `bottom_up` (dependencies first — safest; stable-sorts by ascending dependency count, genuinely uses `dep_graph`), `top_down` (API surface first; stable-sorts by descending dependency count, genuinely uses `dep_graph`), `risk_first` (most-imported files first — highest coupling impact), `critical_path` (longest dependency chain first — bottleneck feedback, iterative stack-based DFS depth computation with `in_stack` cycle detection; fixes stack overflow on deep graphs), `cohesion` (flood-fill connected components, process tightly coupled groups contiguously, largest first, topological sort within each component), `minimal_change` (fewest symbols first — quick wins, catch trivial failures early).
-- **Strategy registry**: Pluggable via `register_strategy(name, description, fn)`. Six built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
+- **Beam strategies (9 built-in)**: `bottom_up` (dependencies first), `top_down` (API surface first), `risk_first` (most-imported files first), `critical_path` (longest dependency chain first, iterative DFS with cycle detection), `cohesion` (flood-fill connected components, toposort within), `minimal_change` (fewest symbols first), `leaf_first` (zero importers first), `hub_first` (network hub files first), `test_adjacent` (files with matching test files first).
+- **Strategy registry**: Pluggable via `register_strategy(name, description, fn)`. Nine built-in strategies auto-registered at module load. `get_strategies()` returns all registered `StrategyEntry` items. Strategy functions have unified signature `StrategyFn = Callable[[list, dict], list]` — `(steps, dep_graph) -> steps`.
 - **Strategy learning**: `explore_trajectories` accepts optional `store`. When provided, `get_strategy_stats()` aggregates trajectory outcomes by variant (success/failure counts) and strategies are sorted by historical success rate.
 
 ## 6. Harness (`harness.py`)
@@ -138,7 +140,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-verify-store loop for LLM clients.
 
-## 9. Utilities (`utils.py`)
+## 9. Utilities (`utils.py`, ~370 LOC)
 
 - `_is_ignored_dir` — Check if a directory should be skipped (frozenset + `.egg-info` suffix). Expanded set includes `.next`, `.nuxt`, `coverage`, `.turbo`, `.parcel-cache`.
 - `topological_sort` — Kahn's algorithm with cycle handling (uses `deque` for O(1) queue ops).
@@ -160,7 +162,7 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 
 - Pass `test_cmd` to `ExecutionHarness` for pytest or a custom runner.
 - Emit real `content` in edits from an LLM (the primary integration point).
-- Register custom beam strategies via `register_strategy()` beyond the six built-in.
+- Register custom beam strategies via `register_strategy()` beyond the nine built-in.
 - Add constraint types beyond the four built-in (avoid/dependency/incompatible/requires).
 - Implement `LanguageAnalyzer` protocol for additional languages beyond the 15 built-in (Python, TypeScript, JavaScript, Go, Rust, C/C++, Java, Kotlin, C#, Ruby, PHP, Swift, Dart, Zig).
 - Use `SYSTEM_PROMPT.md` as a reference for building LLM client orchestration loops.

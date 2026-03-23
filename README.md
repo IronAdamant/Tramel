@@ -99,18 +99,19 @@ Trammel treats planning as a structured search problem:
 ```
 trammel/              Importable package
   __init__.py         plan_and_execute, explore, synthesize, __version__
-  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language (~370 LOC)
-  analyzers_ext.py    GoAnalyzer, RustAnalyzer, CppAnalyzer (5-pattern symbol detection), JavaAnalyzer (source root detection) (~400 LOC)
-  analyzers_ext2.py   CSharpAnalyzer, RubyAnalyzer, PhpAnalyzer, SwiftAnalyzer, DartAnalyzer, ZigAnalyzer (~480 LOC)
-  core.py             Planner: import analysis, toposort, beam strategies
+  analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language (~460 LOC)
+  analyzers_ext.py    GoAnalyzer, RustAnalyzer, CppAnalyzer (5-pattern symbol detection), JavaAnalyzer (source root detection) (~440 LOC)
+  analyzers_ext2.py   CSharpAnalyzer, RubyAnalyzer, PhpAnalyzer, SwiftAnalyzer, DartAnalyzer, ZigAnalyzer (~445 LOC)
+  core.py             Planner: decomposition, constraint enforcement, step generation (~325 LOC)
+  strategies.py       Beam strategy registry and 9 built-in orderings (~280 LOC)
   harness.py          ExecutionHarness: temp copy, edits, test runner, base-copy caching
-  store.py            RecipeStore: SQLite persistence (7 tables), inherits RecipeStoreMixin (~342 LOC)
-  store_recipes.py    RecipeStoreMixin: recipe methods (save, retrieve, list, prune, trigram/file backfill) (~210 LOC)
-  utils.py            Trigrams, cosine, failure extraction, goal normalization, goal similarity
+  store.py            RecipeStore: SQLite persistence (7 tables), inherits RecipeStoreMixin (~370 LOC)
+  store_recipes.py    RecipeStoreMixin: recipe methods (save, retrieve, list, prune, trigram/file backfill) (~250 LOC)
+  utils.py            Trigrams, cosine, failure extraction, goal normalization, shared symbol collection (~370 LOC)
   cli.py              Argparse CLI entry point (--dry-run, --language)
   mcp_server.py       MCP tool schemas and dispatch (21 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (230 tests, 4 modules)
+tests/                stdlib unittest (242 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -150,6 +151,16 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 3.3.1
+
+- **Strategy module extraction**: Beam strategy registry and 9 built-in orderings extracted from `core.py` into new `strategies.py` (~280 LOC). `core.py` reduced from 595 to 324 LOC, well under the 500 LOC limit.
+- **Eliminated circular dependency workarounds**: Moved shared `_collect_symbols_regex` and `_collect_typed_symbols_regex` helpers from `analyzers.py` to `utils.py`. Removed `functools.cache` lazy-import wrappers from `analyzers_ext.py` and `analyzers_ext2.py` (12 lines each), replaced with direct imports.
+- **DRY regex patterns**: Derived `_*_SYMBOL_PATTERNS` from `_*_TYPED_PATTERNS` via `[p for p, _ in _*_TYPED_PATTERNS]` for TypeScript, Rust, Java, C#, Ruby, PHP, Swift, and Dart (8 languages). Eliminates ~70 lines of duplicated regex definitions.
+- **DRY Python AST walking**: Extracted `PythonAnalyzer._iter_ast()` generator, shared by both `collect_symbols` and `collect_typed_symbols`, eliminating duplicated file-walking and AST-parsing code.
+- **Import ordering fix**: Fixed stdlib import ordering in `store_recipes.py` (`import os` moved before local imports).
+- **All files under 500 LOC**: `analyzers.py` reduced from 559 to 463 LOC. Total source: 3,876 to 3,771 LOC (105 lines net reduction through deduplication).
+- **242 tests** (unchanged, all passing).
 
 ### 3.3.0
 

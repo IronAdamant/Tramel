@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any
-
-import os
 
 from .utils import (
     dumps_json, goal_similarity, normalize_goal,

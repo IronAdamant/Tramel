@@ -9,7 +9,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .core import Planner, get_strategies
+from .core import Planner
+from .strategies import get_strategies
 from .harness import ExecutionHarness
 from .store import RecipeStore
 

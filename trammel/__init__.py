@@ -15,7 +15,8 @@ from .analyzers import (
 from .analyzers_ext2 import (
     CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
 )
-from .core import Planner, get_strategies, register_strategy
+from .core import Planner
+from .strategies import get_strategies, register_strategy
 from .harness import ExecutionHarness
 from .store import RecipeStore
 

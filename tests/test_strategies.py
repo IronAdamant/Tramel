@@ -13,7 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import Planner  # noqa: E402
-from trammel.core import (  # noqa: E402
+from trammel.strategies import (  # noqa: E402
     _STRATEGY_REGISTRY,
     _order_bottom_up,
     _order_cohesion,

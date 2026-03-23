@@ -6,26 +6,13 @@ These are re-exported by analyzers.py and registered in its analyzer registry.
 
 from __future__ import annotations
 
-import functools
 import os
 import re
-from typing import Callable
 
-from .utils import _collect_project_files, _is_ignored_dir
-
-
-@functools.cache
-def _get_collect_symbols_regex() -> Callable:
-    """Lazy import to avoid circular dependency; analyzers.py imports us at the bottom."""
-    from .analyzers import _collect_symbols_regex as fn
-    return fn
-
-
-@functools.cache
-def _get_collect_typed_symbols_regex() -> Callable:
-    """Lazy import for typed symbol collection."""
-    from .analyzers import _collect_typed_symbols_regex as fn
-    return fn
+from .utils import (
+    _collect_project_files, _collect_symbols_regex,
+    _collect_typed_symbols_regex, _is_ignored_dir,
+)
 
 
 # ── Go ────────────────────────────────────────────────────────────────────────
@@ -60,10 +47,10 @@ class GoAnalyzer:
     extensions = _GO_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _get_collect_symbols_regex()(project_root, _GO_EXTENSIONS, _GO_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _GO_EXTENSIONS, _GO_SYMBOL_PATTERNS)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _get_collect_typed_symbols_regex()(project_root, _GO_EXTENSIONS, _GO_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _GO_EXTENSIONS, _GO_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         module_path, go_mod_dir = self._read_go_mod(project_root)
@@ -75,7 +62,7 @@ class GoAnalyzer:
             prefix = module_path + "/"
         else:
             prefix = module_path + "/" + scope_rel.replace(os.sep, "/") + "/"
-        # Single walk: collect package dir→files mapping and read sources together
+        # Single walk: collect package dir->files mapping and read sources together
         dir_files: dict[str, list[str]] = {}
         file_sources: dict[str, str] = {}
         for root, dirs, files in os.walk(project_root):
@@ -169,14 +156,7 @@ _RUST_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)"), "type_alias"),
 ]
 
-_RUST_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?trait\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*impl(?:<[^>]*>)?\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)"),
-]
+_RUST_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _RUST_TYPED_PATTERNS]
 
 
 class RustAnalyzer:
@@ -186,10 +166,10 @@ class RustAnalyzer:
     extensions = _RUST_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _get_collect_symbols_regex()(project_root, _RUST_EXTENSIONS, _RUST_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _RUST_EXTENSIONS, _RUST_SYMBOL_PATTERNS)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _get_collect_typed_symbols_regex()(project_root, _RUST_EXTENSIONS, _RUST_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _RUST_EXTENSIONS, _RUST_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         file_set = _collect_project_files(project_root, _RUST_EXTENSIONS)
@@ -248,16 +228,9 @@ _CPP_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:(?:static|inline|constexpr|virtual|explicit|extern)\s+)*(?:[\w:*&<>]+\s+)+(\w+)\s*\([^;)]*\)"), "function"),
 ]
 
-_CPP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(?:^|\n)\s*(?:template\s*<[^>]*>\s*)?class\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*(?:typedef\s+)?struct\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*namespace\s+(\w+)"),
-    re.compile(r"(?:^|\n)\s*enum\s+(?:class\s+)?(\w+)"),
-    re.compile(r"(?:^|\n)\s*typedef\s+[\w\s*&:<>,]+\s+(\w+)\s*;"),
+_CPP_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _CPP_TYPED_PATTERNS] + [
     # Template function
     re.compile(r"(?:^|\n)\s*template\s*<[^>]*>\s*(?:[\w:*&<>\s]+\s+)?(\w+)\s*\("),
-    # Standard function with qualifiers
-    re.compile(r"(?:^|\n)\s*(?:(?:static|inline|constexpr|virtual|explicit|extern)\s+)*(?:[\w:*&<>]+\s+)+(\w+)\s*\([^;)]*\)"),
     # Operator overloading
     re.compile(r"(?:^|\n)\s*(?:[\w:*&<>]+\s+)*(operator\s*(?:<<|>>|==|!=|<=|>=|[+\-*/%<>&|^~!]|\[\]|\(\)|->|new|delete))\s*\("),
     # Constructor/destructor (out-of-class: Class::~Class)
@@ -281,12 +254,12 @@ class CppAnalyzer:
     extensions = _CPP_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _get_collect_symbols_regex()(
+        return _collect_symbols_regex(
             project_root, _CPP_EXTENSIONS, _CPP_SYMBOL_PATTERNS, _strip_cpp_comments,
         )
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _get_collect_typed_symbols_regex()(
+        return _collect_typed_symbols_regex(
             project_root, _CPP_EXTENSIONS, _CPP_TYPED_PATTERNS, _strip_cpp_comments,
         )
 
@@ -345,20 +318,7 @@ _JAVA_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private)\s+)*@interface\s+(\w+)"), "annotation"),
 ]
 
-_JAVA_SYMBOL_PATTERNS: list[re.Pattern[str]] = [
-    # Class (Java + Kotlin)
-    re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|abstract|final|static|open|internal|data|sealed)\s+)*class\s+(\w+)"),
-    # Interface (Java + Kotlin)
-    re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|sealed)\s+)*interface\s+(\w+)"),
-    # Enum
-    re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal)\s+)*enum\s+(?:class\s+)?(\w+)"),
-    # Kotlin fun
-    re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private|internal|override|open|suspend|inline)\s+)*fun\s+(?:<[^>]*>\s*)?(\w+)"),
-    # Kotlin object
-    re.compile(r"(?:^|\n)\s*(?:(?:internal|private)\s+)?(?:companion\s+)?object\s+(\w+)"),
-    # Annotation type (Java @interface)
-    re.compile(r"(?:^|\n)\s*(?:(?:public|protected|private)\s+)*@interface\s+(\w+)"),
-]
+_JAVA_SYMBOL_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _JAVA_TYPED_PATTERNS]
 
 _JAVA_PACKAGE_RE = re.compile(r"^\s*package\s+([\w.]+)", re.MULTILINE)
 _JAVA_IMPORT_RE = re.compile(r"^\s*import\s+(?:static\s+)?([\w.]+)", re.MULTILINE)
@@ -371,14 +331,14 @@ class JavaAnalyzer:
     extensions = _JAVA_EXTENSIONS
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        return _get_collect_symbols_regex()(project_root, _JAVA_EXTENSIONS, _JAVA_SYMBOL_PATTERNS)
+        return _collect_symbols_regex(project_root, _JAVA_EXTENSIONS, _JAVA_SYMBOL_PATTERNS)
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
-        return _get_collect_typed_symbols_regex()(project_root, _JAVA_EXTENSIONS, _JAVA_TYPED_PATTERNS)
+        return _collect_typed_symbols_regex(project_root, _JAVA_EXTENSIONS, _JAVA_TYPED_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         source_roots = self._detect_source_roots(project_root)
-        # Build mapping: package → list of project files declaring that package
+        # Build mapping: package -> list of project files declaring that package
         pkg_to_files: dict[str, list[str]] = {}
         file_sources: dict[str, str] = {}
         # Directory-based fallback for files without package declarations
