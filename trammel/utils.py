@@ -124,6 +124,42 @@ def _collect_project_files(project_root: str, extensions: tuple[str, ...]) -> se
     return files
 
 
+def _walk_and_map_namespaces(
+    project_root: str,
+    extensions: tuple[str, ...],
+    namespace_re: re.Pattern[str],
+    preprocess: Callable[[str], str],
+    source_roots: list[str] | None = None,
+) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Walk project files, read sources, extract namespaces/packages.
+
+    Returns (namespace_to_files, file_to_source).
+    Used by CSharp, PHP, and Java analyzers to avoid duplicating the walk+map pattern.
+    """
+    ns_to_files: dict[str, list[str]] = {}
+    file_sources: dict[str, str] = {}
+    roots = source_roots or [project_root]
+    for src_root in roots:
+        for root, dirs, files in os.walk(src_root):
+            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+            for fname in files:
+                if not fname.endswith(extensions):
+                    continue
+                path = os.path.join(root, fname)
+                rel = os.path.relpath(path, project_root)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fp:
+                        src = fp.read()
+                except OSError:
+                    continue
+                src = preprocess(src)
+                file_sources[rel] = src
+                m = namespace_re.search(src)
+                if m:
+                    ns_to_files.setdefault(m.group(1), []).append(rel)
+    return ns_to_files, file_sources
+
+
 def _read_workspace_packages(project_root: str) -> dict[str, str]:
     """Read workspace packages from package.json. Returns {pkg_name: relative_dir}."""
     pkg_json = os.path.join(project_root, "package.json")

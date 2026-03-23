@@ -13,6 +13,7 @@ from .utils import (
     _collect_project_files, _collect_symbols_regex,
     _collect_typed_symbols_regex, _is_ignored_dir,
     _strip_c_comments, _strip_hash_comments, _strip_php_comments,
+    _walk_and_map_namespaces,
 )
 
 
@@ -48,25 +49,9 @@ class CSharpAnalyzer:
         return _collect_typed_symbols_regex(project_root, _CSHARP_EXTENSIONS, _CSHARP_TYPED_PATTERNS, _strip_c_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
-        ns_to_files: dict[str, list[str]] = {}
-        file_sources: dict[str, str] = {}
-        for root, dirs, files in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in files:
-                if not fname.endswith(".cs"):
-                    continue
-                path = os.path.join(root, fname)
-                rel = os.path.relpath(path, project_root)
-                try:
-                    with open(path, encoding="utf-8", errors="replace") as fp:
-                        src = fp.read()
-                except OSError:
-                    continue
-                src = _strip_c_comments(src)
-                file_sources[rel] = src
-                m = _CSHARP_NAMESPACE_RE.search(src)
-                if m:
-                    ns_to_files.setdefault(m.group(1), []).append(rel)
+        ns_to_files, file_sources = _walk_and_map_namespaces(
+            project_root, _CSHARP_EXTENSIONS, _CSHARP_NAMESPACE_RE, _strip_c_comments,
+        )
         graph: dict[str, list[str]] = {}
         for rel, src in file_sources.items():
             deps: set[str] = set()
@@ -199,25 +184,9 @@ class PhpAnalyzer:
         return _collect_typed_symbols_regex(project_root, _PHP_EXTENSIONS, _PHP_TYPED_PATTERNS, _strip_php_comments)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
-        ns_to_files: dict[str, list[str]] = {}
-        file_sources: dict[str, str] = {}
-        for root, dirs, files in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in files:
-                if not fname.endswith(".php"):
-                    continue
-                path = os.path.join(root, fname)
-                rel = os.path.relpath(path, project_root)
-                try:
-                    with open(path, encoding="utf-8", errors="replace") as fp:
-                        src = fp.read()
-                except OSError:
-                    continue
-                src = _strip_php_comments(src)
-                file_sources[rel] = src
-                m = _PHP_NAMESPACE_RE.search(src)
-                if m:
-                    ns_to_files.setdefault(m.group(1), []).append(rel)
+        ns_to_files, file_sources = _walk_and_map_namespaces(
+            project_root, _PHP_EXTENSIONS, _PHP_NAMESPACE_RE, _strip_php_comments,
+        )
         # Build reverse index for fast namespace lookup
         ns_dot_map: dict[str, str] = {ns.replace("\\", "."): ns for ns in ns_to_files}
         graph: dict[str, list[str]] = {}

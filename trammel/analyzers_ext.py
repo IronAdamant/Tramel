@@ -12,6 +12,7 @@ import re
 from .utils import (
     _collect_project_files, _collect_symbols_regex,
     _collect_typed_symbols_regex, _is_ignored_dir, _strip_c_comments,
+    _walk_and_map_namespaces,
 )
 
 
@@ -385,27 +386,10 @@ class JavaAnalyzer:
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
         source_roots = self._detect_source_roots(project_root)
-        # Build mapping: package -> list of project files declaring that package
-        pkg_to_files: dict[str, list[str]] = {}
-        file_sources: dict[str, str] = {}
-        for src_root in source_roots:
-            for root, dirs, files in os.walk(src_root):
-                dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-                for fname in files:
-                    if not fname.endswith(_JAVA_EXTENSIONS):
-                        continue
-                    path = os.path.join(root, fname)
-                    rel = os.path.relpath(path, project_root)
-                    try:
-                        with open(path, encoding="utf-8", errors="replace") as fp:
-                            src = fp.read()
-                    except OSError:
-                        continue
-                    src = _strip_c_comments(src)
-                    file_sources[rel] = src
-                    m = _JAVA_PACKAGE_RE.search(src)
-                    if m:
-                        pkg_to_files.setdefault(m.group(1), []).append(rel)
+        pkg_to_files, file_sources = _walk_and_map_namespaces(
+            project_root, _JAVA_EXTENSIONS, _JAVA_PACKAGE_RE, _strip_c_comments,
+            source_roots=source_roots,
+        )
 
         graph: dict[str, list[str]] = {}
         for rel, src in file_sources.items():

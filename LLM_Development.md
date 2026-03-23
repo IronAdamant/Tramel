@@ -8,10 +8,32 @@
 
 ## Active context
 
-- **Version:** 3.7.4
+- **Version:** 3.7.5
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.5 — Code quality audit: analyzer deduplication and shared namespace walker
+
+**Date:** 2026-03-23
+
+### Summary
+Multi-agent parallel audit of all 15 source files and 4 test files. Identified and eliminated the largest remaining code duplication: three analyzer `analyze_imports` methods (CSharp, PHP, Java) shared a near-identical 15–20 line walk-and-map-namespaces pattern. Extracted `_walk_and_map_namespaces()` into `utils.py` as a shared utility, then refactored all three analyzers to use it. No dead code, TODOs, or truncated code found. 248 tests pass (unchanged).
+
+### Changes
+- **Extracted `_walk_and_map_namespaces()`** (utils.py): New shared utility function that walks project files, reads sources with comment stripping, and builds a namespace/package → files mapping. Accepts `extensions`, `namespace_re`, `preprocess` function, and optional `source_roots` for Java-style multi-root projects.
+- **Refactored CSharpAnalyzer.analyze_imports** (analyzers_ext2.py): Replaced 15-line inline os.walk+namespace extraction with single `_walk_and_map_namespaces()` call.
+- **Refactored PhpAnalyzer.analyze_imports** (analyzers_ext2.py): Replaced 15-line inline os.walk+namespace extraction with single `_walk_and_map_namespaces()` call.
+- **Refactored JavaAnalyzer.analyze_imports** (analyzers_ext.py): Replaced 17-line inline os.walk+package extraction with single `_walk_and_map_namespaces()` call using `source_roots` parameter.
+
+### Audit findings (no action needed)
+- **No dead code:** All functions and classes are referenced in source or tests.
+- **No TODOs/FIXMEs:** Codebase is clean of placeholder comments.
+- **No truncated code:** All mixin protocol methods (`...`) are intentional.
+- **No broken imports:** All test imports match actual exports.
+- **Exception handling:** All uses are specific and appropriate; no bare `except:`.
 
 ---
 
