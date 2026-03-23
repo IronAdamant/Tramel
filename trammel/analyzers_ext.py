@@ -46,10 +46,15 @@ class GoAnalyzer:
         return _get_collect_symbols_regex()(project_root, _GO_EXTENSIONS, _GO_SYMBOL_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
-        module_path = self._read_go_mod(project_root)
+        module_path, go_mod_dir = self._read_go_mod(project_root)
         if not module_path:
             return {}
-        prefix = module_path + "/"
+        # Account for scope: if go.mod is above project_root, include the offset
+        scope_rel = os.path.relpath(project_root, go_mod_dir)
+        if scope_rel == ".":
+            prefix = module_path + "/"
+        else:
+            prefix = module_path + "/" + scope_rel.replace(os.sep, "/") + "/"
         dir_files: dict[str, list[str]] = {}
         for root, dirs, files in os.walk(project_root):
             dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
@@ -98,16 +103,26 @@ class GoAnalyzer:
         ]
 
     @staticmethod
-    def _read_go_mod(project_root: str) -> str | None:
-        go_mod = os.path.join(project_root, "go.mod")
-        if not os.path.isfile(go_mod):
-            return None
-        try:
-            with open(go_mod, encoding="utf-8") as fp:
-                m = _GO_MOD_RE.search(fp.read())
-                return m.group(1) if m else None
-        except OSError:
-            return None
+    def _read_go_mod(project_root: str) -> tuple[str | None, str]:
+        """Find and read go.mod, walking up parent directories for scoped analysis.
+
+        Returns (module_path, go_mod_directory).
+        """
+        candidate = os.path.abspath(project_root)
+        for _ in range(20):  # safety limit
+            go_mod = os.path.join(candidate, "go.mod")
+            if os.path.isfile(go_mod):
+                try:
+                    with open(go_mod, encoding="utf-8") as fp:
+                        m = _GO_MOD_RE.search(fp.read())
+                        return (m.group(1), candidate) if m else (None, candidate)
+                except OSError:
+                    return None, candidate
+            parent = os.path.dirname(candidate)
+            if parent == candidate:
+                break
+            candidate = parent
+        return None, project_root
 
     @staticmethod
     def _extract_imports(src: str) -> list[str]:

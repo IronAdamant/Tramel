@@ -386,8 +386,11 @@ def _detect_from_config(project_root: str) -> str | None:
     """Detect language from project config files (more reliable than extension counting).
 
     Priority: Cargo.toml/go.mod (unambiguous) > tsconfig.json (TS-specific) >
-    pyproject.toml/setup.py (Python-specific) > package.json (ambiguous — many
-    Python/Java projects use npm for tooling) > build files > CMake.
+    SConstruct/CMake (C++ build systems) > setup.py or pyproject.toml with
+    [project] section (Python-specific) > package.json (ambiguous) > build files.
+
+    pyproject.toml without [project] is treated as tooling config, not a Python
+    project indicator (e.g., Godot uses it for mypy settings).
     """
     has = lambda f: os.path.isfile(os.path.join(project_root, f))  # noqa: E731
     if has("Cargo.toml"):
@@ -396,15 +399,25 @@ def _detect_from_config(project_root: str) -> str | None:
         return "go"
     if has("tsconfig.json"):
         return "typescript"
-    if has("pyproject.toml") or has("setup.py") or has("setup.cfg"):
+    # C++ build systems (checked before Python to avoid false positives from
+    # pyproject.toml used purely for linting config in C++ projects like Godot)
+    if has("CMakeLists.txt") or has("SConstruct"):
+        return "cpp"
+    # setup.py is unambiguous Python; pyproject.toml must have [project] to qualify
+    if has("setup.py") or has("setup.cfg"):
         return "python"
+    if has("pyproject.toml"):
+        try:
+            with open(os.path.join(project_root, "pyproject.toml"), encoding="utf-8") as fp:
+                if "[project]" in fp.read():
+                    return "python"
+        except OSError:
+            pass
     if has("package.json"):
         return "typescript"
     for gradle in ("build.gradle", "build.gradle.kts", "pom.xml"):
         if has(gradle):
             return "java"
-    if has("CMakeLists.txt"):
-        return "cpp"
     return None
 
 

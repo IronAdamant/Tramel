@@ -840,6 +840,24 @@ class TestConfigDetection(unittest.TestCase):
             a = detect_language(d)
             self.assertEqual(a.name, "python")
 
+    def test_detect_sconstruct_as_cpp(self) -> None:
+        """SConstruct (SCons build system) should detect as C++, not Python."""
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "SConstruct").write_text("env = Environment()\n", encoding="utf-8")
+            pathlib.Path(d, "pyproject.toml").write_text("[tool.mypy]\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "cpp")
+
+    def test_detect_pyproject_without_project_section(self) -> None:
+        """pyproject.toml with only tool config should not trigger Python detection."""
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "pyproject.toml").write_text("[tool.ruff]\nline-length=100\n", encoding="utf-8")
+            pathlib.Path(d, "main.go").write_text("package main\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "go")
+
 
 # ── CLI dry-run ──────────────────────────────────────────────────────────────
 
