@@ -8,10 +8,26 @@
 
 ## Active context
 
-- **Version:** 3.7.0
+- **Version:** 3.7.1
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.1 — Mixin type safety, robustness, performance, test coverage
+
+**Date:** 2026-03-23
+
+### Summary
+Follow-up to v3.7.0 audit: addressed 5 architectural items flagged during review. Added type safety for mixins, hardened multi-agent step claiming, narrowed parallel exception handling, optimized incremental verification, and closed typed-symbol test coverage gap. 248 tests pass (9 new).
+
+### Changes
+- **Mixin type safety** (store_recipes.py, store_agents.py): Added `conn: sqlite3.Connection`, `log_event()`, and `get_plan()` typed stubs under `TYPE_CHECKING` so type checkers can validate mixin attribute access without runtime overhead.
+- **`claim_step` status guard** (store_agents.py): Now selects and checks `status` column — rejects non-pending steps. Previously a direct `claim_step` call could claim completed/failed steps.
+- **Narrowed parallel exception catch** (__init__.py): Changed `except (OSError, RuntimeError)` to `except OSError` — `RuntimeError` from worker processes now propagates instead of being silently swallowed. Added `logging.debug` so fallback is visible.
+- **`run_incremental` O(K) optimization** (harness.py): Replaced O(K^2) approach (copy original + re-apply all accumulated edits per step) with persistent base directory that accumulates edits. Each step now only applies its own edits.
+- **9 new typed-symbol tests** (test_analyzers.py): Added `collect_typed_symbols` coverage for Rust, C++, Java, C#, Ruby, PHP, Swift, Dart, Zig.
 
 ---
 

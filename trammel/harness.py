@@ -146,38 +146,42 @@ class ExecutionHarness:
 
         step_edits: list of edit lists, one per step in order.
         Returns outcome with steps_completed count and failure details if any.
+
+        Uses a persistent base copy that accumulates edits, so each step
+        only applies its own edits (O(K) total instead of O(K^2)).
         """
         project_root = os.path.abspath(project_root)
-        accumulated: list[dict[str, Any]] = []
 
-        for i, edits in enumerate(step_edits):
-            with tempfile.TemporaryDirectory() as tmp:
-                shutil.copytree(
-                    project_root, tmp, dirs_exist_ok=True, ignore=_ignore_copy,
-                )
-                _apply_edits(tmp, accumulated)
-                _apply_edits(tmp, edits)
-                result = _run_tests(
-                    tmp, self.timeout_s,
-                    self._effective_test_cmd(project_root),
-                    self._effective_error_patterns(),
-                )
+        with tempfile.TemporaryDirectory() as base:
+            shutil.copytree(
+                project_root, base, dirs_exist_ok=True, ignore=_ignore_copy,
+            )
+            for i, edits in enumerate(step_edits):
+                with tempfile.TemporaryDirectory() as tmp:
+                    shutil.copytree(base, tmp, dirs_exist_ok=True)
+                    _apply_edits(tmp, edits)
+                    result = _run_tests(
+                        tmp, self.timeout_s,
+                        self._effective_test_cmd(project_root),
+                        self._effective_error_patterns(),
+                    )
 
-            if not result["success"]:
-                return {
-                    "success": False,
-                    "steps_completed": i,
-                    "failed_at_step": i,
-                    "output": result.get("output", ""),
-                    "trace": result.get("trace", ""),
-                    "score": 0.0,
-                    "failure_analysis": result.get("failure_analysis"),
-                    "failure_reason": result.get("failure_analysis", {}).get("message", ""),
-                }
+                if not result["success"]:
+                    return {
+                        "success": False,
+                        "steps_completed": i,
+                        "failed_at_step": i,
+                        "output": result.get("output", ""),
+                        "trace": result.get("trace", ""),
+                        "score": 0.0,
+                        "failure_analysis": result.get("failure_analysis"),
+                        "failure_reason": result.get("failure_analysis", {}).get("message", ""),
+                    }
 
-            for ed in edits:
-                if ed.get("content") is not None:
-                    accumulated.append(ed)
+                # Apply content edits to base for next step
+                content_edits = [ed for ed in edits if ed.get("content") is not None]
+                if content_edits:
+                    _apply_edits(base, content_edits)
 
         return {
             "success": True,

@@ -154,6 +154,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.7.1 — Mixin type safety, robustness & performance
+- **Type safety**: Added typed attribute stubs to `RecipeStoreMixin` and `AgentStoreMixin` for type-checker compatibility.
+- **Robustness**: `claim_step` rejects non-pending steps; parallel beam fallback narrowed to `OSError` only with debug logging.
+- **Performance**: `run_incremental` optimized from O(K^2) to O(K) via persistent base copy.
+- **Test coverage**: 9 new `collect_typed_symbols` tests (Rust, C++, Java, C#, Ruby, PHP, Swift, Dart, Zig).
+- **248 tests** (all passing).
+
 ### v3.7.0 — Comprehensive audit, bug fixes & modernization
 - **8 bug fixes**: Critical-path cycle leak, `log_event` bare commit, schema migration over-broad catch, inconsistent win-rate formulas, `trigram_signature` fingerprint type bug, Rust cargo relpath bug, Java import comment stripping, PHP grouped-use alias stripping.
 - **Dead code**: Removed `ExecutionHarness.run()` alias.

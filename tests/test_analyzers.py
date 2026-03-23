@@ -924,6 +924,163 @@ class TestGoTypedSymbols(unittest.TestCase):
             self.assertIn(("MaxRetries", "constant"), names_types)
 
 
+class TestRustTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "lib.rs").write_text(
+                "pub fn process() {}\nstruct Config {}\nenum Status { Ok, Err }\n"
+                "trait Handler {}\nimpl Config {}\ntype Alias = i32;\n",
+                encoding="utf-8",
+            )
+            typed = RustAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("lib.rs", [])
+            names_types = set(entries)
+            self.assertIn(("process", "function"), names_types)
+            self.assertIn(("Config", "struct"), names_types)
+            self.assertIn(("Status", "enum"), names_types)
+            self.assertIn(("Handler", "trait"), names_types)
+            self.assertIn(("Alias", "type_alias"), names_types)
+
+
+class TestCppTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.cpp").write_text(
+                "class Engine {};\nstruct Point {};\nnamespace gfx {}\n"
+                "enum Color { Red };\nvoid render() {}\n",
+                encoding="utf-8",
+            )
+            typed = CppAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("main.cpp", [])
+            names_types = set(entries)
+            self.assertIn(("Engine", "class"), names_types)
+            self.assertIn(("Point", "struct"), names_types)
+            self.assertIn(("gfx", "namespace"), names_types)
+            self.assertIn(("Color", "enum"), names_types)
+            self.assertIn(("render", "function"), names_types)
+
+
+class TestJavaTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "App.java").write_text(
+                "public class App {}\ninterface Repo {}\nenum State { ON, OFF }\n"
+                "record Point(int x, int y) {}\n",
+                encoding="utf-8",
+            )
+            typed = JavaAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("App.java", [])
+            names_types = set(entries)
+            self.assertIn(("App", "class"), names_types)
+            self.assertIn(("Repo", "interface"), names_types)
+            self.assertIn(("State", "enum"), names_types)
+            self.assertIn(("Point", "record"), names_types)
+
+
+class TestCSharpTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Program.cs").write_text(
+                "public class Service {}\ninterface IRepo {}\nstruct Vec2 {}\n"
+                "enum Status { Active }\nrecord Config(string Name) {}\n",
+                encoding="utf-8",
+            )
+            typed = CSharpAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("Program.cs", [])
+            names_types = set(entries)
+            self.assertIn(("Service", "class"), names_types)
+            self.assertIn(("IRepo", "interface"), names_types)
+            self.assertIn(("Vec2", "struct"), names_types)
+            self.assertIn(("Status", "enum"), names_types)
+            self.assertIn(("Config", "record"), names_types)
+
+
+class TestRubyTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.rb").write_text(
+                "class UserService\nend\nmodule Auth\nend\ndef process\nend\n",
+                encoding="utf-8",
+            )
+            typed = RubyAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("app.rb", [])
+            names_types = set(entries)
+            self.assertIn(("UserService", "class"), names_types)
+            self.assertIn(("Auth", "module"), names_types)
+            self.assertIn(("process", "function"), names_types)
+
+
+class TestPhpTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.php").write_text(
+                "<?php\nclass Controller {}\ninterface Repo {}\ntrait Loggable {}\n"
+                "enum Status {}\nfunction handle() {}\n",
+                encoding="utf-8",
+            )
+            typed = PhpAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("app.php", [])
+            names_types = set(entries)
+            self.assertIn(("Controller", "class"), names_types)
+            self.assertIn(("Repo", "interface"), names_types)
+            self.assertIn(("Loggable", "trait"), names_types)
+            self.assertIn(("Status", "enum"), names_types)
+            self.assertIn(("handle", "function"), names_types)
+
+
+class TestSwiftTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.swift").write_text(
+                "class ViewModel {}\nstruct Point {}\nenum Direction { case up }\n"
+                "protocol Drawable {}\nfunc render() {}\nextension ViewModel {}\n",
+                encoding="utf-8",
+            )
+            typed = SwiftAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("app.swift", [])
+            names_types = set(entries)
+            self.assertIn(("ViewModel", "class"), names_types)
+            self.assertIn(("Point", "struct"), names_types)
+            self.assertIn(("Direction", "enum"), names_types)
+            self.assertIn(("Drawable", "protocol"), names_types)
+            self.assertIn(("render", "function"), names_types)
+
+
+class TestDartTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.dart").write_text(
+                "class Widget {}\nmixin Scrollable {}\nextension StringExt on String {}\n"
+                "enum Theme { light, dark }\ntypedef Callback = void Function();\n",
+                encoding="utf-8",
+            )
+            typed = DartAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("app.dart", [])
+            names_types = set(entries)
+            self.assertIn(("Widget", "class"), names_types)
+            self.assertIn(("Scrollable", "mixin"), names_types)
+            self.assertIn(("StringExt", "extension"), names_types)
+            self.assertIn(("Theme", "enum"), names_types)
+            self.assertIn(("Callback", "type_alias"), names_types)
+
+
+class TestZigTypedSymbols(unittest.TestCase):
+    def test_typed_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "main.zig").write_text(
+                "pub fn init() void {}\nconst Config = struct {};\n"
+                "const Status = enum { ok, err };\nconst std = @import(\"std\");\n",
+                encoding="utf-8",
+            )
+            typed = ZigAnalyzer().collect_typed_symbols(d)
+            entries = typed.get("main.zig", [])
+            names_types = set(entries)
+            self.assertIn(("init", "function"), names_types)
+            self.assertIn(("Config", "struct"), names_types)
+            self.assertIn(("Status", "enum"), names_types)
+            self.assertIn(("std", "import_const"), names_types)
+
+
 class TestRubyBasenameOverwrite(unittest.TestCase):
     def test_different_dirs_same_basename(self) -> None:
         """Ruby analyzer should not overwrite when two files share a basename."""

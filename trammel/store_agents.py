@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from typing import Any
 
@@ -9,7 +10,18 @@ from .utils import transaction
 
 
 class AgentStoreMixin:
-    """Multi-agent step coordination mixed into RecipeStore."""
+    """Multi-agent step coordination mixed into RecipeStore.
+
+    Expects the composing class to provide:
+        conn: sqlite3.Connection
+        get_plan(plan_id) -> dict | None
+    """
+
+    conn: sqlite3.Connection
+
+    def get_plan(self, plan_id: int) -> dict[str, Any] | None:
+        """Provided by composing class."""
+        ...
 
     _CLAIM_TIMEOUT = 600  # 10 minutes — stale claims auto-expire
 
@@ -22,16 +34,18 @@ class AgentStoreMixin:
         return bool(claimed_at and (now - claimed_at) < self._CLAIM_TIMEOUT)
 
     def claim_step(self, plan_id: int, step_id: int, agent_id: str) -> bool:
-        """Claim a step for an agent. Returns False if already claimed by another."""
+        """Claim a step for an agent. Returns False if not pending or already claimed."""
         now = time.time()
         with transaction(self.conn):
             row = self.conn.execute(
-                "SELECT claimed_by, claimed_at FROM steps WHERE id = ? AND plan_id = ?",
+                "SELECT status, claimed_by, claimed_at FROM steps WHERE id = ? AND plan_id = ?",
                 (step_id, plan_id),
             ).fetchone()
             if not row:
                 return False
-            if self._is_claimed_by_other(row[0], row[1], agent_id, now):
+            if row[0] != "pending":
+                return False
+            if self._is_claimed_by_other(row[1], row[2], agent_id, now):
                 return False
             self.conn.execute(
                 "UPDATE steps SET claimed_by = ?, claimed_at = ? WHERE id = ?",

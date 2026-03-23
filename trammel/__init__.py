@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from concurrent.futures import ProcessPoolExecutor
@@ -49,8 +50,11 @@ def _run_beams_parallel(
         workers = min(len(beams), os.cpu_count() or 4)
         with ProcessPoolExecutor(max_workers=workers) as pool:
             return list(pool.map(_run_beam, args_list))
-    except (OSError, RuntimeError):
-        # Fallback to sequential if process spawning fails
+    except OSError:
+        # Fork/exec or resource-limit failure — fallback to sequential
+        logging.getLogger(__name__).debug(
+            "parallel beam execution failed, falling back to sequential", exc_info=True,
+        )
         return [_run_beam(a) for a in args_list]
 
 

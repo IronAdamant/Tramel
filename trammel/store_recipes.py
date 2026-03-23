@@ -4,17 +4,32 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .utils import (
     dumps_json, goal_similarity, normalize_goal,
     sha256_json, transaction, unique_trigrams,
 )
 
+if TYPE_CHECKING:
+    pass  # conn and log_event provided by composing class (RecipeStore)
+
 
 class RecipeStoreMixin:
-    """Recipe-related methods mixed into RecipeStore."""
+    """Recipe-related methods mixed into RecipeStore.
+
+    Expects the composing class to provide:
+        conn: sqlite3.Connection
+        log_event(event_type, detail, value) -> None
+    """
+
+    conn: sqlite3.Connection
+
+    def log_event(self, event_type: str, detail: str = "", value: float | None = None) -> None:
+        """Provided by composing class."""
+        ...
 
     def _rebuild_trigram_index(self) -> None:
         """Rebuild recipe_trigrams using normalized goal text for synonym-aware matching."""
