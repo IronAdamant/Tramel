@@ -470,8 +470,7 @@ class Planner:
         beams: list[dict[str, Any]] = []
         for i in range(n):
             variant_name, variant_desc, ordered = ordered_variants[i % len(ordered_variants)]
-            active = [s for s in ordered if s.get("status") != "skipped"]
-            skipped = [s for s in ordered if s.get("status") == "skipped"]
+            active, skipped = _split_active_skipped(ordered)
             beam: dict[str, Any] = {
                 "beam_id": i,
                 "variant": variant_name,

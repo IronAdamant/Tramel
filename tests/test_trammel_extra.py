@@ -547,11 +547,11 @@ class TestNewMCPTools(unittest.TestCase):
             store = RecipeStore(os.path.join(d, "st.db"))
             result = dispatch_tool(store, "status", {})
             self.assertIn("tools", result)
-            self.assertEqual(result["tools"], 18)
+            self.assertEqual(result["tools"], 20)
 
     def test_all_18_schemas_valid(self) -> None:
         from trammel.mcp_server import _TOOL_SCHEMAS
-        self.assertEqual(len(_TOOL_SCHEMAS), 18)
+        self.assertEqual(len(_TOOL_SCHEMAS), 20)
         for name, schema in _TOOL_SCHEMAS.items():
             self.assertIn("name", schema)
             self.assertIn("description", schema)
@@ -583,6 +583,252 @@ class TestPruneRecipesMCP(unittest.TestCase):
             store.conn.commit()
             result = dispatch_tool(store, "prune_recipes", {"max_age_days": 90})
             self.assertEqual(result["pruned"], 1)
+
+
+# ── MCP dispatch coverage for remaining tools ─────────────────────────────────
+
+class TestMCPDispatchCoverage(unittest.TestCase):
+    def test_decompose_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "dc.db"))
+            result = dispatch_tool(store, "decompose", {
+                "goal": "refactor a", "project_root": d,
+            })
+            self.assertIn("steps", result)
+            self.assertIn("dependency_graph", result)
+
+    def test_explore_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "ex.db"))
+            result = dispatch_tool(store, "explore", {
+                "goal": "refactor a", "project_root": d, "num_beams": 2,
+            })
+            self.assertIn("strategy", result)
+            self.assertIn("beams", result)
+            self.assertEqual(len(result["beams"]), 2)
+
+    def test_save_and_get_recipe_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "sr.db"))
+            strat = {"steps": [{"file": "auth.py"}]}
+            result = dispatch_tool(store, "save_recipe", {
+                "goal": "refactor auth module", "strategy": strat, "outcome": True,
+            })
+            self.assertTrue(result["ok"])
+            got = dispatch_tool(store, "get_recipe", {
+                "goal": "refactor auth module",
+            })
+            self.assertIn("steps", got)
+
+    def test_get_recipe_no_match(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "nm.db"))
+            result = dispatch_tool(store, "get_recipe", {"goal": "xyz"})
+            self.assertIn("match", result)
+            self.assertIsNone(result["match"])
+
+    def test_record_step_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "rs.db"))
+            strat = {"steps": [{"description": "s1", "rationale": "r", "depends_on": []}]}
+            pid = store.create_plan("g", strat)
+            step_id = store.get_plan(pid)["steps"][0]["id"]
+            result = dispatch_tool(store, "record_step", {
+                "step_id": step_id, "status": "passed",
+                "edits": [{"path": "a.py", "content": "x"}],
+                "verification": {"success": True},
+            })
+            self.assertTrue(result["ok"])
+            step = store.get_step(step_id)
+            self.assertEqual(step["status"], "passed")
+
+    def test_verify_step_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "tests").mkdir()
+            (pathlib.Path(d) / "tests" / "test_ok.py").write_text(
+                "import unittest\nclass T(unittest.TestCase):\n"
+                "    def test_t(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            store = RecipeStore(os.path.join(d, "vs.db"))
+            result = dispatch_tool(store, "verify_step", {
+                "edits": [], "project_root": d,
+            })
+            self.assertTrue(result["success"])
+
+    def test_list_plans_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "lp.db"))
+            store.create_plan("a", {"steps": []})
+            store.create_plan("b", {"steps": []})
+            result = dispatch_tool(store, "list_plans", {})
+            self.assertEqual(len(result), 2)
+
+    def test_history_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "h.db"))
+            pid = store.create_plan("g", {"steps": []})
+            store.log_trajectory(pid, 0, "bottom_up", 1, {"success": True})
+            result = dispatch_tool(store, "history", {"plan_id": pid})
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["strategy_variant"], "bottom_up")
+
+
+# ── Plan resumption ──────────────────────────────────────────────────────────
+
+class TestPlanResumption(unittest.TestCase):
+    def test_resume_no_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "res.db"))
+            strat = {"steps": [
+                {"description": "s0", "rationale": "r", "depends_on": []},
+                {"description": "s1", "rationale": "r", "depends_on": [0]},
+            ]}
+            pid = store.create_plan("g", strat)
+            prog = store.get_plan_progress(pid)
+            self.assertEqual(prog["next_step_index"], 0)
+            self.assertEqual(prog["prior_edits"], [])
+            self.assertEqual(len(prog["remaining_steps"]), 2)
+
+    def test_resume_partial_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "res2.db"))
+            strat = {"steps": [
+                {"description": "s0", "rationale": "r", "depends_on": []},
+                {"description": "s1", "rationale": "r", "depends_on": [0]},
+            ]}
+            pid = store.create_plan("g", strat)
+            plan = store.get_plan(pid)
+            step_id = plan["steps"][0]["id"]
+            store.update_step(step_id, "passed", edits=[{"path": "a.py", "content": "x"}])
+            prog = store.get_plan_progress(pid)
+            self.assertEqual(prog["next_step_index"], 1)
+            self.assertEqual(len(prog["prior_edits"]), 1)
+            self.assertEqual(prog["prior_edits"][0]["path"], "a.py")
+            self.assertEqual(len(prog["remaining_steps"]), 1)
+
+    def test_resume_not_found(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "res3.db"))
+            self.assertIsNone(store.get_plan_progress(999))
+
+    def test_resume_mcp_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "res4.db"))
+            pid = store.create_plan("g", {"steps": [
+                {"description": "s0", "rationale": "r", "depends_on": []},
+            ]})
+            result = dispatch_tool(store, "resume", {"plan_id": pid})
+            self.assertIn("remaining_steps", result)
+            self.assertIn("prior_edits", result)
+
+    def test_resume_mcp_not_found(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "res5.db"))
+            result = dispatch_tool(store, "resume", {"plan_id": 999})
+            self.assertIn("error", result)
+
+
+# ── Recipe validation ─────────────────────────────────────────────────────────
+
+class TestRecipeValidation(unittest.TestCase):
+    def test_validate_no_recipes(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "val.db"))
+            result = store.validate_recipes(d)
+            self.assertEqual(result["recipes_checked"], 0)
+            self.assertEqual(result["files_removed"], 0)
+
+    def test_validate_removes_missing_files(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "exists.py").write_text("x = 1\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "val2.db"))
+            strat = {"steps": [{"file": "exists.py"}, {"file": "gone.py"}]}
+            store.save_recipe("goal", strat, True)
+            result = store.validate_recipes(d)
+            self.assertEqual(result["files_removed"], 1)
+            self.assertEqual(result["recipes_invalidated"], 0)
+
+    def test_validate_prunes_fully_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "val3.db"))
+            strat = {"steps": [{"file": "gone_a.py"}, {"file": "gone_b.py"}]}
+            store.save_recipe("goal", strat, True)
+            result = store.validate_recipes(d)
+            self.assertEqual(result["recipes_invalidated"], 1)
+            self.assertEqual(store.list_recipes(), [])
+
+    def test_validate_mcp_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "val4.db"))
+            result = dispatch_tool(store, "validate_recipes", {"project_root": d})
+            self.assertIn("recipes_checked", result)
+
+
+# ── Config-file language detection ────────────────────────────────────────────
+
+class TestConfigDetection(unittest.TestCase):
+    def test_detect_from_cargo_toml(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "rust")
+
+    def test_detect_from_go_mod(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "go.mod").write_text("module example\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "go")
+
+    def test_detect_from_tsconfig(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "tsconfig.json").write_text("{}\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "typescript")
+
+    def test_detect_from_package_json(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "package.json").write_text("{}\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "typescript")
+
+    def test_detect_from_gradle(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "build.gradle").write_text("apply plugin: 'java'\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "java")
+
+    def test_detect_from_cmake(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "CMakeLists.txt").write_text("cmake_minimum_required()\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "cpp")
+
+    def test_detect_fallback_to_extension_count(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("x = 1\n", encoding="utf-8")
+            pathlib.Path(d, "b.py").write_text("y = 2\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "python")
+
+    def test_detect_config_takes_priority(self) -> None:
+        from trammel.analyzers import detect_language
+        with tempfile.TemporaryDirectory() as d:
+            # Many .py files but Cargo.toml present → rust wins
+            for i in range(10):
+                pathlib.Path(d, f"mod{i}.py").write_text(f"x = {i}\n", encoding="utf-8")
+            pathlib.Path(d, "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "rust")
 
 
 # ── CLI dry-run ──────────────────────────────────────────────────────────────

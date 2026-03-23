@@ -10,7 +10,7 @@ import functools
 import os
 import re
 
-from .utils import _is_ignored_dir
+from .utils import _collect_project_files, _is_ignored_dir
 
 
 @functools.cache
@@ -144,12 +144,7 @@ class RustAnalyzer:
         return _get_collect_symbols_regex()(project_root, _RUST_EXTENSIONS, _RUST_SYMBOL_PATTERNS)
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
-        file_set: set[str] = set()
-        for root, dirs, files in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in files:
-                if fname.endswith(".rs"):
-                    file_set.add(os.path.relpath(os.path.join(root, fname), project_root))
+        file_set = _collect_project_files(project_root, _RUST_EXTENSIONS)
         graph: dict[str, list[str]] = {}
         for rel in file_set:
             path = os.path.join(project_root, rel)
@@ -272,13 +267,7 @@ class CppAnalyzer:
 
     @staticmethod
     def _collect_files(project_root: str) -> set[str]:
-        files: set[str] = set()
-        for root, dirs, fnames in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in fnames:
-                if any(fname.endswith(ext) for ext in _CPP_EXTENSIONS):
-                    files.add(os.path.relpath(os.path.join(root, fname), project_root))
-        return files
+        return _collect_project_files(project_root, _CPP_EXTENSIONS)
 
 
 # ── Java / Kotlin ─────────────────────────────────────────────────────────────

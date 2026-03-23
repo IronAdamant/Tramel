@@ -25,6 +25,17 @@ def _is_ignored_dir(name: str) -> bool:
     return name in _IGNORED_DIRS or name.endswith(".egg-info")
 
 
+def _collect_project_files(project_root: str, extensions: tuple[str, ...]) -> set[str]:
+    """Collect relative paths of files matching extensions, skipping ignored dirs."""
+    files: set[str] = set()
+    for root, dirs, fnames in os.walk(project_root):
+        dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
+        for fname in fnames:
+            if any(fname.endswith(ext) for ext in extensions):
+                files.add(os.path.relpath(os.path.join(root, fname), project_root))
+    return files
+
+
 # ── JSON / hashing ──────────────────────────────────────────────────────────
 
 def dumps_json(obj: Any) -> str:

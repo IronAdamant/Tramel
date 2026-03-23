@@ -248,6 +248,28 @@ class RecipeStore(RecipeStoreMixin):
             "constraints_found": json.loads(row[9]),
         }
 
+    def get_plan_progress(self, plan_id: int) -> dict[str, Any] | None:
+        """Get plan state with accumulated edits from passed steps for resumption."""
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            return None
+        prior_edits: list[dict[str, Any]] = []
+        next_step_index = 0
+        for step in plan["steps"]:
+            if step["status"] == "passed":
+                prior_edits.extend(step.get("edits") or [])
+                next_step_index = step["step_index"] + 1
+            else:
+                break
+        remaining = [s for s in plan["steps"] if s["step_index"] >= next_step_index]
+        return {
+            **plan,
+            "prior_edits": prior_edits,
+            "next_step_index": next_step_index,
+            "remaining_steps": remaining,
+            "completed_count": next_step_index,
+        }
+
     # ── Constraints ──────────────────────────────────────────────────────────
 
     def add_constraint(

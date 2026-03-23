@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 2.8.0
+**Version:** 2.9.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -29,7 +29,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
 | CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language` |
-| MCP `trammel-mcp` | 18 tools over stdio transport |
+| MCP `trammel-mcp` | 20 tools over stdio transport |
 
 ## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
 
@@ -43,7 +43,8 @@ Module split: `analyzers.py` (~370 LOC) holds the protocol, Python, TypeScript, 
 - **`CppAnalyzer`**: Regex-based analysis for `.c/.cpp/.cc/.cxx/.h/.hpp/.hxx` files. 5-pattern symbol detection: template functions, qualified functions (static/inline/constexpr), operator overloading, constructor/destructor, macro-prefixed functions (EXPORT_API etc). `#include "..."` import resolution with comment stripping. Registered as "cpp" and "c".
 - **`JavaAnalyzer`**: Regex-based analysis for `.java/.kt/.kts` files. Symbol detection for class, interface, enum, fun, object, and @interface declarations. `_detect_source_roots(project_root)` reads `build.gradle`/`build.gradle.kts`/`pom.xml` for standard source directories (`src/main/java`, `src/main/kotlin`, etc); falls back to project root. `analyze_imports` walks detected source roots instead of project root. Registered as "java" and "kotlin".
 - **Shared `_collect_symbols_regex` helper**: Common symbol collection logic used by `TypeScriptAnalyzer`, `GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, and `JavaAnalyzer` (regex-based analyzers).
-- **`detect_language(root)`**: Heuristic detection by file extension prevalence. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, and `.java`/`.kt` files.
+- **`_detect_from_config(root)`**: Config-file detection (Cargo.toml → rust, go.mod → go, tsconfig.json/package.json → typescript, build.gradle/pom.xml → java, CMakeLists.txt → cpp, pyproject.toml/setup.py → python). Takes priority over extension counting.
+- **`detect_language(root)`**: Config-file detection first, falling back to extension counting. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, and `.java`/`.kt` files.
 - **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 9 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin.
 
 ## 5. Planner (`core.py`)
@@ -86,6 +87,10 @@ Module split: `store.py` (~342 LOC) holds schema init, plans, steps, constraints
 
 **`prune_recipes(max_age_days=90, min_success_ratio=0.1)`**: Removes stale, low-quality recipes. Cascade deletes to `recipe_trigrams` and `recipe_files`.
 
+**`validate_recipes(project_root)`**: Checks recipe file entries against current project. Removes stale file entries. Recipes whose files are entirely missing are cascade-pruned. Returns `{recipes_checked, files_removed, recipes_invalidated}`.
+
+**`get_plan_progress(plan_id)`**: Returns plan state with accumulated `prior_edits` from passed steps, `remaining_steps`, `next_step_index`, and `completed_count` for plan resumption.
+
 **Constraint propagation**: Active constraints enforced during `decompose()` via decomposed constraint functions (`_parse_constraints` -> `_mark_avoided` -> `_inject_orderings` -> `_mark_incompatible` -> `_add_prerequisites`):
 - `avoid` + `context.file` → step marked `status: "skipped"` with `skip_reason`
 - `dependency` + `context.before/after` → ordering injected into `depends_on`
@@ -98,7 +103,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 ## 8. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
-18 tools exposed via stdio JSON-RPC:
+20 tools exposed via stdio JSON-RPC:
 
 | Tool | Purpose |
 |------|---------|
@@ -120,6 +125,8 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 | `update_plan_status` | Update plan status (exposes existing store method) |
 | `deactivate_constraint` | Deactivate a constraint (exposes existing store method) |
 | `prune_recipes` | Remove stale/low-quality recipes (`max_age_days`, `min_success_ratio` parameters) |
+| `resume` | Get plan progress with prior_edits from passed steps for resumption |
+| `validate_recipes` | Check recipe files against project, remove stale entries, prune fully-stale recipes |
 
 See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-verify-store loop for LLM clients.
 

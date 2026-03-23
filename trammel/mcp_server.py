@@ -65,7 +65,8 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                         items={"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}),
          "project_root": _prop("string", "Absolute path to the project root."),
          "prior_edits": _prop("array", "Edits from already-verified prior steps to apply first.", items={"type": "object"}),
-         "test_cmd": _prop("array", "Custom test command (e.g. ['pytest', '-x']). Defaults to unittest discover.", items={"type": "string"})},
+         "test_cmd": _prop("array", "Custom test command (e.g. ['pytest', '-x']). Defaults to unittest discover.", items={"type": "string"}),
+         "language": _prop("string", "Project language for auto-detecting test command and error patterns.", enum=_LANGUAGES)},
         ["edits", "project_root"]),
     "record_step": _schema("record_step",
         "Update a step's status, edits, and verification results in the database. "
@@ -136,6 +137,16 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "List all registered beam strategies with their historical "
         "success/failure rates from trajectory data.",
         {}),
+    "resume": _schema("resume",
+        "Get plan progress for resumption. Returns prior_edits from passed steps, "
+        "remaining steps, and the next step index to resume from.",
+        {"plan_id": _prop("integer", "Plan ID to resume.")},
+        ["plan_id"]),
+    "validate_recipes": _schema("validate_recipes",
+        "Check recipe file entries against the current project. Removes stale file "
+        "entries and prunes recipes whose files are entirely missing.",
+        {"project_root": _prop("string", "Absolute path to the project root.")},
+        ["project_root"]),
 }
 
 
@@ -168,7 +179,7 @@ def dispatch_tool(
             return store.get_plan(arguments["plan_id"]) or {"error": "plan not found"}
 
         case "verify_step":
-            harness = ExecutionHarness(test_cmd=arguments.get("test_cmd"))
+            harness = ExecutionHarness(test_cmd=arguments.get("test_cmd"), analyzer=analyzer)
             return harness.verify_step(
                 arguments["edits"],
                 arguments["project_root"],
@@ -261,6 +272,12 @@ def dispatch_tool(
                 }
                 for name in get_strategies()
             ]
+
+        case "resume":
+            return store.get_plan_progress(arguments["plan_id"]) or {"error": "plan not found"}
+
+        case "validate_recipes":
+            return store.validate_recipes(arguments["project_root"])
 
         case _:
             raise ValueError(

@@ -126,7 +126,7 @@ list_plans(status="failed") → find failed plans to learn from
 status()                    → summary: recipe count, active plans, constraints
 ```
 
-## Tool reference (18 tools)
+## Tool reference (20 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -148,6 +148,8 @@ status()                    → summary: recipe count, active plans, constraints
 | `history` | Trajectory history for a plan |
 | `status` | Summary counts |
 | `list_strategies` | Registered strategies with success rates |
+| `resume` | Get plan progress with prior_edits for resumption |
+| `validate_recipes` | Remove stale recipe file entries; prune fully-stale recipes |
 
 ## Multi-language support
 
@@ -160,6 +162,24 @@ Trammel auto-detects project language from file extensions. Override with the `l
 - `"cpp"` / `"c"` — Regex-based analysis (class, struct, namespace, enum, function; resolves `#include "..."`)
 - `"java"` / `"kotlin"` — Regex-based analysis (class, interface, enum, function; detects source roots from `build.gradle`/`pom.xml`)
 
+## Resuming failed plans
+
+When a plan fails partway through:
+
+```
+resume(plan_id)  → prior_edits, remaining_steps, next_step_index
+```
+
+Use the returned `prior_edits` with `verify_step` to continue from where you left off.
+
+## Recipe validation
+
+Over time, recipe file references can go stale as projects evolve:
+
+```
+validate_recipes(project_root)  → {recipes_checked, files_removed, recipes_invalidated}
+```
+
 ## Key principles
 
 1. **Always check recipes first** — avoid re-planning solved problems
@@ -168,3 +188,4 @@ Trammel auto-detects project language from file extensions. Override with the `l
 4. **Save recipes on success** — future similar goals will match and skip decomposition
 5. **Use beam variants** — if bottom_up fails, try top_down or risk_first
 6. **Close out plans** — mark completed or failed so history is clean
+7. **Resume, don't restart** — use `resume` to pick up failed plans from the last success

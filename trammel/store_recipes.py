@@ -6,6 +6,8 @@ import json
 import time
 from typing import Any
 
+import os
+
 from .utils import (
     dumps_json, goal_similarity, normalize_goal,
     sha256_json, transaction, unique_trigrams,
@@ -208,3 +210,42 @@ class RecipeStoreMixin:
             self.conn.execute(f"DELETE FROM recipe_files WHERE recipe_sig IN ({ph})", tuple(pruned))
             self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(pruned))
         return len(pruned)
+
+    def validate_recipes(self, project_root: str) -> dict[str, Any]:
+        """Check recipe file entries against current project. Remove stale entries.
+
+        Returns {recipes_checked, files_removed, recipes_invalidated}.
+        Recipes whose files are entirely missing are pruned.
+        """
+        rows = self.conn.execute(
+            "SELECT DISTINCT recipe_sig FROM recipe_files"
+        ).fetchall()
+        files_removed = 0
+        invalidated: list[str] = []
+        for (sig,) in rows:
+            file_rows = self.conn.execute(
+                "SELECT file_path FROM recipe_files WHERE recipe_sig = ?", (sig,),
+            ).fetchall()
+            missing = [r[0] for r in file_rows if not os.path.isfile(os.path.join(project_root, r[0]))]
+            if not missing:
+                continue
+            with transaction(self.conn):
+                for f in missing:
+                    self.conn.execute(
+                        "DELETE FROM recipe_files WHERE recipe_sig = ? AND file_path = ?",
+                        (sig, f),
+                    )
+            files_removed += len(missing)
+            if len(missing) == len(file_rows):
+                invalidated.append(sig)
+        if invalidated:
+            ph = ",".join("?" for _ in invalidated)
+            with transaction(self.conn):
+                self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig IN ({ph})", tuple(invalidated))
+                self.conn.execute(f"DELETE FROM recipe_files WHERE recipe_sig IN ({ph})", tuple(invalidated))
+                self.conn.execute(f"DELETE FROM recipes WHERE sig IN ({ph})", tuple(invalidated))
+        return {
+            "recipes_checked": len(rows),
+            "files_removed": files_removed,
+            "recipes_invalidated": len(invalidated),
+        }

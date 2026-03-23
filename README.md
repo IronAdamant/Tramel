@@ -81,7 +81,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (18):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`
+**MCP tools (20):** `decompose`, `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`
 
 ## Architecture
 
@@ -106,9 +106,9 @@ trammel/              Importable package
   store_recipes.py    RecipeStoreMixin: recipe methods (save, retrieve, list, prune, trigram/file backfill) (~210 LOC)
   utils.py            Trigrams, cosine, failure extraction, goal normalization, goal similarity
   cli.py              Argparse CLI entry point (--dry-run, --language)
-  mcp_server.py       MCP tool schemas and dispatch (18 tools)
+  mcp_server.py       MCP tool schemas and dispatch (20 tools)
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (175 tests, 4 modules)
+tests/                stdlib unittest (200 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -148,6 +148,17 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 2.9.0
+
+- **Plan resumption**: New `get_plan_progress(plan_id)` returns accumulated `prior_edits` from passed steps and `remaining_steps` for continuing failed plans. New `resume` MCP tool.
+- **Recipe validation**: New `validate_recipes(project_root)` checks recipe file entries against current project, removes stale entries, prunes fully-stale recipes. New `validate_recipes` MCP tool.
+- **Config-file language detection**: `detect_language()` now checks config files first (Cargo.toml, go.mod, tsconfig.json, package.json, build.gradle, CMakeLists.txt, pyproject.toml) before falling back to extension counting. Config detection takes priority.
+- **Shared file-collection helper**: New `_collect_project_files(root, extensions)` in `utils.py` replaces duplicated `os.walk` patterns in TypeScriptAnalyzer, CppAnalyzer, RustAnalyzer.
+- **`verify_step` language support**: MCP tool gains `language` parameter for auto-detecting test command and error patterns.
+- **`explore_trajectories`** now uses existing `_split_active_skipped` helper instead of reimplementing inline.
+- **Full MCP dispatch test coverage**: All 20 tools now have explicit dispatch tests.
+- **200 tests** (25 new).
 
 ### 2.8.0
 

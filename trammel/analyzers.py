@@ -9,7 +9,7 @@ import re
 import sys
 from typing import Callable, Protocol
 
-from .utils import _ERROR_PATTERNS, _is_ignored_dir
+from .utils import _ERROR_PATTERNS, _collect_project_files, _is_ignored_dir
 
 
 def _collect_symbols_regex(
@@ -283,13 +283,7 @@ class TypeScriptAnalyzer:
 
     @staticmethod
     def _collect_files(project_root: str) -> set[str]:
-        files: set[str] = set()
-        for root, dirs, fnames in os.walk(project_root):
-            dirs[:] = [d for d in dirs if not _is_ignored_dir(d)]
-            for fname in fnames:
-                if any(fname.endswith(ext) for ext in _TS_EXTENSIONS):
-                    files.add(os.path.relpath(os.path.join(root, fname), project_root))
-        return files
+        return _collect_project_files(project_root, _TS_EXTENSIONS)
 
     @staticmethod
     def _resolve_ts_path(importing_file: str, import_path: str, file_set: set[str]) -> str | None:
@@ -383,8 +377,32 @@ def get_analyzer(name: str) -> LanguageAnalyzer:
     return cls()
 
 
+def _detect_from_config(project_root: str) -> str | None:
+    """Detect language from project config files (more reliable than extension counting)."""
+    has = lambda f: os.path.isfile(os.path.join(project_root, f))  # noqa: E731
+    if has("Cargo.toml"):
+        return "rust"
+    if has("go.mod"):
+        return "go"
+    if has("tsconfig.json"):
+        return "typescript"
+    if has("package.json"):
+        return "typescript"
+    for gradle in ("build.gradle", "build.gradle.kts", "pom.xml"):
+        if has(gradle):
+            return "java"
+    if has("CMakeLists.txt"):
+        return "cpp"
+    if has("pyproject.toml") or has("setup.py") or has("setup.cfg"):
+        return "python"
+    return None
+
+
 def detect_language(project_root: str) -> LanguageAnalyzer:
-    """Auto-detect dominant language by counting file extensions."""
+    """Auto-detect project language from config files, falling back to extension counting."""
+    config_lang = _detect_from_config(project_root)
+    if config_lang:
+        return get_analyzer(config_lang)
     counts: dict[str, int] = {
         "python": 0, "typescript": 0, "go": 0, "rust": 0, "cpp": 0, "java": 0,
     }
