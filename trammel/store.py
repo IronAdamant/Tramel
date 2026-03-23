@@ -61,6 +61,22 @@ class RecipeStore(RecipeStoreMixin):
             ON recipe_files(file_path);
     """
 
+    _SCHEMA_FAILURE_PATTERNS = """
+        CREATE TABLE IF NOT EXISTS failure_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT NOT NULL,
+            error_type TEXT NOT NULL,
+            error_message TEXT NOT NULL DEFAULT '',
+            test_file TEXT,
+            occurrences INTEGER NOT NULL DEFAULT 1,
+            last_resolution TEXT,
+            first_seen REAL NOT NULL,
+            last_seen REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_failure_patterns_file
+            ON failure_patterns(file_path);
+    """
+
     _SCHEMA_TELEMETRY = """
         CREATE TABLE IF NOT EXISTS usage_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,7 +141,8 @@ class RecipeStore(RecipeStoreMixin):
 
     def _init_schema(self) -> None:
         self.conn.executescript(
-            self._SCHEMA_RECIPE_TABLES + self._SCHEMA_PLAN_TABLES + self._SCHEMA_TELEMETRY
+            self._SCHEMA_RECIPE_TABLES + self._SCHEMA_PLAN_TABLES
+            + self._SCHEMA_FAILURE_PATTERNS + self._SCHEMA_TELEMETRY
         )
         self.conn.commit()
         self._rebuild_trigram_index()
@@ -248,6 +265,13 @@ class RecipeStore(RecipeStoreMixin):
             self.conn.execute(
                 f"UPDATE steps SET {', '.join(updates)} WHERE id = ?", tuple(params)
             )
+        # Auto-record failure patterns when step fails with verification data
+        if status == "failed" and verification:
+            fa = verification.get("failure_analysis", {})
+            if fa.get("file") and fa.get("error_type"):
+                self.record_failure_pattern(
+                    fa["file"], fa["error_type"], fa.get("message", ""),
+                )
 
     def get_step(self, step_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
@@ -382,6 +406,56 @@ class RecipeStore(RecipeStoreMixin):
             for r in rows
         ]
 
+    # ── Failure patterns ─────────────────────────────────────────────────────
+
+    def record_failure_pattern(
+        self, file_path: str, error_type: str, error_message: str = "", test_file: str | None = None,
+    ) -> None:
+        now = time.time()
+        existing = self.conn.execute(
+            "SELECT id FROM failure_patterns WHERE file_path = ? AND error_type = ?",
+            (file_path, error_type),
+        ).fetchone()
+        if existing:
+            self.conn.execute(
+                "UPDATE failure_patterns SET occurrences = occurrences + 1, "
+                "error_message = ?, last_seen = ? WHERE id = ?",
+                (error_message[:200], now, existing[0]),
+            )
+        else:
+            self.conn.execute(
+                "INSERT INTO failure_patterns "
+                "(file_path, error_type, error_message, test_file, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (file_path, error_type, error_message[:200], test_file, now, now),
+            )
+        self.conn.commit()
+
+    def resolve_failure_pattern(self, file_path: str, error_type: str, resolution: str) -> None:
+        self.conn.execute(
+            "UPDATE failure_patterns SET last_resolution = ? "
+            "WHERE file_path = ? AND error_type = ?",
+            (resolution[:200], file_path, error_type),
+        )
+        self.conn.commit()
+
+    def get_failure_history(
+        self, file_path: str | None = None, limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Get failure patterns, optionally filtered by file. Sorted by frequency."""
+        query = ("SELECT file_path, error_type, error_message, test_file, "
+                 "occurrences, last_resolution, first_seen, last_seen FROM failure_patterns")
+        params: tuple = (limit,)
+        if file_path:
+            query += " WHERE file_path = ?"
+            params = (file_path, limit)
+        rows = self.conn.execute(query + " ORDER BY occurrences DESC LIMIT ?", params).fetchall()
+        return [
+            {"file": r[0], "error_type": r[1], "message": r[2], "test_file": r[3],
+             "occurrences": r[4], "last_resolution": r[5], "first_seen": r[6], "last_seen": r[7]}
+            for r in rows
+        ]
+
     # ── Telemetry ───────────────────────────────────────────────────────────
 
     def log_event(self, event_type: str, detail: str = "", value: float | None = None) -> None:
@@ -399,39 +473,28 @@ class RecipeStore(RecipeStoreMixin):
         """Aggregate usage telemetry over the given window."""
         cutoff = time.time() - (days * 86400)
         rows = self.conn.execute(
-            "SELECT event_type, detail, value FROM usage_events WHERE created >= ?",
-            (cutoff,),
+            "SELECT event_type, detail, value FROM usage_events WHERE created >= ?", (cutoff,),
         ).fetchall()
-
         tool_calls: dict[str, int] = {}
-        recipe_hits = 0
-        recipe_misses = 0
-        hit_scores: list[float] = []
-
-        for event_type, detail, value in rows:
-            if event_type == "tool_call":
+        hits, misses, scores = 0, 0, []
+        for etype, detail, value in rows:
+            if etype == "tool_call":
                 tool_calls[detail] = tool_calls.get(detail, 0) + 1
-            elif event_type == "recipe_hit":
-                recipe_hits += 1
+            elif etype == "recipe_hit":
+                hits += 1
                 if value is not None:
-                    hit_scores.append(value)
-            elif event_type == "recipe_miss":
-                recipe_misses += 1
-
-        total_lookups = recipe_hits + recipe_misses
-        strategy_stats = self.get_strategy_stats()
-
+                    scores.append(value)
+            elif etype == "recipe_miss":
+                misses += 1
+        total = hits + misses
         return {
-            "tool_calls": tool_calls,
-            "total_tool_calls": sum(tool_calls.values()),
-            "recipe_hits": recipe_hits,
-            "recipe_misses": recipe_misses,
-            "recipe_hit_rate": recipe_hits / total_lookups if total_lookups > 0 else 0.0,
-            "avg_hit_score": sum(hit_scores) / len(hit_scores) if hit_scores else 0.0,
+            "tool_calls": tool_calls, "total_tool_calls": sum(tool_calls.values()),
+            "recipe_hits": hits, "recipe_misses": misses,
+            "recipe_hit_rate": hits / total if total > 0 else 0.0,
+            "avg_hit_score": sum(scores) / len(scores) if scores else 0.0,
             "strategy_win_rates": {
-                name: succ / (succ + fail) if (succ + fail) > 0 else 0.0
-                for name, (succ, fail) in strategy_stats.items()
+                n: s / (s + f) if (s + f) > 0 else 0.0
+                for n, (s, f) in self.get_strategy_stats().items()
             },
-            "days": days,
-            "total_events": len(rows),
+            "days": days, "total_events": len(rows),
         }

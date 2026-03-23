@@ -165,6 +165,20 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "Get usage telemetry: tool call counts, recipe hit/miss rates, "
         "strategy win rates. Data aggregated over a configurable time window.",
         {"days": _prop("integer", "Number of days to look back (default: 30).")}),
+    "failure_history": _schema("failure_history",
+        "Get historical failure patterns for a file or the entire project. "
+        "Shows which files fail frequently, what error types occur, how many "
+        "times each pattern has been seen, and what resolutions worked. "
+        "Use before modifying a file to check if it has known failure patterns.",
+        {"file_path": _prop("string", "Filter to a specific file path (optional)."),
+         "limit": _prop("integer", "Max patterns to return (default: 20).")}),
+    "resolve_failure": _schema("resolve_failure",
+        "Record what fixed a known failure pattern. Call after successfully "
+        "fixing a file that had a recorded failure pattern.",
+        {"file_path": _prop("string", "File that was fixed."),
+         "error_type": _prop("string", "Error type that was resolved."),
+         "resolution": _prop("string", "What fixed it (brief description).")},
+        ["file_path", "error_type", "resolution"]),
 }
 
 
@@ -327,6 +341,19 @@ def _handle_usage_stats(store: RecipeStore, args: dict[str, Any]) -> Any:
     return store.get_usage_stats(days=args.get("days", 30))
 
 
+def _handle_failure_history(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.get_failure_history(
+        file_path=args.get("file_path"), limit=args.get("limit", 20),
+    )
+
+
+def _handle_resolve_failure(store: RecipeStore, args: dict[str, Any]) -> Any:
+    store.resolve_failure_pattern(
+        args["file_path"], args["error_type"], args["resolution"],
+    )
+    return {"ok": True}
+
+
 # ── Dispatch table ───────────────────────────────────────────────────────────
 
 _DISPATCH: dict[str, Callable[..., Any]] = {
@@ -352,6 +379,8 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "validate_recipes": _handle_validate_recipes,
     "estimate": _handle_estimate,
     "usage_stats": _handle_usage_stats,
+    "failure_history": _handle_failure_history,
+    "resolve_failure": _handle_resolve_failure,
 }
 
 

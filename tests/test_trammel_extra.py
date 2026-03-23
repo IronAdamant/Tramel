@@ -548,11 +548,11 @@ class TestNewMCPTools(unittest.TestCase):
             store = RecipeStore(os.path.join(d, "st.db"))
             result = dispatch_tool(store, "status", {})
             self.assertIn("tools", result)
-            self.assertEqual(result["tools"], 22)
+            self.assertEqual(result["tools"], 24)
 
-    def test_all_22_schemas_valid(self) -> None:
+    def test_all_24_schemas_valid(self) -> None:
         from trammel.mcp_server import _TOOL_SCHEMAS
-        self.assertEqual(len(_TOOL_SCHEMAS), 22)
+        self.assertEqual(len(_TOOL_SCHEMAS), 24)
         for name, schema in _TOOL_SCHEMAS.items():
             self.assertIn("name", schema)
             self.assertIn("description", schema)

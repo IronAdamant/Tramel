@@ -84,7 +84,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (22):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`, `usage_stats`
+**MCP tools (24):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`, `usage_stats`, `failure_history`, `resolve_failure`
 
 ## Architecture
 
@@ -153,6 +153,14 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 3.5.0
+
+- **Failure pattern learning**: New `failure_patterns` SQLite table (9 tables total) accumulates structured failure signatures across sessions. When a step fails with verification data, the file + error type + message are auto-recorded. Patterns track occurrence count, first/last seen timestamps, and resolution history.
+- **`failure_history` MCP tool**: Query historical failure patterns by file or project-wide. Shows which files fail frequently, what error types occur, and what resolutions worked. Use before modifying a file to avoid known pitfalls.
+- **`resolve_failure` MCP tool**: Record what fixed a known failure pattern. Builds institutional memory of what works for specific error types on specific files. 24 MCP tools total.
+- **Auto-recording**: `update_step` with `status="failed"` automatically extracts failure analysis and records the pattern — no manual instrumentation needed.
+- **242 tests** (all passing).
 
 ### 3.4.1
 
