@@ -179,6 +179,24 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
          "error_type": _prop("string", "Error type that was resolved."),
          "resolution": _prop("string", "What fixed it (brief description).")},
         ["file_path", "error_type", "resolution"]),
+    "claim_step": _schema("claim_step",
+        "Claim a plan step for an agent. Prevents other agents from working on it. "
+        "Claims auto-expire after 10 minutes if not refreshed or completed.",
+        {"plan_id": _prop("integer", "Plan ID."),
+         "step_id": _prop("integer", "Step ID to claim."),
+         "agent_id": _prop("string", "Unique identifier for the claiming agent.")},
+        ["plan_id", "step_id", "agent_id"]),
+    "release_step": _schema("release_step",
+        "Release a step claim. Only the owning agent can release.",
+        {"step_id": _prop("integer", "Step ID to release."),
+         "agent_id": _prop("string", "Agent ID that owns the claim.")},
+        ["step_id", "agent_id"]),
+    "available_steps": _schema("available_steps",
+        "Get steps ready for work: dependencies satisfied, not claimed by another agent. "
+        "Use in multi-agent setups to find the next step to work on.",
+        {"plan_id": _prop("integer", "Plan ID."),
+         "agent_id": _prop("string", "Your agent ID (excludes steps claimed by others).")},
+        ["plan_id", "agent_id"]),
 }
 
 
@@ -354,6 +372,20 @@ def _handle_resolve_failure(store: RecipeStore, args: dict[str, Any]) -> Any:
     return {"ok": True}
 
 
+def _handle_claim_step(store: RecipeStore, args: dict[str, Any]) -> Any:
+    ok = store.claim_step(args["plan_id"], args["step_id"], args["agent_id"])
+    return {"claimed": ok}
+
+
+def _handle_release_step(store: RecipeStore, args: dict[str, Any]) -> Any:
+    store.release_step(args["step_id"], args["agent_id"])
+    return {"ok": True}
+
+
+def _handle_available_steps(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.get_available_steps(args["plan_id"], args["agent_id"])
+
+
 # ── Dispatch table ───────────────────────────────────────────────────────────
 
 _DISPATCH: dict[str, Callable[..., Any]] = {
@@ -381,6 +413,9 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "usage_stats": _handle_usage_stats,
     "failure_history": _handle_failure_history,
     "resolve_failure": _handle_resolve_failure,
+    "claim_step": _handle_claim_step,
+    "release_step": _handle_release_step,
+    "available_steps": _handle_available_steps,
 }
 
 

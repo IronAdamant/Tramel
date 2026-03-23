@@ -6,11 +6,12 @@ import json
 import time
 from typing import Any
 
+from .store_agents import AgentStoreMixin
 from .store_recipes import RecipeStoreMixin
 from .utils import db_connect, dumps_json, transaction
 
 
-class RecipeStore(RecipeStoreMixin):
+class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
     def __init__(self, db_path: str = "trammel.db") -> None:
         self.db_path = db_path
         self.conn = db_connect(db_path)
@@ -144,6 +145,12 @@ class RecipeStore(RecipeStoreMixin):
             self._SCHEMA_RECIPE_TABLES + self._SCHEMA_PLAN_TABLES
             + self._SCHEMA_FAILURE_PATTERNS + self._SCHEMA_TELEMETRY
         )
+        # Add multi-agent columns (safe migration for existing DBs)
+        for col, default in [("claimed_by TEXT", "NULL"), ("claimed_at REAL", "NULL")]:
+            try:
+                self.conn.execute(f"ALTER TABLE steps ADD COLUMN {col} DEFAULT {default}")
+            except Exception:
+                pass  # column already exists
         self.conn.commit()
         self._rebuild_trigram_index()
         self._backfill_files()
@@ -164,15 +171,8 @@ class RecipeStore(RecipeStoreMixin):
                 self.conn.execute(
                     "INSERT INTO steps (plan_id, step_index, description, rationale, depends_on, status, created) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        plan_id,
-                        i,
-                        step.get("description", ""),
-                        step.get("rationale", ""),
-                        dumps_json(step.get("depends_on", [])),
-                        "pending",
-                        now,
-                    ),
+                    (plan_id, i, step.get("description", ""), step.get("rationale", ""),
+                     dumps_json(step.get("depends_on", [])), "pending", now),
                 )
         return plan_id
 
@@ -191,26 +191,14 @@ class RecipeStore(RecipeStoreMixin):
             (plan_id,),
         ).fetchall()
         return {
-            "id": row[0],
-            "goal": row[1],
-            "strategy": json.loads(row[2]),
-            "status": row[3],
-            "current_step": row[4],
-            "total_steps": row[5],
-            "created": row[6],
-            "updated": row[7],
+            "id": row[0], "goal": row[1], "strategy": json.loads(row[2]),
+            "status": row[3], "current_step": row[4], "total_steps": row[5],
+            "created": row[6], "updated": row[7],
             "steps": [
-                {
-                    "id": s[0],
-                    "step_index": s[1],
-                    "description": s[2],
-                    "rationale": s[3],
-                    "depends_on": json.loads(s[4]),
-                    "status": s[5],
-                    "edits": json.loads(s[6]),
-                    "verification": json.loads(s[7]) if s[7] else None,
-                    "constraints_found": json.loads(s[8]),
-                }
+                {"id": s[0], "step_index": s[1], "description": s[2], "rationale": s[3],
+                 "depends_on": json.loads(s[4]), "status": s[5], "edits": json.loads(s[6]),
+                 "verification": json.loads(s[7]) if s[7] else None,
+                 "constraints_found": json.loads(s[8])}
                 for s in steps
             ],
         }

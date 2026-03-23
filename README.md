@@ -84,7 +84,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (24):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`, `usage_stats`, `failure_history`, `resolve_failure`
+**MCP tools (27):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`, `usage_stats`, `failure_history`, `resolve_failure`, `claim_step`, `release_step`, `available_steps`
 
 ## Architecture
 
@@ -153,6 +153,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### 3.5.1
+
+- **Multi-agent step coordination**: New `claim_step`, `release_step`, and `available_steps` MCP tools (27 tools total). Agents claim steps before working on them — other agents see claimed steps and skip them. Claims auto-expire after 10 minutes (stale agent recovery). `available_steps` returns only steps whose dependencies are satisfied AND aren't claimed by another agent.
+- **New `store_agents.py` mixin**: `AgentStoreMixin` with `claim_step()`, `release_step()`, `get_available_steps()`. `RecipeStore` inherits from both `RecipeStoreMixin` and `AgentStoreMixin`.
+- **Schema migration**: Steps table gains `claimed_by` and `claimed_at` columns (safe migration for existing databases).
+- **242 tests** (all passing).
 
 ### 3.5.0
 
