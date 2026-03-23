@@ -42,8 +42,7 @@ def _strip_hash_comments(src: str) -> str:
 
 def _strip_php_comments(src: str) -> str:
     """Remove PHP comments: //, /* */, and #."""
-    src = _C_COMMENT_RE.sub("", src)
-    return _HASH_COMMENT_RE.sub("", src)
+    return _HASH_COMMENT_RE.sub("", _C_COMMENT_RE.sub("", src))
 
 
 def _walk_project_sources(
@@ -311,11 +310,8 @@ def trigram_bag_cosine(a: str, b: str) -> float:
 def cosine(a: list[float], b: list[float]) -> float:
     if not a or not b:
         return 0.0
-    na = sum(x * x for x in a) ** 0.5
-    nb = sum(y * y for y in b) ** 0.5
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return sum(x * y for x, y in zip(a, b)) / (na * nb)
+    na, nb = sum(x * x for x in a) ** 0.5, sum(y * y for y in b) ** 0.5
+    return sum(x * y for x, y in zip(a, b)) / (na * nb) if na and nb else 0.0
 
 
 # ── Goal normalization and similarity ────────────────────────────────────────
@@ -366,13 +362,9 @@ def normalize_goal(text: str) -> str:
 
 def word_jaccard(a: str, b: str) -> float:
     """Word-level Jaccard similarity between two strings."""
-    wa = set(a.split())
-    wb = set(b.split())
-    if not wa and not wb:
-        return 1.0
-    if not wa or not wb:
-        return 0.0
-    return len(wa & wb) / len(wa | wb)
+    wa, wb = set(a.split()), set(b.split())
+    union = wa | wb
+    return len(wa & wb) / len(union) if union else 1.0
 
 
 def word_substring_score(a: str, b: str) -> float:

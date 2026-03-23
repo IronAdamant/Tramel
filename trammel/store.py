@@ -13,6 +13,26 @@ from .store_recipes import RecipeStoreMixin
 from .utils import DEFAULT_DB_PATH, db_connect, dumps_json, transaction
 
 
+_STEP_COLUMNS = (
+    "id, plan_id, step_index, description, rationale, depends_on, "
+    "status, edits_json, verification, constraints_found, claimed_by, claimed_at"
+)
+
+
+def _step_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    """Convert a step row to a dictionary with parsed JSON fields."""
+    return {
+        "id": row["id"], "plan_id": row["plan_id"],
+        "step_index": row["step_index"],
+        "description": row["description"], "rationale": row["rationale"],
+        "depends_on": json.loads(row["depends_on"]),
+        "status": row["status"], "edits": json.loads(row["edits_json"]),
+        "verification": json.loads(row["verification"]) if row["verification"] else None,
+        "constraints_found": json.loads(row["constraints_found"]),
+        "claimed_by": row["claimed_by"], "claimed_at": row["claimed_at"],
+    }
+
+
 class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
     def __init__(self, db_path: str = DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
@@ -182,9 +202,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         if not row:
             return None
         steps = self.conn.execute(
-            "SELECT id, step_index, description, rationale, depends_on, status, "
-            "edits_json, verification, constraints_found, claimed_by, claimed_at "
-            "FROM steps WHERE plan_id = ? ORDER BY step_index",
+            f"SELECT {_STEP_COLUMNS} FROM steps WHERE plan_id = ? ORDER BY step_index",
             (plan_id,),
         ).fetchall()
         return {
@@ -193,16 +211,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             "status": row["status"], "current_step": row["current_step"],
             "total_steps": row["total_steps"],
             "created": row["created"], "updated": row["updated"],
-            "steps": [
-                {"id": s["id"], "step_index": s["step_index"],
-                 "description": s["description"], "rationale": s["rationale"],
-                 "depends_on": json.loads(s["depends_on"]),
-                 "status": s["status"], "edits": json.loads(s["edits_json"]),
-                 "verification": json.loads(s["verification"]) if s["verification"] else None,
-                 "constraints_found": json.loads(s["constraints_found"]),
-                 "claimed_by": s["claimed_by"], "claimed_at": s["claimed_at"]}
-                for s in steps
-            ],
+            "steps": [_step_to_dict(s) for s in steps],
         }
 
     def update_plan_status(self, plan_id: int, status: str) -> None:
@@ -265,23 +274,10 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
 
     def get_step(self, step_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT id, plan_id, step_index, description, rationale, depends_on, "
-            "status, edits_json, verification, constraints_found, claimed_by, claimed_at "
-            "FROM steps WHERE id = ?",
+            f"SELECT {_STEP_COLUMNS} FROM steps WHERE id = ?",
             (step_id,),
         ).fetchone()
-        if not row:
-            return None
-        return {
-            "id": row["id"], "plan_id": row["plan_id"],
-            "step_index": row["step_index"],
-            "description": row["description"], "rationale": row["rationale"],
-            "depends_on": json.loads(row["depends_on"]),
-            "status": row["status"], "edits": json.loads(row["edits_json"]),
-            "verification": json.loads(row["verification"]) if row["verification"] else None,
-            "constraints_found": json.loads(row["constraints_found"]),
-            "claimed_by": row["claimed_by"], "claimed_at": row["claimed_at"],
-        }
+        return _step_to_dict(row) if row else None
 
     def get_plan_progress(self, plan_id: int) -> dict[str, Any] | None:
         """Get plan state with accumulated edits from passed steps for resumption."""

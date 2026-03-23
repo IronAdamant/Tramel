@@ -76,7 +76,7 @@ class PythonAnalyzer:
         """Collect symbols with type classification via AST."""
         symbols: dict[str, list[tuple[str, str]]] = {}
         for rel, tree in self._iter_ast(project_root):
-            entries = [(n.name, _PY_TYPE_MAP[type(n)]) for n in ast.walk(tree) if type(n) in _PY_TYPE_MAP]
+            entries = [(n.name, _PY_TYPE_MAP[type(n)]) for n in ast.walk(tree) if isinstance(n, _PY_AST_TYPES)]
             if entries:
                 symbols[rel] = entries
         return symbols

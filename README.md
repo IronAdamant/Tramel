@@ -154,6 +154,12 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.7.8 — Code quality: DRY step dicts, simplified helpers, consistent isinstance
+- **DRY step dicts**: Extracted `_STEP_COLUMNS` + `_step_to_dict()` in store.py — eliminates duplicated step-dict construction in `get_plan()` and `get_step()`.
+- **Simplified helpers**: `word_jaccard`, `cosine`, `_strip_php_comments` in utils.py condensed (reduced total LOC).
+- **Consistent isinstance**: Fixed `type()` vs `isinstance()` inconsistency in `PythonAnalyzer.collect_typed_symbols`.
+- **248 tests** (all passing).
+
 ### v3.7.4 — Code quality: dead code removal, simplification & modernization
 - **Bug hardening**: Fixed potential `ZeroDivisionError` in `explore_trajectories`, `ValueError` with 0 beams, replaced fragile `assert` with `RuntimeError` in MCP server.
 - **Dead code removal**: Removed unused `_default_beam_count`, dead `TYPE_CHECKING: pass` block.

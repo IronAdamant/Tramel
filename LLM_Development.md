@@ -8,10 +8,41 @@
 
 ## Active context
 
-- **Version:** 3.7.7
+- **Version:** 3.7.8
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.8 — Code quality: DRY step dicts, simplified helpers, consistent isinstance
+
+**Date:** 2026-03-23
+
+### Summary
+Code quality pass: (1) extracted `_STEP_COLUMNS` constant and `_step_to_dict()` helper in store.py, eliminating duplicated step-dict construction between `get_plan()` and `get_step()`, (2) simplified `word_jaccard`, `cosine`, and `_strip_php_comments` in utils.py to reduce line count, (3) fixed inconsistent `type()` vs `isinstance()` usage in `PythonAnalyzer.collect_typed_symbols` (analyzers.py:79). All 248 tests pass.
+
+### Changes
+
+**_step_to_dict() and _STEP_COLUMNS (store.py):**
+- New module-level `_STEP_COLUMNS` string constant — single source of truth for step SELECT columns
+- New `_step_to_dict(row)` converts a sqlite3.Row to parsed dict (handles JSON fields)
+- `get_plan()` step list comprehension replaced with `[_step_to_dict(s) for s in steps]`
+- `get_step()` reduced from 18 lines to 4 lines using the shared helper
+
+**Simplified helpers (utils.py):**
+- `_strip_php_comments`: two-statement body merged into single return expression
+- `word_jaccard`: 6-line body simplified to 3 lines using ternary on union set
+- `cosine`: 6-line body simplified to 3 lines by combining norm computation and guard
+
+**Consistent isinstance (analyzers.py):**
+- `PythonAnalyzer.collect_typed_symbols` line 79: changed `type(n) in _PY_TYPE_MAP` to `isinstance(n, _PY_AST_TYPES)` for consistency with `collect_symbols` (line 70)
+
+### Files changed
+- `trammel/store.py` — `_STEP_COLUMNS`, `_step_to_dict()`, simplified `get_plan()` and `get_step()`
+- `trammel/utils.py` — Simplified `_strip_php_comments`, `word_jaccard`, `cosine`
+- `trammel/analyzers.py` — Consistent `isinstance()` in `collect_typed_symbols`
+- `pyproject.toml` — Version bump to 3.7.8
 
 ---
 
