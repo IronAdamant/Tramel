@@ -78,11 +78,13 @@ def _collect_symbols_regex(
     """Shared symbol collection for regex-based analyzers."""
     symbols: dict[str, list[str]] = {}
     for rel, src in _walk_project_sources(project_root, extensions, preprocess):
+        seen: set[str] = set()
         names: list[str] = []
         for pat in patterns:
             for m in pat.finditer(src):
                 name = m.group(1)
-                if name and name not in names:
+                if name and name not in seen:
+                    seen.add(name)
                     names.append(name)
         if names:
             symbols[rel] = names

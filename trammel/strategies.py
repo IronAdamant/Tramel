@@ -6,6 +6,7 @@ Extracted from core.py to keep each module under 500 LOC.
 from __future__ import annotations
 
 import os
+from collections import Counter
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
@@ -56,11 +57,7 @@ def _split_active_skipped(
 
 def _count_importers(dep_graph: dict[str, list[str]]) -> dict[str, int]:
     """Count how many files import each file."""
-    counts: dict[str, int] = {}
-    for deps in dep_graph.values():
-        for d in deps:
-            counts[d] = counts.get(d, 0) + 1
-    return counts
+    return Counter(d for deps in dep_graph.values() for d in deps)
 
 
 def _order_bottom_up(

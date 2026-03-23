@@ -431,7 +431,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         """Get failure patterns, optionally filtered by file. Sorted by frequency."""
         query = ("SELECT file_path, error_type, error_message, test_file, "
                  "occurrences, last_resolution, first_seen, last_seen FROM failure_patterns")
-        params: tuple[Any, ...] = (limit,)
+        params: tuple[str | int, ...] = (limit,)
         if file_path is not None:
             query += " WHERE file_path = ?"
             params = (file_path, limit)
@@ -471,7 +471,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
                     "INSERT INTO usage_events (event_type, detail, value, created) VALUES (?, ?, ?, ?)",
                     (event_type, detail, value, time.time()),
                 )
-        except Exception:
+        except sqlite3.Error:
             logging.getLogger(__name__).debug("telemetry write failed", exc_info=True)
 
     def get_usage_stats(self, days: int = 30) -> dict[str, Any]:

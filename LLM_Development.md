@@ -8,10 +8,31 @@
 
 ## Active context
 
-- **Version:** 3.7.2
+- **Version:** 3.7.3
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.3 — Code quality audit: deduplication, modernization, and hardening
+
+**Date:** 2026-03-23
+
+### Summary
+Comprehensive 5-agent parallel audit of all 15 source files. Deduplicated code in store_recipes and Swift analyzer, modernized strategies with Counter, narrowed exception handling, fixed type annotations, improved symbol deduplication performance, extracted magic numbers to named constants, and marked unused handler parameters. 248 tests pass (unchanged).
+
+### Changes
+- **Narrowed telemetry exception** (store.py): `log_event()` caught bare `except Exception` — now catches only `sqlite3.Error` for precise error handling.
+- **Fixed type annotation** (store.py): `get_failure_history()` params annotated as `tuple[Any, ...]` but mixed `str` and `int` — now `tuple[str | int, ...]`.
+- **Set-based symbol deduplication** (utils.py): `_collect_symbols_regex()` used `list` with `O(n)` membership checks — added `set` tracking for `O(1)` lookups.
+- **Deduplicated recipe helpers** (store_recipes.py): Extracted `_insert_trigrams()`, `_extract_step_files()`, and `_insert_file_entries()` — eliminated 3 instances of repeated trigram insertion and 2 instances of duplicated file extraction logic.
+- **Named constants for magic numbers** (store_recipes.py): `_MAX_PATTERN_LENGTH = 200` and `_NEAR_PERFECT_SIMILARITY = 0.9999` replace inline magic values.
+- **Modernized `_count_importers`** (strategies.py): Replaced manual dict accumulation with `collections.Counter` one-liner.
+- **Deduplicated Swift SPM scanning** (analyzers_ext2.py): Extracted `_scan_spm_dir()` helper — Sources and Tests directory scanning was near-identical.
+- **Fixed Dart import mutual exclusivity** (analyzers_ext2.py): Direct and relative import resolution now uses `elif` to avoid redundant resolution when direct match succeeds.
+- **Simplified string building** (core.py): Replaced `+` concatenation with f-string continuation for step descriptions.
+- **Marked unused handler parameters** (mcp_server.py): Prefixed unused `store`/`args` params with underscore in `_handle_verify_step`, `_handle_status`, `_handle_list_strategies`, `_handle_estimate`.
 
 ---
 

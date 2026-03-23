@@ -312,35 +312,30 @@ class SwiftAnalyzer:
         return graph
 
     @staticmethod
+    def _scan_spm_dir(
+        project_root: str, dirname: str, file_set: set[str],
+        module_to_files: dict[str, list[str]],
+    ) -> None:
+        """Scan an SPM directory (Sources or Tests) for module subdirectories."""
+        full_dir = os.path.join(project_root, dirname)
+        if not os.path.isdir(full_dir):
+            return
+        try:
+            for entry in os.listdir(full_dir):
+                if os.path.isdir(os.path.join(full_dir, entry)):
+                    norm_prefix = os.path.join(dirname, entry).replace(os.sep, "/") + "/"
+                    mod_files = [f for f in file_set if f.replace(os.sep, "/").startswith(norm_prefix)]
+                    if mod_files:
+                        module_to_files[entry] = mod_files
+        except OSError:
+            pass
+
+    @staticmethod
     def _build_module_map(project_root: str, file_set: set[str]) -> dict[str, list[str]]:
         """Map module names to files. SPM-aware: Sources/<Module>/ directories are modules."""
         module_to_files: dict[str, list[str]] = {}
-        # SPM structure: Sources/<ModuleName>/*.swift
-        sources_dir = os.path.join(project_root, "Sources")
-        if os.path.isdir(sources_dir):
-            try:
-                for entry in os.listdir(sources_dir):
-                    if os.path.isdir(os.path.join(sources_dir, entry)):
-                        prefix = os.path.join("Sources", entry)
-                        norm_prefix = prefix.replace(os.sep, "/") + "/"
-                        mod_files = [f for f in file_set if f.replace(os.sep, "/").startswith(norm_prefix)]
-                        if mod_files:
-                            module_to_files[entry] = mod_files
-            except OSError:
-                pass
-        # Tests/<ModuleName>Tests/ are also modules
-        tests_dir = os.path.join(project_root, "Tests")
-        if os.path.isdir(tests_dir):
-            try:
-                for entry in os.listdir(tests_dir):
-                    if os.path.isdir(os.path.join(tests_dir, entry)):
-                        prefix = os.path.join("Tests", entry)
-                        norm_prefix = prefix.replace(os.sep, "/") + "/"
-                        mod_files = [f for f in file_set if f.replace(os.sep, "/").startswith(norm_prefix)]
-                        if mod_files:
-                            module_to_files[entry] = mod_files
-            except OSError:
-                pass
+        SwiftAnalyzer._scan_spm_dir(project_root, "Sources", file_set, module_to_files)
+        SwiftAnalyzer._scan_spm_dir(project_root, "Tests", file_set, module_to_files)
         # Fallback: immediate parent directory name (for non-SPM projects)
         if not module_to_files:
             for rel in file_set:
@@ -410,10 +405,11 @@ class DartAnalyzer:
                 import_path = m.group(1)
                 if import_path in file_set and import_path != rel:
                     deps.add(import_path)
-                # Try relative resolution
-                base = os.path.normpath(os.path.join(os.path.dirname(rel), import_path))
-                if base in file_set and base != rel:
-                    deps.add(base)
+                else:
+                    # Try relative resolution only if direct match failed
+                    base = os.path.normpath(os.path.join(os.path.dirname(rel), import_path))
+                    if base in file_set and base != rel:
+                        deps.add(base)
             if deps:
                 graph[rel] = sorted(deps)
         return graph

@@ -17,6 +17,10 @@ if TYPE_CHECKING:
     pass  # conn and log_event provided by composing class (RecipeStore)
 
 
+_MAX_PATTERN_LENGTH = 200
+_NEAR_PERFECT_SIMILARITY = 0.9999
+
+
 class RecipeStoreMixin:
     """Recipe-related methods mixed into RecipeStore.
 
@@ -31,6 +35,27 @@ class RecipeStoreMixin:
         """Provided by composing class."""
         ...
 
+    def _insert_trigrams(self, sig: str, tris: set[str]) -> None:
+        """Insert trigram index entries for a recipe."""
+        if tris:
+            self.conn.executemany(
+                "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
+                [(t, sig) for t in tris],
+            )
+
+    @staticmethod
+    def _extract_step_files(strategy: dict[str, Any]) -> set[str]:
+        """Extract file paths from strategy steps."""
+        return {s.get("file") for s in strategy.get("steps", []) if s.get("file")}
+
+    def _insert_file_entries(self, sig: str, files: set[str]) -> None:
+        """Insert file entries for a recipe."""
+        if files:
+            self.conn.executemany(
+                "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
+                [(sig, f) for f in files],
+            )
+
     def _rebuild_trigram_index(self) -> None:
         """Rebuild recipe_trigrams using normalized goal text for synonym-aware matching."""
         rows = self.conn.execute("SELECT sig, pattern FROM recipes").fetchall()
@@ -39,11 +64,7 @@ class RecipeStoreMixin:
         with transaction(self.conn):
             self.conn.execute("DELETE FROM recipe_trigrams")
             for sig, pattern in rows:
-                tris = unique_trigrams(normalize_goal(pattern))
-                self.conn.executemany(
-                    "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
-                    [(t, sig) for t in tris],
-                )
+                self._insert_trigrams(sig, unique_trigrams(normalize_goal(pattern)))
 
     def _backfill_files(self) -> None:
         """Populate recipe_files for recipes that lack file entries."""
@@ -59,12 +80,7 @@ class RecipeStoreMixin:
                     strategy = json.loads(strategy_str)
                 except (json.JSONDecodeError, TypeError):
                     continue
-                files = {s.get("file") for s in strategy.get("steps", []) if s.get("file")}
-                if files:
-                    self.conn.executemany(
-                        "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
-                        [(sig, f) for f in files],
-                    )
+                self._insert_file_entries(sig, self._extract_step_files(strategy))
 
     # ── Recipes ──────────────────────────────────────────────────────────────
 
@@ -76,7 +92,7 @@ class RecipeStoreMixin:
         constraints: list[dict[str, Any]] | None = None,
     ) -> None:
         sig = sha256_json(strategy)
-        pattern = goal[:200]
+        pattern = goal[:_MAX_PATTERN_LENGTH]
         strat_json = dumps_json(strategy)
         const_json = dumps_json(constraints or [])
         now = time.time()
@@ -95,21 +111,11 @@ class RecipeStoreMixin:
             self.conn.execute(
                 "DELETE FROM recipe_trigrams WHERE recipe_sig = ?", (sig,),
             )
-            tris = unique_trigrams(normalize_goal(pattern))
-            if tris:
-                self.conn.executemany(
-                    "INSERT INTO recipe_trigrams (trigram, recipe_sig) VALUES (?, ?)",
-                    [(t, sig) for t in tris],
-                )
+            self._insert_trigrams(sig, unique_trigrams(normalize_goal(pattern)))
             self.conn.execute(
                 "DELETE FROM recipe_files WHERE recipe_sig = ?", (sig,),
             )
-            files = {s.get("file") for s in strategy.get("steps", []) if s.get("file")}
-            if files:
-                self.conn.executemany(
-                    "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
-                    [(sig, f) for f in files],
-                )
+            self._insert_file_entries(sig, self._extract_step_files(strategy))
 
     _W_TEXT = 0.4
     _W_FILES = 0.25
@@ -189,7 +195,7 @@ class RecipeStoreMixin:
                     continue
                 best_score = score
                 best = candidate
-                if context_files is None and text_sim >= 0.9999:
+                if context_files is None and text_sim >= _NEAR_PERFECT_SIMILARITY:
                     break
 
         if best is not None:

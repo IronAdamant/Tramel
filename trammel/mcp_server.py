@@ -231,7 +231,7 @@ def _handle_get_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
     return store.get_plan(args["plan_id"]) or {"error": "plan not found"}
 
 
-def _handle_verify_step(store: RecipeStore, args: dict[str, Any]) -> Any:
+def _handle_verify_step(_store: RecipeStore, args: dict[str, Any]) -> Any:
     harness = ExecutionHarness(test_cmd=args.get("test_cmd"), analyzer=_get_analyzer(args))
     return harness.verify_step(
         args["edits"], args["project_root"], prior_edits=args.get("prior_edits"),
@@ -300,13 +300,13 @@ def _handle_history(store: RecipeStore, args: dict[str, Any]) -> Any:
     return store.get_trajectories(args["plan_id"])
 
 
-def _handle_status(store: RecipeStore, args: dict[str, Any]) -> Any:
+def _handle_status(store: RecipeStore, _args: dict[str, Any]) -> Any:
     summary = store.get_status_summary()
     summary["tools"] = len(_TOOL_SCHEMAS)
     return summary
 
 
-def _handle_list_strategies(store: RecipeStore, args: dict[str, Any]) -> Any:
+def _handle_list_strategies(store: RecipeStore, _args: dict[str, Any]) -> Any:
     stats = store.get_strategy_stats()
     return [
         {"name": name, "successes": s, "failures": f}
@@ -323,7 +323,7 @@ def _handle_validate_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:
     return store.validate_recipes(args["project_root"])
 
 
-def _handle_estimate(store: RecipeStore, args: dict[str, Any]) -> Any:
+def _handle_estimate(_store: RecipeStore, args: dict[str, Any]) -> Any:
     from .analyzers import detect_language
     from .utils import _collect_project_files
     scope = args.get("scope")

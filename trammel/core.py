@@ -44,7 +44,7 @@ def _generate_steps(
             "symbols": sym_names,
             "symbol_count": len(sym_names),
             "description": f"Modify {filepath}: {', '.join(sym_names[:5])}"
-                           + (f" (+{len(sym_names)-5} more)" if len(sym_names) > 5 else ""),
+                           f"{f' (+{len(sym_names)-5} more)' if len(sym_names) > 5 else ''}",
             "rationale": _step_rationale(dep_files, sym_names),
             "depends_on": depends_on,
         })

@@ -154,6 +154,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.7.3 — Code quality: deduplication, modernization & hardening
+- **Deduplication**: Extracted shared trigram/file helpers in `store_recipes.py`, deduplicated Swift SPM scanning.
+- **Modernization**: `_count_importers` uses `Counter`, set-based symbol deduplication, f-string continuation.
+- **Hardening**: Narrowed telemetry exception to `sqlite3.Error`, fixed type annotation, named constants for magic numbers.
+- **Cleanup**: Marked unused MCP handler params, fixed Dart import mutual exclusivity.
+- **248 tests** (all passing).
+
 ### v3.7.2 — Codebase audit & cleanup
 - **Bug fixes**: Fixed `_inject_orderings` None-key dict comprehension, recipe mutation in `decompose()`, hardcoded DB path in `synthesize()`, missing `claimed_by`/`claimed_at` in `get_step()`.
 - **Cross-platform**: Normalized Swift analyzer path separator handling.
