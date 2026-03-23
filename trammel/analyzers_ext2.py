@@ -322,7 +322,8 @@ class SwiftAnalyzer:
                 for entry in os.listdir(sources_dir):
                     if os.path.isdir(os.path.join(sources_dir, entry)):
                         prefix = os.path.join("Sources", entry)
-                        mod_files = [f for f in file_set if f.startswith(prefix + os.sep) or f.startswith(prefix + "/")]
+                        norm_prefix = prefix.replace(os.sep, "/") + "/"
+                        mod_files = [f for f in file_set if f.replace(os.sep, "/").startswith(norm_prefix)]
                         if mod_files:
                             module_to_files[entry] = mod_files
             except OSError:
@@ -334,7 +335,8 @@ class SwiftAnalyzer:
                 for entry in os.listdir(tests_dir):
                     if os.path.isdir(os.path.join(tests_dir, entry)):
                         prefix = os.path.join("Tests", entry)
-                        mod_files = [f for f in file_set if f.startswith(prefix + os.sep) or f.startswith(prefix + "/")]
+                        norm_prefix = prefix.replace(os.sep, "/") + "/"
+                        mod_files = [f for f in file_set if f.replace(os.sep, "/").startswith(norm_prefix)]
                         if mod_files:
                             module_to_files[entry] = mod_files
             except OSError:

@@ -126,7 +126,7 @@ def explore(
         return {"strategy": strategy, "beams": beams}
 
 
-def synthesize(goal: str, strategy: dict[str, Any], db_path: str = "trammel.db") -> None:
+def synthesize(goal: str, strategy: dict[str, Any], db_path: str = DEFAULT_DB_PATH) -> None:
     """Persist a verified strategy as a recipe (caller already validated)."""
     with RecipeStore(db_path) as store:
         store.save_recipe(goal, strategy, True)

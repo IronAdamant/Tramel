@@ -332,7 +332,6 @@ class TypeScriptAnalyzer:
         return None
 
 
-
 # ── Registry + detection ─────────────────────────────────────────────────────
 
 _ANALYZER_REGISTRY: dict[str, type[LanguageAnalyzer]] = {

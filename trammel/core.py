@@ -117,7 +117,7 @@ def _mark_avoided(steps: list[dict[str, Any]], avoid_files: set[str]) -> list[di
     for step in steps:
         f = step.get("file", "")
         if f in avoid_files:
-            skipped = dict(step)
+            skipped = step.copy()
             skipped["status"] = "skipped"
             skipped["skip_reason"] = f"constraint: avoid {f}"
             result.append(skipped)
@@ -128,7 +128,7 @@ def _mark_avoided(steps: list[dict[str, Any]], avoid_files: set[str]) -> list[di
 
 def _inject_orderings(steps: list[dict[str, Any]], orderings: list[tuple[str, str]]) -> None:
     """Inject dependency edges from ordering constraints (mutates steps in place)."""
-    file_to_idx = {s.get("file"): i for i, s in enumerate(steps)}
+    file_to_idx = {f: i for i, s in enumerate(steps) if (f := s.get("file")) is not None}
     for before, after in orderings:
         if before in file_to_idx and after in file_to_idx:
             after_step = steps[file_to_idx[after]]
@@ -207,8 +207,7 @@ class Planner:
         # Fast path: exact text match without project scan
         recipe = self.store.retrieve_best_recipe(goal)
         if recipe:
-            recipe.setdefault("_source", "recipe_exact")
-            return recipe
+            return {**recipe, "_source": recipe.get("_source", "recipe_exact")}
 
         active_constraints = self.store.get_active_constraints()
 
@@ -225,8 +224,7 @@ class Planner:
         all_files = set(symbols) | set(dep_graph)
         recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
         if recipe:
-            recipe.setdefault("_source", "recipe_structural")
-            return recipe
+            return {**recipe, "_source": recipe.get("_source", "recipe_structural")}
         relevant_graph = {
             f: [d for d in deps if d in all_files]
             for f, deps in dep_graph.items()

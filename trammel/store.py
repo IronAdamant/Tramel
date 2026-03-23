@@ -262,7 +262,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
     def get_step(self, step_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
             "SELECT id, plan_id, step_index, description, rationale, depends_on, "
-            "status, edits_json, verification, constraints_found "
+            "status, edits_json, verification, constraints_found, claimed_by, claimed_at "
             "FROM steps WHERE id = ?",
             (step_id,),
         ).fetchone()
@@ -275,6 +275,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             "edits": json.loads(row[7]),
             "verification": json.loads(row[8]) if row[8] else None,
             "constraints_found": json.loads(row[9]),
+            "claimed_by": row[10], "claimed_at": row[11],
         }
 
     def get_plan_progress(self, plan_id: int) -> dict[str, Any] | None:

@@ -154,6 +154,11 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.7.2 — Codebase audit & cleanup
+- **Bug fixes**: Fixed `_inject_orderings` None-key dict comprehension, recipe mutation in `decompose()`, hardcoded DB path in `synthesize()`, missing `claimed_by`/`claimed_at` in `get_step()`.
+- **Cross-platform**: Normalized Swift analyzer path separator handling.
+- **248 tests** (all passing).
+
 ### v3.7.1 — Mixin type safety, robustness & performance
 - **Type safety**: Added typed attribute stubs to `RecipeStoreMixin` and `AgentStoreMixin` for type-checker compatibility.
 - **Robustness**: `claim_step` rejects non-pending steps; parallel beam fallback narrowed to `OSError` only with debug logging.

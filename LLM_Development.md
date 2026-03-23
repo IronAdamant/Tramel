@@ -8,10 +8,27 @@
 
 ## Active context
 
-- **Version:** 3.7.1
+- **Version:** 3.7.2
 - **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.2 — Codebase audit and cleanup
+
+**Date:** 2026-03-23
+
+### Summary
+Full codebase audit across all 14 source files. Fixed 4 bugs (None dict keys, recipe mutation, hardcoded constant, missing API fields), improved cross-platform path handling in Swift analyzer, and applied minor code simplifications. 248 tests pass (unchanged).
+
+### Changes
+- **Fixed `_inject_orderings` None key bug** (core.py): Dict comprehension `{s.get("file"): i ...}` could produce `None` keys when steps lack a `file` field. Now uses walrus operator with `is not None` guard.
+- **Fixed recipe mutation** (core.py): `decompose()` was mutating dicts returned by `retrieve_best_recipe()` via `setdefault()`. Now returns shallow copies with `{**recipe, "_source": ...}` to avoid corrupting store-internal state.
+- **Used `DEFAULT_DB_PATH` constant** (__init__.py): `synthesize()` had a hardcoded `"trammel.db"` default instead of using the `DEFAULT_DB_PATH` constant (already used by `plan_and_execute()` and `explore()`).
+- **Added missing fields to `get_step()`** (store.py): `get_step()` was missing `claimed_by` and `claimed_at` columns that `get_plan()` returns — API inconsistency for multi-agent step coordination.
+- **Normalized Swift path separators** (analyzers_ext2.py): `SwiftAnalyzer._build_module_map()` used `f.startswith(prefix + os.sep) or f.startswith(prefix + "/")` — now normalizes to forward slashes before comparison for cross-platform correctness.
+- **Minor**: `dict(step)` → `step.copy()` (core.py), removed stray blank line (analyzers.py).
 
 ---
 
