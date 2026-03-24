@@ -190,6 +190,10 @@ def _generate_creation_steps(
     if not suggested:
         return []
 
+    # P5: Build goal context for descriptions
+    goal_entities = hints.get("goal_entities", [])
+    entity_summary = ", ".join(goal_entities[:4])
+
     steps: list[dict[str, Any]] = []
     for s in suggested:
         path = s["path"]
@@ -201,13 +205,17 @@ def _generate_creation_steps(
             if inferred
             else f"Inferred from goal keyword '{kw}'"
         )
+        # P5: Goal-aware description instead of bare "Create {path}"
+        desc = f"Create {path} — implement {kw} module"
+        if entity_summary and kw not in entity_summary:
+            desc += f" (related: {entity_summary})"
         steps.append({
             "step_index": start_index + len(steps),
             "file": path,
             "action": "create",
             "symbols": [],
             "symbol_count": 0,
-            "description": f"Create {path}",
+            "description": desc,
             "rationale": rationale,
             "depends_on": [],
             "relevance": 1.0,
@@ -240,10 +248,14 @@ def _generate_steps(
     *,
     goal_keywords: set[str] | None = None,
     relevant_only: bool = False,
+    min_relevance: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Generate plan steps from ordered files, their symbols, and dependency info."""
     steps: list[dict[str, Any]] = []
     file_to_step: dict[str, int] = {}
+
+    # P4: Compute effective relevance threshold
+    threshold = max(min_relevance, 0.01) if relevant_only else min_relevance
 
     for filepath in file_order:
         sym_names = symbols.get(filepath, [])
@@ -251,7 +263,7 @@ def _generate_steps(
             continue
 
         relevance = _score_relevance(filepath, sym_names, goal_keywords) if goal_keywords else None
-        if relevant_only and relevance is not None and relevance == 0.0:
+        if threshold > 0 and relevance is not None and relevance < threshold:
             continue
 
         step_idx = len(steps)
@@ -455,14 +467,17 @@ class Planner:
     def decompose(
         self, goal: str, project_root: str,
         scope: str | None = None, relevant_only: bool = False,
+        skip_recipes: bool = False, min_relevance: float = 0.0,
     ) -> dict[str, Any]:
         t0 = _time.monotonic()
 
         # Fast path: exact text match without project scan
-        recipe = self.store.retrieve_best_recipe(goal)
-        if recipe:
-            recipe.setdefault("_source", "recipe_exact")
-            return recipe
+        # P1: skip_recipes bypasses both recipe gates; fast path uses stricter threshold
+        if not skip_recipes:
+            recipe = self.store.retrieve_best_recipe(goal, min_similarity=0.7)
+            if recipe:
+                recipe.setdefault("_source", "recipe_exact")
+                return recipe
 
         active_constraints = self.store.get_active_constraints()
         goal_keywords = _extract_goal_keywords(goal)
@@ -478,10 +493,11 @@ class Planner:
 
         # Structural recipe match: try again with file context
         all_files = set(symbols) | set(dep_graph)
-        recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
-        if recipe:
-            recipe.setdefault("_source", "recipe_structural")
-            return recipe
+        if not skip_recipes:
+            recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
+            if recipe:
+                recipe.setdefault("_source", "recipe_structural")
+                return recipe
 
         # Collect near-miss recipes for reference
         near_matches = self.store.retrieve_near_matches(goal, n=3)
@@ -502,6 +518,7 @@ class Planner:
         steps = _generate_steps(
             file_order, symbols, relevant_graph, goal,
             goal_keywords=goal_keywords, relevant_only=relevant_only,
+            min_relevance=min_relevance,
         )
         steps, applied = _apply_constraints(steps, active_constraints)
 

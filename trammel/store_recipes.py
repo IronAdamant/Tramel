@@ -21,6 +21,19 @@ _MAX_PATTERN_LENGTH = 200
 _MAX_LOG_GOAL_LENGTH = 100
 _NEAR_PERFECT_SIMILARITY = 0.9999
 
+# P3: Scaffold detection — reject scaffold recipes on populated projects
+_SCAFFOLD_SIGNALS = frozenset({
+    "scaffold", "initialize", "setup", "set up", "from scratch", "bootstrap",
+    "new project", "phase 1", "build phase", "create project", "start project",
+})
+_SCAFFOLD_PENALTY = 0.25
+
+
+def _is_scaffold_pattern(pattern: str) -> bool:
+    """Detect whether a recipe pattern describes project scaffolding."""
+    lower = pattern.lower()
+    return any(signal in lower for signal in _SCAFFOLD_SIGNALS)
+
 
 def _sql_in(items: list[str] | tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
     """Build an SQL IN clause and parameter tuple: ``'IN (?,?,?)' , (a, b, c)``.
@@ -154,7 +167,7 @@ class RecipeStoreMixin:
     def retrieve_best_recipe(
         self,
         goal: str,
-        min_similarity: float = 0.3,
+        min_similarity: float = 0.55,
         context_files: set[str] | None = None,
     ) -> dict[str, Any] | None:
         goal_tris = unique_trigrams(normalize_goal(goal))
@@ -215,6 +228,9 @@ class RecipeStoreMixin:
                     + self._W_SUCCESS * success_ratio
                     + self._W_RECENCY * recency
                 )
+                # P3: Penalize scaffold recipes on populated projects
+                if _is_scaffold_pattern(pattern) and context_files and len(context_files) > 10:
+                    score *= _SCAFFOLD_PENALTY
                 components = {
                     "text_similarity": round(text_sim, 3),
                     "file_overlap": round(file_overlap, 3),
@@ -224,6 +240,10 @@ class RecipeStoreMixin:
             else:
                 score = text_sim
                 components = {"text_similarity": round(text_sim, 3)}
+
+            # Floor: reject weak composite matches on the structural path
+            if context_files is not None and score < 0.35:
+                continue
 
             if score > best_score:
                 try:

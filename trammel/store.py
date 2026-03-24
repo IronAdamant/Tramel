@@ -275,6 +275,48 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
                     fa["file"], fa["error_type"], fa.get("message", ""),
                 )
 
+    def update_steps_batch(
+        self,
+        updates: list[dict[str, Any]],
+    ) -> int:
+        """Batch-update multiple steps in a single transaction.
+
+        Each entry should have: step_id, status.  Optionally: edits, verification.
+        Designed for P6 single-agent workflows where per-step record_step is overhead.
+
+        Returns count of steps updated.
+        """
+        if not updates:
+            return 0
+        count = 0
+        failure_patterns: list[tuple[str, str, str]] = []
+        with transaction(self.conn):
+            for entry in updates:
+                step_id = entry["step_id"]
+                status = entry["status"]
+                cols = ["status = ?"]
+                params: list[Any] = [status]
+                if entry.get("edits") is not None:
+                    cols.append("edits_json = ?")
+                    params.append(dumps_json(entry["edits"]))
+                if entry.get("verification") is not None:
+                    cols.append("verification = ?")
+                    params.append(dumps_json(entry["verification"]))
+                params.append(step_id)
+                self.conn.execute(
+                    f"UPDATE steps SET {', '.join(cols)} WHERE id = ?", tuple(params),
+                )
+                count += 1
+                if status == "failed" and entry.get("verification"):
+                    fa = entry["verification"].get("failure_analysis", {})
+                    if fa.get("file") and fa.get("error_type"):
+                        failure_patterns.append(
+                            (fa["file"], fa["error_type"], fa.get("message", "")),
+                        )
+        for file_path, error_type, message in failure_patterns:
+            self.record_failure_pattern(file_path, error_type, message)
+        return count
+
     def get_step(self, step_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
             f"SELECT {_STEP_COLUMNS} FROM steps WHERE id = ?",

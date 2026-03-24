@@ -50,7 +50,12 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
          "summary_only": _prop("boolean", "Return only metadata (goal, step count, file list, timing, constraints) "
                                "without full step details or dependency graph. Dramatically reduces output size."),
          "relevant_only": _prop("boolean", "Filter steps to only include files relevant to the goal. "
-                                "Uses keyword matching between goal text and file paths/symbols.")},
+                                "Uses keyword matching between goal text and file paths/symbols."),
+         "skip_recipes": _prop("boolean", "Bypass recipe matching entirely and force fresh decomposition. "
+                               "Use when cached recipes return irrelevant steps."),
+         "min_relevance": _prop("number", "Minimum relevance score (0.0–1.0) for a file to be included in steps. "
+                                "Higher values produce fewer, more targeted steps. "
+                                "When relevant_only=true, defaults to 0.01; otherwise 0.0.")},
         ["goal", "project_root"]),
     "explore": _schema("explore",
         "Generate beam variants for a strategy without running verification. "
@@ -92,6 +97,18 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
          "edits": _prop("array", "Edits applied in this step.", items={"type": "object"}),
          "verification": _prop("object", "Verification result from verify_step.")},
         ["step_id", "status"]),
+    "record_steps": _schema("record_steps",
+        "Batch-update multiple steps in a single transaction. Reduces ceremony "
+        "for single-agent workflows where updating steps one-by-one is overhead. "
+        "Accepts an array of step updates, each with step_id, status, and optional edits/verification.",
+        {"steps": _prop("array", "Array of step updates: [{step_id, status, edits?, verification?}, ...].",
+                        items={"type": "object", "properties": {
+                            "step_id": {"type": "integer", "description": "Database ID of the step."},
+                            "status": {"type": "string", "enum": ["pending", "running", "passed", "failed", "skipped"]},
+                            "edits": {"type": "array", "description": "Edits applied.", "items": {"type": "object"}},
+                            "verification": {"type": "object", "description": "Verification result."},
+                        }, "required": ["step_id", "status"]})},
+        ["steps"]),
     "save_recipe": _schema("save_recipe",
         "Store a verified strategy as a reusable recipe. Successful recipes are "
         "retrieved by similarity when future goals match.",
@@ -101,7 +118,7 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         ["goal", "strategy", "outcome"]),
     "get_recipe": _schema("get_recipe",
         "Retrieve the best matching recipe for a goal. Uses blended similarity "
-        "(trigram + Jaccard + substring, minimum 0.3).",
+        "(trigram + Jaccard + substring, minimum 0.55).",
         {"goal": _prop("string", "Goal to match against stored recipes."),
          "context_files": _prop("array", "File paths in the current project for structural matching boost.", items={"type": "string"})},
         ["goal"]),
@@ -239,6 +256,8 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
         args["goal"], args["project_root"],
         scope=args.get("scope"),
         relevant_only=args.get("relevant_only", False),
+        skip_recipes=args.get("skip_recipes", False),
+        min_relevance=args.get("min_relevance", 0.0),
     )
 
     # summary_only: compact metadata without step details or dependency graph
@@ -303,6 +322,11 @@ def _handle_record_step(store: RecipeStore, args: dict[str, Any]) -> Any:
         edits=args.get("edits"), verification=args.get("verification"),
     )
     return {"ok": True}
+
+
+def _handle_record_steps(store: RecipeStore, args: dict[str, Any]) -> Any:
+    count = store.update_steps_batch(args["steps"])
+    return {"ok": True, "steps_updated": count}
 
 
 def _handle_save_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -447,6 +471,7 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "get_plan": _handle_get_plan,
     "verify_step": _handle_verify_step,
     "record_step": _handle_record_step,
+    "record_steps": _handle_record_steps,
     "save_recipe": _handle_save_recipe,
     "get_recipe": _handle_get_recipe,
     "list_recipes": _handle_list_recipes,
