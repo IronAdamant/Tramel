@@ -84,12 +84,54 @@ def _matched_keywords(
     return matched
 
 
+def _infer_file_name(keyword: str, siblings: list[str]) -> str:
+    """Infer a new filename from a keyword and existing sibling filenames.
+
+    Detects the dominant naming convention (camelCase, snake_case, kebab-case,
+    PascalCase) and common suffix from siblings, then applies them to the keyword.
+    """
+    if not siblings:
+        return keyword
+
+    exts = [os.path.splitext(n)[1] for n in siblings if os.path.splitext(n)[1]]
+    ext = max(set(exts), key=exts.count) if exts else ""
+    bases = [os.path.splitext(n)[0] for n in siblings]
+
+    # Detect separator: underscore, dash, or none (camelCase/PascalCase)
+    sep, split_re = "", r'[a-z]+|[A-Z][a-z]*'
+    if sum("_" in b for b in bases) > len(bases) // 2:
+        sep, split_re = "_", r'[^_]+'
+    elif sum("-" in b for b in bases) > len(bases) // 2:
+        sep, split_re = "-", r'[^-]+'
+
+    # Common trailing parts across siblings
+    suffix_parts: list[str] = []
+    if len(bases) >= 2:
+        all_parts = [re.findall(split_re, b) for b in bases]
+        all_parts = [p for p in all_parts if p]
+        if len(all_parts) >= 2:
+            for items in zip(*(reversed(p) for p in all_parts)):
+                if len(set(items)) == 1:
+                    suffix_parts.append(items[0])
+                else:
+                    break
+            suffix_parts.reverse()
+
+    if suffix_parts:
+        return keyword.lower() + sep + sep.join(suffix_parts) + ext
+
+    # No common suffix — use dominant casing
+    if sum(b[:1].isupper() for b in bases) > len(bases) // 2:
+        return keyword.capitalize() + ext
+    return keyword.lower() + ext
+
+
 def _creation_hints(
     goal: str,
     goal_keywords: set[str],
     existing_files: set[str],
 ) -> dict[str, Any] | None:
-    """When goal indicates creation intent, return context to help plan new files."""
+    """When goal indicates creation intent, return context + suggested new files."""
     if not _has_creation_intent(goal):
         return None
 
@@ -108,6 +150,24 @@ def _creation_hints(
         if dir_words & kw_variants:
             relevant_dirs.append(d)
 
+    # Infer suggested new files from goal keywords + sibling naming patterns
+    suggested: list[dict[str, Any]] = []
+    for d in relevant_dirs:
+        siblings = sorted(dirs.get(d, []))
+        dir_words = set(re.findall(r'[a-z]+', d.lower()))
+        qualifiers = goal_keywords - dir_words
+        for kw in sorted(qualifiers):
+            name = _infer_file_name(kw, siblings)
+            path = os.path.join(d, name)
+            if path not in existing_files:
+                suggested.append({
+                    "path": path,
+                    "keyword": kw,
+                    "directory": d,
+                    "inferred_from": siblings[:3],
+                })
+    suggested = suggested[:5]
+
     return {
         "creation_intent": True,
         "goal_entities": sorted(goal_keywords),
@@ -115,7 +175,44 @@ def _creation_hints(
         "directory_structure": {
             d: sorted(dirs[d]) for d in relevant_dirs
         } if relevant_dirs else {},
+        "suggested_files": suggested,
     }
+
+
+def _generate_creation_steps(
+    hints: dict[str, Any] | None,
+    start_index: int,
+) -> list[dict[str, Any]]:
+    """Generate 'create' steps from creation hints' suggested files."""
+    if not hints:
+        return []
+    suggested = hints.get("suggested_files", [])
+    if not suggested:
+        return []
+
+    steps: list[dict[str, Any]] = []
+    for s in suggested:
+        path = s["path"]
+        kw = s["keyword"]
+        inferred = s.get("inferred_from", [])
+        rationale = (
+            f"Inferred from goal keyword '{kw}' + directory pattern "
+            f"(siblings: {', '.join(inferred)})"
+            if inferred
+            else f"Inferred from goal keyword '{kw}'"
+        )
+        steps.append({
+            "step_index": start_index + len(steps),
+            "file": path,
+            "action": "create",
+            "symbols": [],
+            "symbol_count": 0,
+            "description": f"Create {path}",
+            "rationale": rationale,
+            "depends_on": [],
+            "relevance": 1.0,
+        })
+    return steps
 
 
 def _score_relevance(
@@ -408,8 +505,11 @@ class Planner:
         )
         steps, applied = _apply_constraints(steps, active_constraints)
 
-        # Creation hints for goals that imply building new things
+        # Creation hints + concrete "Create" steps for new-file goals
         hints = _creation_hints(goal, goal_keywords, all_files)
+        creation_steps = _generate_creation_steps(hints, start_index=len(steps))
+        if creation_steps:
+            steps.extend(creation_steps)
 
         t4 = _time.monotonic()
 

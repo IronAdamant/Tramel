@@ -440,8 +440,28 @@ _LANG_EXTENSIONS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+def _detect_from_trammel_config(project_root: str) -> str | None:
+    """Check for explicit language override in .trammel.json (highest priority)."""
+    config_path = os.path.join(project_root, ".trammel.json")
+    if not os.path.isfile(config_path):
+        return None
+    try:
+        with open(config_path, encoding="utf-8") as fp:
+            config = json.load(fp)
+        lang = config.get("language")
+        if isinstance(lang, str) and lang in _ANALYZER_REGISTRY:
+            return lang
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return None
+
+
 def detect_language(project_root: str) -> LanguageAnalyzer:
     """Auto-detect project language from config files, falling back to extension counting."""
+    # Explicit .trammel.json takes highest priority
+    explicit = _detect_from_trammel_config(project_root)
+    if explicit:
+        return get_analyzer(explicit)
     config_lang = _detect_from_config(project_root)
     if config_lang:
         return get_analyzer(config_lang)

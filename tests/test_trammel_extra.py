@@ -1184,5 +1184,129 @@ class TestDecomposeFiltering(unittest.TestCase):
             self.assertEqual(len(result["steps"]), 1)
 
 
+class TestCreationSteps(unittest.TestCase):
+    """P1: decompose generates actual 'Create' steps for new-file goals."""
+
+    def test_creation_steps_for_new_service(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            svc = os.path.join(d, "src", "services")
+            os.makedirs(svc)
+            pathlib.Path(svc, "authService.js").write_text(
+                "function auth() {}\nmodule.exports = { auth };\n", encoding="utf-8",
+            )
+            pathlib.Path(svc, "userService.js").write_text(
+                "function user() {}\nmodule.exports = { user };\n", encoding="utf-8",
+            )
+            pathlib.Path(d, "package.json").write_text('{"name":"t"}\n', encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "cs.db"))
+            result = Planner(store=store).decompose("add search service", d)
+
+            self.assertIn("creation_hints", result)
+            hints = result["creation_hints"]
+            self.assertTrue(hints["creation_intent"])
+            self.assertGreater(len(hints["suggested_files"]), 0)
+
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertGreater(len(create_steps), 0)
+            # Naming should follow sibling pattern: <keyword>Service.js
+            found = any("search" in s["file"].lower() for s in create_steps)
+            self.assertTrue(found, f"Expected search-related create step, got: {[s['file'] for s in create_steps]}")
+
+    def test_no_creation_steps_without_intent(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "mod.py").write_text("def foo():\n    pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "nc.db"))
+            result = Planner(store=store).decompose("refactor the module", d)
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertEqual(len(create_steps), 0)
+            self.assertNotIn("creation_hints", result)
+
+    def test_no_duplicate_existing_files(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            svc = os.path.join(d, "src", "services")
+            os.makedirs(svc)
+            pathlib.Path(svc, "authService.js").write_text("function auth() {}\n", encoding="utf-8")
+            pathlib.Path(svc, "searchService.js").write_text("function search() {}\n", encoding="utf-8")
+            pathlib.Path(d, "package.json").write_text('{"name":"t"}\n', encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "nd.db"))
+            result = Planner(store=store).decompose("add search service", d)
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            for s in create_steps:
+                self.assertNotIn("searchService", s["file"])
+
+    def test_creation_step_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            svc = os.path.join(d, "src", "services")
+            os.makedirs(svc)
+            pathlib.Path(svc, "authService.js").write_text("function auth() {}\n", encoding="utf-8")
+            pathlib.Path(svc, "userService.js").write_text("function user() {}\n", encoding="utf-8")
+            pathlib.Path(d, "package.json").write_text('{"name":"t"}\n', encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "cf.db"))
+            result = Planner(store=store).decompose("add search service", d)
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertGreater(len(create_steps), 0)
+            step = create_steps[0]
+            self.assertEqual(step["action"], "create")
+            self.assertEqual(step["symbols"], [])
+            self.assertEqual(step["depends_on"], [])
+            self.assertEqual(step["relevance"], 1.0)
+            self.assertTrue(step["description"].startswith("Create "))
+
+    def test_snake_case_naming(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            svc = os.path.join(d, "services")
+            os.makedirs(svc)
+            pathlib.Path(svc, "auth_service.py").write_text("def auth(): pass\n", encoding="utf-8")
+            pathlib.Path(svc, "user_service.py").write_text("def user(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sn.db"))
+            result = Planner(store=store).decompose("add search service", d)
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            # Should follow snake_case: search_service.py
+            found = any("search_service" in s["file"] for s in create_steps)
+            self.assertTrue(found, f"Expected snake_case name, got: {[s['file'] for s in create_steps]}")
+
+
+class TestTrammelConfig(unittest.TestCase):
+    """P5: .trammel.json provides explicit language override."""
+
+    def test_trammel_json_overrides_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            pathlib.Path(d, ".trammel.json").write_text(
+                '{"language": "python"}\n', encoding="utf-8",
+            )
+            a = detect_language(d)
+            self.assertEqual(a.name, "python")
+
+    def test_trammel_json_invalid_language_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            pathlib.Path(d, ".trammel.json").write_text(
+                '{"language": "brainfuck"}\n', encoding="utf-8",
+            )
+            a = detect_language(d)
+            self.assertEqual(a.name, "rust")
+
+    def test_trammel_json_malformed_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "go.mod").write_text("module test\n", encoding="utf-8")
+            pathlib.Path(d, ".trammel.json").write_text("not json", encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "go")
+
+    def test_trammel_json_missing_falls_through(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "package.json").write_text('{"name":"t"}\n', encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "javascript")
+
+    def test_trammel_json_no_language_key(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            pathlib.Path(d, ".trammel.json").write_text('{"other": 1}\n', encoding="utf-8")
+            a = detect_language(d)
+            self.assertEqual(a.name, "rust")
+
+
 if __name__ == "__main__":
     unittest.main()
