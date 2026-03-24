@@ -39,11 +39,16 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "decompose": _schema("decompose",
         "Decompose a high-level goal into a dependency-aware strategy with ordered steps. "
         "Analyzes project imports to determine file dependencies, generates steps with "
-        "ordering rationale, and checks for matching cached recipes.",
+        "ordering rationale, and checks for matching cached recipes. "
+        "Use summary_only=true for a compact overview or max_steps to cap output size.",
         {"goal": _prop("string", "High-level goal to decompose (e.g. 'refactor auth module')."),
          "project_root": _prop("string", "Absolute path to the project root directory."),
          "scope": _prop("string", "Subdirectory to scope analysis to (monorepo support). Relative to project_root."),
-         "language": _prop("string", "Project language (auto-detected if omitted).", enum=_LANGUAGES)},
+         "language": _prop("string", "Project language (auto-detected if omitted).", enum=_LANGUAGES),
+         "max_steps": _prop("integer", "Maximum number of steps to return. Remaining steps are counted but omitted. "
+                            "The dependency graph is trimmed to match. Useful for large projects."),
+         "summary_only": _prop("boolean", "Return only metadata (goal, step count, file list, timing, constraints) "
+                               "without full step details or dependency graph. Dramatically reduces output size.")},
         ["goal", "project_root"]),
     "explore": _schema("explore",
         "Generate beam variants for a strategy without running verification. "
@@ -218,9 +223,37 @@ def _detect_language(project_root: str) -> Any:
 
 
 def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
-    return Planner(store=store, analyzer=_get_analyzer(args)).decompose(
+    result = Planner(store=store, analyzer=_get_analyzer(args)).decompose(
         args["goal"], args["project_root"], scope=args.get("scope"),
     )
+
+    # summary_only: compact metadata without step details or dependency graph
+    if args.get("summary_only"):
+        steps = result.get("steps", [])
+        return {
+            "goal": result["goal"],
+            "step_count": len(steps),
+            "files": [s.get("file") for s in steps],
+            "goal_fingerprint": result.get("goal_fingerprint"),
+            "analysis_meta": result.get("analysis_meta"),
+            "constraints": result.get("constraints"),
+            "constraints_applied": result.get("constraints_applied"),
+        }
+
+    # max_steps: truncate step list and trim dependency graph to match
+    max_steps = args.get("max_steps")
+    if max_steps is not None:
+        all_steps = result["steps"]
+        result["steps"] = all_steps[:max_steps]
+        result["total_steps"] = len(all_steps)
+        kept_files = {s.get("file") for s in result["steps"]}
+        result["dependency_graph"] = {
+            f: [d for d in deps if d in kept_files]
+            for f, deps in result.get("dependency_graph", {}).items()
+            if f in kept_files
+        }
+
+    return result
 
 
 def _handle_explore(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -423,6 +456,25 @@ def _validate_registries() -> None:
 _validate_registries()
 
 
+def _coerce_int_params(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Coerce string values to int for parameters declared as integer in the schema.
+
+    MCP clients send JSON where numeric values may arrive as strings
+    (e.g. ``"1"`` instead of ``1``).  This uses the already-declared
+    tool schema to find which parameters should be integers and casts
+    them, avoiding per-handler boilerplate.
+    """
+    schema = _TOOL_SCHEMAS.get(tool_name)
+    if schema is None:
+        return arguments
+    props = schema.get("parameters", {}).get("properties", {})
+    coerced = dict(arguments)
+    for key, prop_def in props.items():
+        if prop_def.get("type") == "integer" and key in coerced and coerced[key] is not None:
+            coerced[key] = int(coerced[key])
+    return coerced
+
+
 def dispatch_tool(
     store: RecipeStore, tool_name: str, arguments: dict[str, Any]
 ) -> Any:
@@ -432,5 +484,6 @@ def dispatch_tool(
         raise ValueError(
             f"Unknown tool: {tool_name!r}. Available: {sorted(_TOOL_SCHEMAS)}"
         )
+    arguments = _coerce_int_params(tool_name, arguments)
     store.log_event("tool_call", tool_name)
     return handler(store, arguments)

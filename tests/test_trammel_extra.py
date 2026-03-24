@@ -1038,5 +1038,148 @@ class TestMonorepoScope(unittest.TestCase):
             self.assertIn("strategy", out)
 
 
+# ── Integer type coercion ────────────────────────────────────────────────────
+
+class TestIntegerCoercion(unittest.TestCase):
+    """dispatch_tool must coerce string→int for schema-declared integer params."""
+
+    def test_update_plan_status_string_id(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ic.db"))
+            pid = store.create_plan("g", {"steps": []})
+            # Pass plan_id as string (simulates MCP JSON)
+            result = dispatch_tool(store, "update_plan_status", {
+                "plan_id": str(pid), "status": "completed",
+            })
+            self.assertTrue(result["ok"])
+            self.assertEqual(store.get_plan(pid)["status"], "completed")
+
+    def test_get_plan_string_id(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ic2.db"))
+            pid = store.create_plan("g", {"steps": []})
+            plan = dispatch_tool(store, "get_plan", {"plan_id": str(pid)})
+            self.assertEqual(plan["goal"], "g")
+
+    def test_deactivate_constraint_string_id(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ic3.db"))
+            cid = store.add_constraint("avoid", "test")
+            result = dispatch_tool(store, "deactivate_constraint", {
+                "constraint_id": str(cid),
+            })
+            self.assertTrue(result["ok"])
+            self.assertEqual(len(store.get_active_constraints()), 0)
+
+    def test_history_string_id(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ic4.db"))
+            pid = store.create_plan("g", {"steps": []})
+            result = dispatch_tool(store, "history", {"plan_id": str(pid)})
+            self.assertEqual(result, [])
+
+    def test_record_step_string_id(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ic5.db"))
+            strat = {"steps": [{"description": "s", "rationale": "r", "depends_on": []}]}
+            pid = store.create_plan("g", strat)
+            step_id = store.get_plan(pid)["steps"][0]["id"]
+            result = dispatch_tool(store, "record_step", {
+                "step_id": str(step_id), "status": "passed",
+            })
+            self.assertTrue(result["ok"])
+
+    def test_invalid_string_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ic6.db"))
+            with self.assertRaises((ValueError, TypeError)):
+                dispatch_tool(store, "get_plan", {"plan_id": "not_a_number"})
+
+    def test_coercion_preserves_native_ints(self) -> None:
+        """Native int values must pass through unchanged."""
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "ic7.db"))
+            pid = store.create_plan("g", {"steps": []})
+            plan = dispatch_tool(store, "get_plan", {"plan_id": pid})
+            self.assertEqual(plan["goal"], "g")
+
+
+# ── Decompose output filtering ──────────────────────────────────────────────
+
+class TestDecomposeFiltering(unittest.TestCase):
+    def _make_project(self, d: str) -> None:
+        for name in ("a.py", "b.py", "c.py", "d.py", "e.py"):
+            pathlib.Path(d, name).write_text(
+                f"def {name[0]}():\n    pass\n", encoding="utf-8",
+            )
+
+    def test_summary_only_compact(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            self._make_project(d)
+            store = RecipeStore(os.path.join(d, "sf.db"))
+            result = dispatch_tool(store, "decompose", {
+                "goal": "refactor", "project_root": d, "summary_only": True,
+            })
+            # Must have compact keys, NOT full steps or dependency_graph
+            self.assertIn("step_count", result)
+            self.assertIn("files", result)
+            self.assertIn("analysis_meta", result)
+            self.assertIn("goal_fingerprint", result)
+            self.assertNotIn("steps", result)
+            self.assertNotIn("dependency_graph", result)
+            self.assertGreater(result["step_count"], 0)
+
+    def test_max_steps_truncates(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            self._make_project(d)
+            store = RecipeStore(os.path.join(d, "ms.db"))
+            full = dispatch_tool(store, "decompose", {
+                "goal": "refactor", "project_root": d,
+            })
+            total = len(full["steps"])
+            self.assertGreater(total, 2, "need >2 steps for truncation test")
+
+            capped = dispatch_tool(store, "decompose", {
+                "goal": "refactor", "project_root": d, "max_steps": 2,
+            })
+            self.assertEqual(len(capped["steps"]), 2)
+            self.assertEqual(capped["total_steps"], total)
+
+    def test_max_steps_trims_dep_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            self._make_project(d)
+            store = RecipeStore(os.path.join(d, "dg.db"))
+            capped = dispatch_tool(store, "decompose", {
+                "goal": "refactor", "project_root": d, "max_steps": 2,
+            })
+            kept_files = {s["file"] for s in capped["steps"]}
+            for f, deps in capped["dependency_graph"].items():
+                self.assertIn(f, kept_files)
+                for dep in deps:
+                    self.assertIn(dep, kept_files)
+
+    def test_no_filtering_unchanged(self) -> None:
+        """Without max_steps or summary_only, output is unchanged."""
+        with tempfile.TemporaryDirectory() as d:
+            self._make_project(d)
+            store = RecipeStore(os.path.join(d, "nf.db"))
+            result = dispatch_tool(store, "decompose", {
+                "goal": "refactor", "project_root": d,
+            })
+            self.assertIn("steps", result)
+            self.assertIn("dependency_graph", result)
+            self.assertNotIn("total_steps", result)
+
+    def test_max_steps_string_coerced(self) -> None:
+        """max_steps as string is coerced to int by dispatch_tool."""
+        with tempfile.TemporaryDirectory() as d:
+            self._make_project(d)
+            store = RecipeStore(os.path.join(d, "msc.db"))
+            result = dispatch_tool(store, "decompose", {
+                "goal": "refactor", "project_root": d, "max_steps": "1",
+            })
+            self.assertEqual(len(result["steps"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
