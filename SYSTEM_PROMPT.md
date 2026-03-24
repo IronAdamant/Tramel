@@ -24,7 +24,7 @@ list_recipes(limit=10)      → browse available recipes
 list_strategies()           → see which beam strategies have worked best
 ```
 
-If `get_recipe` returns a match, you can use that strategy directly without decomposing. Recipe matching normalizes goals by expanding common abbreviations (~40: gc, db, auth, api, etc.) and verb synonyms, so "optimize GC" will match a stored recipe for "optimize garbage collector".
+If `get_recipe` returns a match, it includes `match_score` (0.0–1.0), `match_components` (text_similarity, file_overlap, success_ratio, recency), `successes`, and `failures` — use these to decide whether to trust the recipe or decompose fresh. The strategy itself is nested under `strategy`. Recipe matching normalizes goals by expanding common abbreviations (~40: gc, db, auth, api, etc.) and verb synonyms, so "optimize GC" will match a stored recipe for "optimize garbage collector".
 
 ### 2. Decompose the goal
 
@@ -89,16 +89,16 @@ When a step fails:
 
 ### 7. Close out
 
-**On success:**
+**Single-agent (preferred)** — one tool call does everything:
+```
+complete_plan(plan_id, outcome=true)   → marks pending steps, sets status, saves recipe
+complete_plan(plan_id, outcome=false)  → same, but records failure
+```
+
+**Multi-agent / granular** — when you need per-step control:
 ```
 save_recipe(goal, strategy, outcome=true)    → remember for future
 update_plan_status(plan_id, "completed")
-```
-
-**On failure:**
-```
-save_recipe(goal, strategy, outcome=false)   → record failure pattern
-update_plan_status(plan_id, "failed")
 ```
 
 ## Constraint management
@@ -145,7 +145,7 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (27 tools)
+## Tool reference (28 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -176,6 +176,7 @@ Analysis (symbol collection, import resolution) runs only within the scope. Test
 | `claim_step` | Claim a step for an agent (multi-agent coordination) |
 | `release_step` | Release a step claim |
 | `available_steps` | Get steps ready for work (deps satisfied, unclaimed) |
+| `complete_plan` | Finalize plan in one call: batch-update steps + set status + save recipe |
 
 ## Multi-language support
 

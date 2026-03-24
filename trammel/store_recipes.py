@@ -43,9 +43,24 @@ class RecipeStoreMixin:
 
     conn: sqlite3.Connection
 
+    # Fields stripped from strategy before computing the content-addressed sig.
+    # These are volatile (change every run) or ephemeral (only meaningful during
+    # a single session) and must not cause duplicate recipe entries.
+    _VOLATILE_STRATEGY_KEYS = frozenset({"_source", "analysis_meta"})
+
     def log_event(self, event_type: str, detail: str = "", value: float | None = None) -> None:
         """Provided by composing class."""
         raise NotImplementedError
+
+    @classmethod
+    def _stable_strategy_sig(cls, strategy: dict[str, Any]) -> str:
+        """Compute a content-addressed sig from the stable subset of a strategy.
+
+        Strips volatile fields (timing data, source tags) so that the same
+        decomposition always produces the same sig regardless of when it ran.
+        """
+        stable = {k: v for k, v in strategy.items() if k not in cls._VOLATILE_STRATEGY_KEYS}
+        return sha256_json(stable)
 
     def _insert_trigrams(self, sig: str, tris: set[str]) -> None:
         """Insert trigram index entries for a recipe."""
@@ -104,7 +119,7 @@ class RecipeStoreMixin:
         outcome: bool,
         constraints: list[dict[str, Any]] | None = None,
     ) -> None:
-        sig = sha256_json(strategy)
+        sig = self._stable_strategy_sig(strategy)
         pattern = goal[:_MAX_PATTERN_LENGTH]
         strat_json = dumps_json(strategy)
         const_json = dumps_json(constraints or [])
@@ -174,6 +189,7 @@ class RecipeStoreMixin:
 
         best: dict[str, Any] | None = None
         best_score = -1.0
+        best_meta: dict[str, Any] = {}
         now = time.time()
         for row in candidates:
             sig, pattern = row["sig"], row["pattern"]
@@ -199,8 +215,15 @@ class RecipeStoreMixin:
                     + self._W_SUCCESS * success_ratio
                     + self._W_RECENCY * recency
                 )
+                components = {
+                    "text_similarity": round(text_sim, 3),
+                    "file_overlap": round(file_overlap, 3),
+                    "success_ratio": round(success_ratio, 3),
+                    "recency": round(recency, 3),
+                }
             else:
                 score = text_sim
+                components = {"text_similarity": round(text_sim, 3)}
 
             if score > best_score:
                 try:
@@ -209,11 +232,20 @@ class RecipeStoreMixin:
                     continue
                 best_score = score
                 best = candidate
+                best_meta = {
+                    "sig": sig[:12],
+                    "pattern": pattern,
+                    "match_score": round(score, 3),
+                    "match_components": components,
+                    "successes": succ,
+                    "failures": fail,
+                }
                 if context_files is None and text_sim >= _NEAR_PERFECT_SIMILARITY:
                     break
 
         if best is not None:
             self.log_event("recipe_hit", goal[:_MAX_LOG_GOAL_LENGTH], best_score)
+            best["_match"] = best_meta
         else:
             self.log_event("recipe_miss", goal[:_MAX_LOG_GOAL_LENGTH])
         return best

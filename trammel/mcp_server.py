@@ -204,6 +204,16 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         {"plan_id": _prop("integer", "Plan ID."),
          "agent_id": _prop("string", "Your agent ID (excludes steps claimed by others).")},
         ["plan_id", "agent_id"]),
+    "complete_plan": _schema("complete_plan",
+        "Finalize a plan in one call: batch-marks pending steps, sets plan status, "
+        "and saves the strategy as a recipe. Designed for single-agent workflows "
+        "where per-step claim/record/verify is unnecessary overhead. "
+        "Call this instead of separate update_plan_status + save_recipe + record_step calls.",
+        {"plan_id": _prop("integer", "Plan ID to complete."),
+         "outcome": _prop("boolean", "True if the work succeeded, false if it failed."),
+         "step_status": _prop("string", "Status for still-pending steps (default: 'passed').",
+                              enum=["passed", "skipped"])},
+        ["plan_id", "outcome"]),
 }
 
 
@@ -292,8 +302,13 @@ def _handle_save_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_get_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
-    ctx = set(files) if (files := args.get("context_files")) else None
-    return store.retrieve_best_recipe(args["goal"], context_files=ctx) or {"match": None}
+    recipe = store.retrieve_best_recipe(args["goal"], context_files=set(files) if (files := args.get("context_files")) else None)
+    if recipe is None:
+        return {"match": None}
+    # Surface match metadata at top level for LLM decision-making,
+    # then include the strategy separately to keep the structure flat.
+    meta = recipe.pop("_match", {})
+    return {**meta, "strategy": recipe}
 
 
 def _handle_list_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -407,6 +422,13 @@ def _handle_available_steps(store: RecipeStore, args: dict[str, Any]) -> Any:
     return store.get_available_steps(args["plan_id"], args["agent_id"])
 
 
+def _handle_complete_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.complete_plan(
+        args["plan_id"], args["outcome"],
+        step_status=args.get("step_status", "passed"),
+    )
+
+
 # ── Dispatch table ───────────────────────────────────────────────────────────
 
 _DISPATCH: dict[str, Callable[..., Any]] = {
@@ -437,6 +459,7 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "claim_step": _handle_claim_step,
     "release_step": _handle_release_step,
     "available_steps": _handle_available_steps,
+    "complete_plan": _handle_complete_plan,
 }
 
 

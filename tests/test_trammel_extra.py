@@ -622,7 +622,10 @@ class TestMCPDispatchCoverage(unittest.TestCase):
             got = dispatch_tool(store, "get_recipe", {
                 "goal": "refactor auth module",
             })
-            self.assertIn("steps", got)
+            self.assertIn("strategy", got)
+            self.assertIn("steps", got["strategy"])
+            self.assertIn("match_score", got)
+            self.assertIn("match_components", got)
 
     def test_get_recipe_no_match(self) -> None:
         with tempfile.TemporaryDirectory() as d:

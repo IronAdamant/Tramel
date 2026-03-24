@@ -8,10 +8,63 @@
 
 ## Active context
 
-- **Version:** 3.7.10
-- **Focus:** Performance, language breadth, and maintainability. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
+- **Version:** 3.7.12
+- **Focus:** LLM-optimized workflows, recipe deduplication, reduced tool-call overhead. Part of the Stele + Chisel + Trammel triad for LLM cognitive scaffolding.
 
 ## Session log
+
+---
+
+## v3.7.12 — LLM workflow optimization: recipe dedup fix, complete_plan, match metadata
+
+**Date:** 2026-03-24
+
+### Summary
+Three changes driven by real-world LLM usage feedback (ConsistencyHub audit):
+
+1. **Recipe deduplication fix** — `save_recipe` was hashing the full strategy dict including `analysis_meta.timing_s` (float timing values that differ every run). Same decomposition produced different sigs, creating unbounded duplicate recipes. Fix: `_stable_strategy_sig()` strips volatile keys (`_source`, `analysis_meta`) before computing SHA-256. Now identical decompositions always merge into the same recipe entry, incrementing its success counter.
+
+2. **`complete_plan` compound tool** — Single-agent workflows required 3+ sequential tool calls to close out a plan (`record_step` x N + `update_plan_status` + `save_recipe`). New `complete_plan(plan_id, outcome)` does all three atomically: batch-marks remaining pending steps, sets plan status, saves recipe. Reduces single-agent close-out from ~4 tool calls to 1.
+
+3. **Match metadata on `get_recipe`** — Previously returned the raw strategy dict, giving LLMs no signal about match quality. Now returns `{sig, pattern, match_score, match_components, successes, failures, strategy: {...}}` at the top level. LLMs can inspect `match_score` and `match_components.text_similarity` to decide whether to trust the recipe or decompose fresh.
+
+### Changes
+
+**store_recipes.py:**
+- Added `_VOLATILE_STRATEGY_KEYS = frozenset({"_source", "analysis_meta"})` class constant
+- Added `_stable_strategy_sig(strategy)` classmethod — strips volatile keys, then `sha256_json`
+- `save_recipe` now calls `_stable_strategy_sig` instead of `sha256_json`
+- `retrieve_best_recipe` attaches `_match` metadata dict to returned recipe: `{sig, pattern, match_score, match_components, successes, failures}`
+
+**store.py:**
+- Added `complete_plan(plan_id, outcome, step_status="passed")` — batch-updates pending steps, sets plan status, saves recipe
+
+**mcp_server.py:**
+- Added `complete_plan` tool schema and `_handle_complete_plan` handler
+- `_handle_get_recipe` now surfaces match metadata at top level with strategy nested under `strategy` key (28 tools total)
+
+**SYSTEM_PROMPT.md:**
+- Updated tool reference (27 → 28 tools)
+- Added `complete_plan` to tool table and "Close out" workflow section
+- Documented `get_recipe` match metadata fields
+
+**tests/test_trammel_extra.py:**
+- Updated `test_save_and_get_recipe_dispatch` to expect new response structure (`strategy` nested, `match_score`/`match_components` present)
+
+### Files changed
+- `trammel/store_recipes.py` — stable sig, match metadata
+- `trammel/store.py` — `complete_plan` compound method
+- `trammel/mcp_server.py` — new tool + response reshaping
+- `SYSTEM_PROMPT.md` — updated docs
+- `COMPLETE_PROJECT_DOCUMENTATION.md` — updated inventory
+- `pyproject.toml` — version 3.7.12
+- `tests/test_trammel_extra.py` — updated test assertion
+
+---
+
+## v3.7.11 — Fix MCP integer coercion bug, add decompose output filtering
+
+**Date:** 2026-03-24
 
 ---
 

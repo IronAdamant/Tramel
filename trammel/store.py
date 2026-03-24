@@ -304,6 +304,61 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             "completed_count": next_step_index,
         }
 
+    # ── Compound operations ────────────────────────────────────────────────
+
+    def complete_plan(
+        self,
+        plan_id: int,
+        outcome: bool,
+        step_status: str = "passed",
+    ) -> dict[str, Any]:
+        """Finalize a plan in one call: batch-update pending steps, set plan
+        status, and save the strategy as a recipe.
+
+        Designed for single-agent workflows where per-step claim/record/verify
+        overhead is disproportionate.
+
+        Args:
+            plan_id: Plan to complete.
+            outcome: True if the work succeeded (saves recipe as success).
+            step_status: Status to assign to all still-pending steps
+                         ("passed" or "skipped").  Already-recorded steps
+                         are left untouched.
+
+        Returns:
+            Summary dict with counts and the recipe sig.
+        """
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            return {"error": "plan not found"}
+
+        now = time.time()
+        steps_updated = 0
+        with transaction(self.conn):
+            for step in plan["steps"]:
+                if step["status"] == "pending":
+                    self.conn.execute(
+                        "UPDATE steps SET status = ? WHERE id = ?",
+                        (step_status, step["id"]),
+                    )
+                    steps_updated += 1
+
+            plan_status = "completed" if outcome else "failed"
+            self.conn.execute(
+                "UPDATE plans SET status = ?, updated = ? WHERE id = ?",
+                (plan_status, now, plan_id),
+            )
+
+        strategy = plan["strategy"]
+        self.save_recipe(plan["goal"], strategy, outcome)
+
+        return {
+            "plan_id": plan_id,
+            "plan_status": plan_status,
+            "steps_updated": steps_updated,
+            "recipe_saved": outcome,
+        }
+
     # ── Constraints ──────────────────────────────────────────────────────────
 
     def add_constraint(
