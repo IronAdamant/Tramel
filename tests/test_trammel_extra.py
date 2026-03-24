@@ -797,7 +797,7 @@ class TestConfigDetection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "package.json").write_text("{}\n", encoding="utf-8")
             a = detect_language(d)
-            self.assertEqual(a.name, "typescript")
+            self.assertEqual(a.name, "javascript")
 
     def test_detect_from_gradle(self) -> None:
         with tempfile.TemporaryDirectory() as d:

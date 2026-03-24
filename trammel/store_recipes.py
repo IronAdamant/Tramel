@@ -250,6 +250,48 @@ class RecipeStoreMixin:
             self.log_event("recipe_miss", goal[:_MAX_LOG_GOAL_LENGTH])
         return best
 
+    def retrieve_near_matches(
+        self,
+        goal: str,
+        n: int = 3,
+        min_score: float = 0.15,
+    ) -> list[dict[str, Any]]:
+        """Return top-N near-miss recipe candidates for reference.
+
+        Surfaces recipes that are related but below the auto-match threshold,
+        helping decompose inform the caller about potentially relevant past work.
+        """
+        goal_tris = unique_trigrams(normalize_goal(goal))
+        if not goal_tris:
+            return []
+        tri_in, tri_params = _sql_in(sorted(goal_tris))
+        candidate_sigs = self.conn.execute(
+            f"SELECT DISTINCT recipe_sig FROM recipe_trigrams WHERE trigram {tri_in}",
+            tri_params,
+        ).fetchall()
+        if not candidate_sigs:
+            return []
+        sig_list = [row["recipe_sig"] for row in candidate_sigs]
+        sig_in, sig_params = _sql_in(sig_list)
+        rows = self.conn.execute(
+            f"SELECT sig, pattern, successes, failures FROM recipes WHERE sig {sig_in}",
+            sig_params,
+        ).fetchall()
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for row in rows:
+            text_sim = goal_similarity(goal, row["pattern"])
+            if text_sim < min_score:
+                continue
+            scored.append((text_sim, {
+                "sig": row["sig"][:12],
+                "pattern": row["pattern"],
+                "score": round(text_sim, 3),
+                "successes": row["successes"],
+                "failures": row["failures"],
+            }))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [entry for _, entry in scored[:n]]
+
     def list_recipes(self, limit: int = 20) -> list[dict[str, Any]]:
         """List stored recipes with pattern, counts, and file paths."""
         rows = self.conn.execute(

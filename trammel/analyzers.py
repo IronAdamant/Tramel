@@ -333,12 +333,19 @@ class TypeScriptAnalyzer:
         return None
 
 
+class JavaScriptAnalyzer(TypeScriptAnalyzer):
+    """JavaScript analysis — same parser as TypeScript, distinct language label."""
+
+    name = "javascript"
+    extensions = (".js", ".jsx", ".mjs")
+
+
 # ── Registry + detection ─────────────────────────────────────────────────────
 
 _ANALYZER_REGISTRY: dict[str, type[LanguageAnalyzer]] = {
     "python": PythonAnalyzer,
     "typescript": TypeScriptAnalyzer,
-    "javascript": TypeScriptAnalyzer,
+    "javascript": JavaScriptAnalyzer,
     "go": GoAnalyzer,
     "rust": RustAnalyzer,
     "cpp": CppAnalyzer,
@@ -406,9 +413,9 @@ def _detect_from_config(project_root: str) -> str | None:
     # PHP
     if has("composer.json"):
         return "php"
-    # JS/TS (ambiguous — many projects use npm for tooling)
+    # JS (no tsconfig.json but has package.json — pure JavaScript project)
     if has("package.json"):
-        return "typescript"
+        return "javascript"
     # Java/Kotlin
     for gradle in ("build.gradle", "build.gradle.kts", "pom.xml"):
         if has(gradle):
@@ -418,7 +425,8 @@ def _detect_from_config(project_root: str) -> str | None:
 
 _LANG_EXTENSIONS: list[tuple[str, tuple[str, ...]]] = [
     ("python", (".py",)),
-    ("typescript", _TS_EXTENSIONS),
+    ("typescript", (".ts", ".tsx", ".mts")),
+    ("javascript", (".js", ".jsx", ".mjs")),
     ("go", (".go",)),
     ("rust", (".rs",)),
     ("cpp", CppAnalyzer.extensions),

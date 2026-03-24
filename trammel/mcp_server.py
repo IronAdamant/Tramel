@@ -48,7 +48,9 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
          "max_steps": _prop("integer", "Maximum number of steps to return. Remaining steps are counted but omitted. "
                             "The dependency graph is trimmed to match. Useful for large projects."),
          "summary_only": _prop("boolean", "Return only metadata (goal, step count, file list, timing, constraints) "
-                               "without full step details or dependency graph. Dramatically reduces output size.")},
+                               "without full step details or dependency graph. Dramatically reduces output size."),
+         "relevant_only": _prop("boolean", "Filter steps to only include files relevant to the goal. "
+                                "Uses keyword matching between goal text and file paths/symbols.")},
         ["goal", "project_root"]),
     "explore": _schema("explore",
         "Generate beam variants for a strategy without running verification. "
@@ -234,13 +236,15 @@ def _detect_language(project_root: str) -> Any:
 
 def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
     result = Planner(store=store, analyzer=_get_analyzer(args)).decompose(
-        args["goal"], args["project_root"], scope=args.get("scope"),
+        args["goal"], args["project_root"],
+        scope=args.get("scope"),
+        relevant_only=args.get("relevant_only", False),
     )
 
     # summary_only: compact metadata without step details or dependency graph
     if args.get("summary_only"):
         steps = result.get("steps", [])
-        return {
+        summary: dict[str, Any] = {
             "goal": result["goal"],
             "step_count": len(steps),
             "files": [s.get("file") for s in steps],
@@ -249,6 +253,11 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
             "constraints": result.get("constraints"),
             "constraints_applied": result.get("constraints_applied"),
         }
+        if "near_match_recipes" in result:
+            summary["near_match_recipes"] = result["near_match_recipes"]
+        if "creation_hints" in result:
+            summary["creation_hints"] = result["creation_hints"]
+        return summary
 
     # max_steps: truncate step list and trim dependency graph to match
     max_steps = args.get("max_steps")

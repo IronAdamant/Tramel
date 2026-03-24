@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time as _time
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,116 @@ def _get_analyzer_registry() -> dict[str, type]:
     return _ANALYZER_REGISTRY
 
 
+# ── Goal analysis ────────────────────────────────────────────────────────────
+
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "as", "is", "was", "are", "were", "be",
+    "been", "being", "have", "has", "had", "do", "does", "did", "will",
+    "would", "could", "should", "may", "might", "must", "shall", "can",
+    "that", "this", "these", "those", "it", "its", "not", "no", "all",
+    "any", "each", "every", "some", "into", "about", "up", "out",
+    "then", "than", "so", "very", "just", "also", "too", "only", "new",
+})
+
+_CREATION_VERBS = frozenset({
+    "add", "create", "build", "implement", "introduce", "write",
+    "make", "generate", "develop", "establish", "initialize", "scaffold",
+    "set", "setup",
+})
+
+
+def _extract_goal_keywords(goal: str) -> set[str]:
+    """Extract meaningful keywords from a goal, filtering stop words and verbs."""
+    words = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', goal.lower())
+    expanded: list[str] = []
+    for w in words:
+        parts = re.findall(r'[a-z]+|[A-Z][a-z]*', w)
+        expanded.extend(p.lower() for p in parts)
+    return {
+        w for w in expanded
+        if w not in _STOP_WORDS and w not in _CREATION_VERBS and len(w) > 2
+    }
+
+
+def _has_creation_intent(goal: str) -> bool:
+    """Check if the goal implies creating new files/modules."""
+    return bool(set(goal.lower().split()) & _CREATION_VERBS)
+
+
+def _keyword_variants(keywords: set[str]) -> set[str]:
+    """Expand keywords with plural/singular variants for fuzzy matching."""
+    variants = set(keywords)
+    for kw in keywords:
+        variants.add(kw + "s")
+        variants.add(kw + "es")
+        if kw.endswith("s"):
+            variants.add(kw[:-1])
+        if kw.endswith("es") and len(kw) > 2:
+            variants.add(kw[:-2])
+    return variants
+
+
+def _matched_keywords(
+    goal_keywords: set[str], candidate_words: set[str],
+) -> set[str]:
+    """Return which goal keywords match any candidate word (with plural/singular)."""
+    matched: set[str] = set()
+    for kw in goal_keywords:
+        if {kw, kw + "s", kw.rstrip("s")} & candidate_words:
+            matched.add(kw)
+    return matched
+
+
+def _creation_hints(
+    goal: str,
+    goal_keywords: set[str],
+    existing_files: set[str],
+) -> dict[str, Any] | None:
+    """When goal indicates creation intent, return context to help plan new files."""
+    if not _has_creation_intent(goal):
+        return None
+
+    # Build directory -> contents from existing files
+    dirs: dict[str, list[str]] = {}
+    for f in existing_files:
+        parent = os.path.dirname(f)
+        if parent:
+            dirs.setdefault(parent, []).append(os.path.basename(f))
+
+    # Find directories relevant to goal keywords
+    kw_variants = _keyword_variants(goal_keywords)
+    relevant_dirs: list[str] = []
+    for d in sorted(dirs.keys()):
+        dir_words = set(re.findall(r'[a-z]+', d.lower()))
+        if dir_words & kw_variants:
+            relevant_dirs.append(d)
+
+    return {
+        "creation_intent": True,
+        "goal_entities": sorted(goal_keywords),
+        "relevant_directories": relevant_dirs,
+        "directory_structure": {
+            d: sorted(dirs[d]) for d in relevant_dirs
+        } if relevant_dirs else {},
+    }
+
+
+def _score_relevance(
+    filepath: str, sym_names: list[str], goal_keywords: set[str],
+) -> float:
+    """Score how relevant a file is to the goal (0.0 to 1.0)."""
+    if not goal_keywords:
+        return 1.0
+    path_words = set(re.findall(r'[a-z]+', filepath.lower()))
+    sym_words: set[str] = set()
+    for s in sym_names:
+        sym_words.update(
+            p.lower() for p in re.findall(r'[a-z]+|[A-Z][a-z]*', s) if len(p) > 2
+        )
+    return len(_matched_keywords(goal_keywords, path_words | sym_words)) / len(goal_keywords)
+
+
 # ── Step generation ──────────────────────────────────────────────────────────
 
 def _generate_steps(
@@ -29,6 +140,9 @@ def _generate_steps(
     symbols: dict[str, list[str]],
     dep_graph: dict[str, list[str]],
     goal: str,
+    *,
+    goal_keywords: set[str] | None = None,
+    relevant_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Generate plan steps from ordered files, their symbols, and dependency info."""
     steps: list[dict[str, Any]] = []
@@ -38,21 +152,29 @@ def _generate_steps(
         sym_names = symbols.get(filepath, [])
         if not sym_names:
             continue
+
+        relevance = _score_relevance(filepath, sym_names, goal_keywords) if goal_keywords else None
+        if relevant_only and relevance is not None and relevance == 0.0:
+            continue
+
         step_idx = len(steps)
         file_to_step[filepath] = step_idx
 
         dep_files = dep_graph.get(filepath, [])
         depends_on = [file_to_step[d] for d in dep_files if d in file_to_step]
 
-        steps.append({
+        step: dict[str, Any] = {
             "step_index": step_idx,
             "file": filepath,
             "symbols": sym_names,
             "symbol_count": len(sym_names),
-            "description": _step_description(filepath, sym_names),
-            "rationale": _step_rationale(dep_files, sym_names),
+            "description": _step_description(filepath, sym_names, goal_keywords),
+            "rationale": _step_rationale(dep_files, sym_names, relevance),
             "depends_on": depends_on,
-        })
+        }
+        if relevance is not None:
+            step["relevance"] = round(relevance, 3)
+        steps.append(step)
 
     if not steps:
         steps = [{
@@ -68,14 +190,29 @@ def _generate_steps(
     return steps
 
 
-def _step_description(filepath: str, sym_names: list[str]) -> str:
+def _step_description(
+    filepath: str, sym_names: list[str], goal_keywords: set[str] | None = None,
+) -> str:
     sym_summary = ", ".join(sym_names[:5])
     if len(sym_names) > 5:
         sym_summary += f" (+{len(sym_names) - 5} more)"
+    if goal_keywords:
+        path_words = set(re.findall(r'[a-z]+', filepath.lower()))
+        sym_words: set[str] = set()
+        for s in sym_names:
+            sym_words.update(
+                p.lower() for p in re.findall(r'[a-z]+|[A-Z][a-z]*', s) if len(p) > 2
+            )
+        relevant = _matched_keywords(goal_keywords, path_words | sym_words)
+        if relevant:
+            context = ", ".join(sorted(relevant))
+            return f"Modify {filepath} for {context}: {sym_summary}"
     return f"Modify {filepath}: {sym_summary}"
 
 
-def _step_rationale(dep_files: list[str], sym_names: list[str]) -> str:
+def _step_rationale(
+    dep_files: list[str], sym_names: list[str], relevance: float | None = None,
+) -> str:
     parts: list[str] = []
     if dep_files:
         summary = ", ".join(dep_files[:3])
@@ -83,6 +220,8 @@ def _step_rationale(dep_files: list[str], sym_names: list[str]) -> str:
             summary += f" (+{len(dep_files) - 3} more)"
         parts.append(f"depends on {summary}")
     parts.append(f"contains {len(sym_names)} symbol(s)")
+    if relevance is not None:
+        parts.append(f"goal relevance: {relevance:.0%}")
     return "; ".join(parts)
 
 
@@ -216,7 +355,10 @@ class Planner:
         from .analyzers import detect_language
         return detect_language(project_root)
 
-    def decompose(self, goal: str, project_root: str, scope: str | None = None) -> dict[str, Any]:
+    def decompose(
+        self, goal: str, project_root: str,
+        scope: str | None = None, relevant_only: bool = False,
+    ) -> dict[str, Any]:
         t0 = _time.monotonic()
 
         # Fast path: exact text match without project scan
@@ -226,6 +368,7 @@ class Planner:
             return recipe
 
         active_constraints = self.store.get_active_constraints()
+        goal_keywords = _extract_goal_keywords(goal)
 
         analysis_root = os.path.join(project_root, scope) if scope else project_root
         analyzer = self._get_analyzer(analysis_root)
@@ -242,6 +385,10 @@ class Planner:
         if recipe:
             recipe.setdefault("_source", "recipe_structural")
             return recipe
+
+        # Collect near-miss recipes for reference
+        near_matches = self.store.retrieve_near_matches(goal, n=3)
+
         relevant_graph = {
             f: [d for d in deps if d in all_files]
             for f, deps in dep_graph.items()
@@ -255,8 +402,15 @@ class Planner:
             if f not in file_order:
                 file_order.append(f)
 
-        steps = _generate_steps(file_order, symbols, relevant_graph, goal)
+        steps = _generate_steps(
+            file_order, symbols, relevant_graph, goal,
+            goal_keywords=goal_keywords, relevant_only=relevant_only,
+        )
         steps, applied = _apply_constraints(steps, active_constraints)
+
+        # Creation hints for goals that imply building new things
+        hints = _creation_hints(goal, goal_keywords, all_files)
+
         t4 = _time.monotonic()
 
         lang_name = getattr(analyzer, "name", "unknown")
@@ -278,7 +432,7 @@ class Planner:
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
             )
 
-        return {
+        result: dict[str, Any] = {
             "goal": goal,
             "steps": steps,
             "dependency_graph": relevant_graph,
@@ -287,6 +441,12 @@ class Planner:
             "goal_fingerprint": sha256_json(goal)[:16],
             "analysis_meta": analysis_meta,
         }
+        if near_matches:
+            result["near_match_recipes"] = near_matches
+        if hints:
+            result["creation_hints"] = hints
+
+        return result
 
     def explore_trajectories(
         self,
