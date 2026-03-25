@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopping List - RecipeLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/recipes.html">Recipes</a></li>
+        <li><a href="/meal-planner.html">Meal Planner</a></li>
+        <li><a href="/shopping-list.html" class="active">Shopping List</a></li>
+        <li><a href="/collections.html">Collections</a></li>
+        <li><a href="/search.html">Search</a></li>
+        <li><a href="/profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="mb-3">
+      <h2>Shopping Lists</h2>
+    </div>
+
+    <div id="lists-container">
+      <div class="loading">Loading shopping lists...</div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    async function loadLists() {
+      const el = document.getElementById('lists-container');
+      try {
+        const result = await api.get('/shopping-lists');
+        renderLists(result.data || []);
+      } catch (err) {
+        utils.showError(el, err.message);
+      }
+    }
+
+    function renderLists(lists) {
+      const el = document.getElementById('lists-container');
+      if (lists.length === 0) {
+        el.innerHTML = '<p>No shopping lists yet. Generate one from a meal plan!</p>';
+        return;
+      }
+
+      el.innerHTML = lists.map(list => `
+        <div class="card mb-2">
+          <div class="card-body">
+            <h4>${utils.escapeHtml(list.name)}</h4>
+            <button class="btn btn-sm btn-primary" onclick="viewList('${list.id}')">View Items</button>
+          </div>
+        </div>
+        <div id="list-${list.id}" class="hidden mb-2"></div>
+      `).join('');
+    }
+
+    async function viewList(id) {
+      const el = document.getElementById(`list-${id}`);
+      el.classList.toggle('hidden');
+
+      if (el.classList.contains('hidden')) return;
+
+      const result = await api.get(`/shopping-lists/${id}`);
+      const list = result.data;
+
+      el.innerHTML = `
+        <div class="card">
+          <div class="card-body">
+            <h5>Items for ${utils.escapeHtml(list.name)}</h5>
+            <ul>
+              ${(list.items || []).map(item => `
+                <li>
+                  ${item.checked ? '<s>' : ''}
+                  ${item.quantity || ''} ${item.unit || ''} ${utils.escapeHtml(item.ingredient_name)}
+                  ${item.checked ? '</s>' : ''}
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    loadLists();
+  </script>
+</body>
+</html>

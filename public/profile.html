@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile - RecipeLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/recipes.html">Recipes</a></li>
+        <li><a href="/meal-planner.html">Meal Planner</a></li>
+        <li><a href="/shopping-list.html">Shopping List</a></li>
+        <li><a href="/collections.html">Collections</a></li>
+        <li><a href="/search.html">Search</a></li>
+        <li><a href="/profile.html" class="active">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <h2>Dietary Profile</h2>
+
+    <div id="profile-container">
+      <div class="loading">Loading profile...</div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <h3>Dietary Restrictions</h3>
+      </div>
+      <div class="card-body">
+        <p>Select your dietary restrictions to get allergen warnings.</p>
+        <div id="allergen-checkboxes" class="grid-3">
+          <label><input type="checkbox" value="dairy"> Dairy</label>
+          <label><input type="checkbox" value="eggs"> Eggs</label>
+          <label><input type="checkbox" value="fish"> Fish</label>
+          <label><input type="checkbox" value="shellfish"> Shellfish</label>
+          <label><input type="checkbox" value="tree nuts"> Tree Nuts</label>
+          <label><input type="checkbox" value="peanuts"> Peanuts</label>
+          <label><input type="checkbox" value="gluten"> Gluten</label>
+          <label><input type="checkbox" value="soy"> Soy</label>
+          <label><input type="checkbox" value="sesame"> Sesame</label>
+        </div>
+        <button class="btn btn-primary mt-2" onclick="saveAllergens()">Save Preferences</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    let currentProfile = null;
+
+    async function loadProfile() {
+      const el = document.getElementById('profile-container');
+      try {
+        const result = await api.get('/dietary-profiles');
+        const profiles = result.data || [];
+
+        if (profiles.length === 0) {
+          el.innerHTML = `
+            <div class="card">
+              <div class="card-body">
+                <p>No dietary profile found.</p>
+                <button class="btn btn-primary" onclick="createProfile()">Create Profile</button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        currentProfile = profiles[0];
+        renderProfile(currentProfile);
+        loadAllergenCheckboxes(currentProfile.allergens || []);
+      } catch (err) {
+        utils.showError(el, err.message);
+      }
+    }
+
+    function renderProfile(profile) {
+      const el = document.getElementById('profile-container');
+      el.innerHTML = `
+        <div class="card">
+          <div class="card-body">
+            <h3>${utils.escapeHtml(profile.name)}</h3>
+            <p><strong>Restrictions:</strong> ${(profile.restrictions || []).join(', ') || 'None'}</p>
+            <p><strong>Allergens:</strong> ${(profile.allergens || []).join(', ') || 'None'}</p>
+            <p><strong>Nutrition Goals:</strong></p>
+            <ul>
+              <li>Calories: ${profile.nutrition_goals?.calories || 2000}</li>
+              <li>Protein: ${profile.nutrition_goals?.protein || 50}g</li>
+              <li>Carbs: ${profile.nutrition_goals?.carbs || 250}g</li>
+              <li>Fat: ${profile.nutrition_goals?.fat || 65}g</li>
+            </ul>
+            <button class="btn btn-secondary" onclick="updateProfile()">Edit Profile</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function loadAllergenCheckboxes(allergens) {
+      const checkboxes = document.querySelectorAll('#allergen-checkboxes input[type="checkbox"]');
+      checkboxes.forEach(cb => {
+        cb.checked = allergens.includes(cb.value);
+      });
+    }
+
+    async function saveAllergens() {
+      const checkboxes = document.querySelectorAll('#allergen-checkboxes input[type="checkbox"]:checked');
+      const allergens = Array.from(checkboxes).map(cb => cb.value);
+
+      if (currentProfile) {
+        await api.put(`/dietary-profiles/${currentProfile.id}`, { allergens });
+        alert('Allergen preferences saved!');
+        loadProfile();
+      }
+    }
+
+    function createProfile() {
+      const name = prompt('Profile name:') || 'My Profile';
+      api.post('/dietary-profiles', {
+        name,
+        restrictions: [],
+        allergens: [],
+        nutrition_goals: {
+          calories: 2000,
+          protein: 50,
+          carbs: 250,
+          fat: 65
+        }
+      }).then(() => loadProfile());
+    }
+
+    function updateProfile() {
+      alert('Update functionality coming soon!');
+    }
+
+    loadProfile();
+  </script>
+</body>
+</html>

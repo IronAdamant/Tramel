@@ -312,10 +312,12 @@ describe('ParetoFrontier', () => {
       { name: 'nutrition', minimize: false }
     ];
 
-    const a = { cost: 10, nutrition: 50 };
-    const b = { cost: 10, nutrition: 60 };
+    const a = { cost: 10, nutrition: 60 };
+    const b = { cost: 10, nutrition: 50 };
 
-    equal(frontier.dominates(a, b, objectives), false, 'A should not dominate B');
+    // A (60 nutrition) should dominate B (50 nutrition) since cost is same
+    equal(frontier.dominates(a, b, objectives), true, 'A should dominate B');
+    // B should not dominate A since B is worse in nutrition
     equal(frontier.dominates(b, a, objectives), false, 'B should not dominate A');
   });
 

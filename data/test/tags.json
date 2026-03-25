@@ -1,0 +1,44 @@
+[
+  {
+    "id": "6557fe48-c473-4b0b-a4bf-968435006596",
+    "name": "dessert",
+    "created_at": "2026-03-25T09:05:54.235Z",
+    "updated_at": "2026-03-25T09:05:54.235Z"
+  },
+  {
+    "id": "38391690-bcd2-47e9-9cc4-d38548dfa805",
+    "name": "sweet",
+    "created_at": "2026-03-25T09:05:54.236Z",
+    "updated_at": "2026-03-25T09:05:54.236Z"
+  },
+  {
+    "id": "c49038ba-a051-4c05-b3d5-c2c0d93d5338",
+    "name": "vegetarian",
+    "created_at": "2026-03-25T09:05:54.256Z",
+    "updated_at": "2026-03-25T09:05:54.256Z"
+  },
+  {
+    "id": "e399dd5e-f70c-4dcf-ad45-9887710b32ee",
+    "name": "vegan",
+    "created_at": "2026-03-25T09:05:54.256Z",
+    "updated_at": "2026-03-25T09:05:54.256Z"
+  },
+  {
+    "id": "65dfdadb-0e32-4ace-9b10-e27617866f1d",
+    "name": "gluten-free",
+    "created_at": "2026-03-25T09:05:54.256Z",
+    "updated_at": "2026-03-25T09:05:54.256Z"
+  },
+  {
+    "id": "cf0f318a-f475-4419-8420-1355ff4c327f",
+    "name": "tag1",
+    "created_at": "2026-03-25T09:05:54.256Z",
+    "updated_at": "2026-03-25T09:05:54.256Z"
+  },
+  {
+    "id": "106177e2-9fa4-45b1-b20b-dceb61fc39d7",
+    "name": "tag2",
+    "created_at": "2026-03-25T09:05:54.256Z",
+    "updated_at": "2026-03-25T09:05:54.256Z"
+  }
+]

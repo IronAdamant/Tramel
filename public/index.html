@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RecipeLab - Your Personal Recipe Manager</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/" class="active">Home</a></li>
+        <li><a href="/recipes.html">Recipes</a></li>
+        <li><a href="/meal-planner.html">Meal Planner</a></li>
+        <li><a href="/shopping-list.html">Shopping List</a></li>
+        <li><a href="/collections.html">Collections</a></li>
+        <li><a href="/search.html">Search</a></li>
+        <li><a href="/profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <h2>Welcome to RecipeLab</h2>
+      <p>Your personal recipe and meal planning companion. Store, organize, and plan your meals with ease.</p>
+      <div class="hero-actions">
+        <a href="/recipes.html" class="btn btn-primary">Browse Recipes</a>
+        <a href="/meal-planner.html" class="btn btn-secondary">Plan Meals</a>
+      </div>
+    </section>
+
+    <section class="features">
+      <div class="feature-card">
+        <h3>Recipe Management</h3>
+        <p>Store and organize all your favorite recipes in one place.</p>
+        <a href="/recipes.html" class="btn-link">View Recipes</a>
+      </div>
+      <div class="feature-card">
+        <h3>Meal Planning</h3>
+        <p>Plan your weekly meals and generate shopping lists automatically.</p>
+        <a href="/meal-planner.html" class="btn-link">Plan Meals</a>
+      </div>
+      <div class="feature-card">
+        <h3>Collections</h3>
+        <p>Create themed collections for any occasion.</p>
+        <a href="/collections.html" class="btn-link">View Collections</a>
+      </div>
+      <div class="feature-card">
+        <h3>Dietary Tracking</h3>
+        <p>Track dietary restrictions and get allergen warnings.</p>
+        <a href="/profile.html" class="btn-link">Set Profile</a>
+      </div>
+    </section>
+
+    <section class="quick-stats">
+      <h3>Your Kitchen at a Glance</h3>
+      <div id="stats" class="stats-grid">
+        <div class="stat-item">
+          <span class="stat-number" id="recipe-count">-</span>
+          <span class="stat-label">Recipes</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number" id="meal-plan-count">-</span>
+          <span class="stat-label">Meal Plans</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number" id="collection-count">-</span>
+          <span class="stat-label">Collections</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 RecipeLab - Zero Dependency Recipe Manager</p>
+  </footer>
+
+  <script src="/app.js"></script>
+  <script>
+    // Load dashboard stats
+    async function loadStats() {
+      try {
+        const [recipes, mealPlans, collections] = await Promise.all([
+          api.get('/recipes'),
+          api.get('/meal-plans'),
+          api.get('/collections')
+        ]);
+
+        document.getElementById('recipe-count').textContent = recipes.pagination?.total || 0;
+        document.getElementById('meal-plan-count').textContent = mealPlans.pagination?.total || 0;
+        document.getElementById('collection-count').textContent = collections.pagination?.total || 0;
+      } catch (err) {
+        console.error('Failed to load stats:', err);
+      }
+    }
+
+    loadStats();
+  </script>
+</body>
+</html>

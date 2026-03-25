@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search - RecipeLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/recipes.html">Recipes</a></li>
+        <li><a href="/meal-planner.html">Meal Planner</a></li>
+        <li><a href="/shopping-list.html">Shopping List</a></li>
+        <li><a href="/collections.html">Collections</a></li>
+        <li><a href="/search.html" class="active">Search</a></li>
+        <li><a href="/profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <h2>Search Recipes</h2>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <form id="search-form">
+          <div class="form-group">
+            <label>Search Query</label>
+            <input type="text" id="query" class="form-control" placeholder="Enter search terms...">
+          </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Max Time (minutes)</label>
+              <input type="number" id="maxTime" class="form-control" placeholder="e.g., 30">
+            </div>
+            <div class="form-group">
+              <label>Min Servings</label>
+              <input type="number" id="minServings" class="form-control" placeholder="e.g., 2">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Search</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="search-results">
+      <p class="text-center">Enter a search query to find recipes.</p>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    document.getElementById('search-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const query = document.getElementById('query').value;
+      const maxTime = document.getElementById('maxTime').value;
+      const minServings = document.getElementById('minServings').value;
+
+      const params = new URLSearchParams();
+      if (query) params.append('query', query);
+      if (maxTime) params.append('maxTime', maxTime);
+      if (minServings) params.append('minServings', minServings);
+
+      const el = document.getElementById('search-results');
+      el.innerHTML = '<div class="loading">Searching...</div>';
+
+      try {
+        const result = await api.get(`/search?${params.toString()}`);
+        const recipes = result.data?.results || [];
+
+        if (recipes.length === 0) {
+          el.innerHTML = '<p>No recipes found matching your criteria.</p>';
+          return;
+        }
+
+        el.innerHTML = `
+          <p class="mb-2">Found ${recipes.length} recipes:</p>
+          <div class="grid-3">
+            ${recipes.map(r => `
+              <div class="recipe-card">
+                <div class="recipe-card-body">
+                  <h4 class="recipe-card-title">${utils.escapeHtml(r.title)}</h4>
+                  <p class="recipe-card-meta">
+                    Prep: ${utils.formatTime(r.prep_time_minutes)} |
+                    Cook: ${utils.formatTime(r.cook_time_minutes)} |
+                    Serves: ${r.servings || 1}
+                  </p>
+                  <a href="/recipe.html?id=${r.id}" class="btn btn-sm btn-primary">View Recipe</a>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } catch (err) {
+        utils.showError(el, err.message);
+      }
+    });
+  </script>
+</body>
+</html>

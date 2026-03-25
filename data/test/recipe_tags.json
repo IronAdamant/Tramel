@@ -1,0 +1,51 @@
+[
+  {
+    "id": "ac73e1e6-a4f7-4f19-9cb6-65a944b96a5d",
+    "recipe_id": "84238af2-0f57-49af-a76e-97b1c1eef9f0",
+    "tag_id": "6557fe48-c473-4b0b-a4bf-968435006596",
+    "created_at": "2026-03-25T09:05:54.235Z",
+    "updated_at": "2026-03-25T09:05:54.235Z"
+  },
+  {
+    "id": "efa8e1e1-a1f6-4abd-9365-ddd197f629c6",
+    "recipe_id": "84238af2-0f57-49af-a76e-97b1c1eef9f0",
+    "tag_id": "38391690-bcd2-47e9-9cc4-d38548dfa805",
+    "created_at": "2026-03-25T09:05:54.236Z",
+    "updated_at": "2026-03-25T09:05:54.236Z"
+  },
+  {
+    "id": "d2481c14-92a2-4efb-9294-0cc83fb19797",
+    "recipe_id": "ca24caee-ff64-4de4-9def-46346b24dfe6",
+    "tag_id": "6557fe48-c473-4b0b-a4bf-968435006596",
+    "created_at": "2026-03-25T09:07:14.601Z",
+    "updated_at": "2026-03-25T09:07:14.601Z"
+  },
+  {
+    "id": "9cf70ccd-bb86-45a0-8f5f-cb9a0ae9a84b",
+    "recipe_id": "1632b591-3a39-4a8f-9bdb-29ca9b5393c6",
+    "tag_id": "6557fe48-c473-4b0b-a4bf-968435006596",
+    "created_at": "2026-03-25T09:07:53.815Z",
+    "updated_at": "2026-03-25T09:07:53.815Z"
+  },
+  {
+    "id": "f1320ffe-906b-4379-b5cc-9a25f78e9aad",
+    "recipe_id": "9f6eb9eb-9ec8-4111-b561-297b99be6601",
+    "tag_id": "6557fe48-c473-4b0b-a4bf-968435006596",
+    "created_at": "2026-03-25T09:08:15.422Z",
+    "updated_at": "2026-03-25T09:08:15.422Z"
+  },
+  {
+    "id": "40bf865c-013e-4139-b1f0-dbe5d5dfcfc0",
+    "recipe_id": "f35982fc-b5ea-4ac0-8e1e-01c174ecd9dd",
+    "tag_id": "6557fe48-c473-4b0b-a4bf-968435006596",
+    "created_at": "2026-03-25T09:30:53.500Z",
+    "updated_at": "2026-03-25T09:30:53.500Z"
+  },
+  {
+    "id": "44c3eb42-368a-47cd-92f6-e18f412250db",
+    "recipe_id": "b1330506-fb8c-48c7-a031-1cd898948d7f",
+    "tag_id": "6557fe48-c473-4b0b-a4bf-968435006596",
+    "created_at": "2026-03-25T09:33:57.259Z",
+    "updated_at": "2026-03-25T09:33:57.259Z"
+  }
+]

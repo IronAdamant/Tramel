@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recipe - RecipeLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/recipes.html">Recipes</a></li>
+        <li><a href="/meal-planner.html">Meal Planner</a></li>
+        <li><a href="/shopping-list.html">Shopping List</a></li>
+        <li><a href="/collections.html">Collections</a></li>
+        <li><a href="/search.html">Search</a></li>
+        <li><a href="/profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div id="recipe-container">
+      <div class="loading">Loading recipe...</div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    async function loadRecipe() {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('id');
+
+      if (!id) {
+        document.getElementById('recipe-container').innerHTML = '<p>No recipe specified.</p>';
+        return;
+      }
+
+      const el = document.getElementById('recipe-container');
+
+      try {
+        const result = await api.get(`/recipes/${id}`);
+        const recipe = result.data;
+
+        document.title = `${recipe.title} - RecipeLab`;
+
+        el.innerHTML = `
+          <a href="/recipes.html" class="btn btn-secondary mb-2">&larr; Back to Recipes</a>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>${utils.escapeHtml(recipe.title)}</h2>
+            </div>
+            <div class="card-body">
+              <div class="grid-2 mb-3">
+                <div>
+                  <p><strong>Prep Time:</strong> ${utils.formatTime(recipe.prep_time_minutes)}</p>
+                  <p><strong>Cook Time:</strong> ${utils.formatTime(recipe.cook_time_minutes)}</p>
+                  <p><strong>Total Time:</strong> ${utils.formatTime((recipe.prep_time_minutes || 0) + (recipe.cook_time_minutes || 0))}</p>
+                </div>
+                <div>
+                  <p><strong>Servings:</strong> ${recipe.servings || 1}</p>
+                  <p><strong>Difficulty:</strong> ${recipe.difficulty || 'medium'}</p>
+                  <p><strong>Cuisine:</strong> ${recipe.cuisine || '-'}</p>
+                </div>
+              </div>
+
+              ${recipe.description ? `<p class="mb-3">${utils.escapeHtml(recipe.description)}</p>` : ''}
+
+              <h3>Ingredients</h3>
+              <ul class="mb-3" id="ingredients-list">
+                ${(recipe.ingredients || []).map(i => `<li>${i.quantity || ''} ${i.unit || ''} ${utils.escapeHtml(i.name)}</li>`).join('')}
+              </ul>
+
+              <h3>Instructions</h3>
+              <div class="mb-3" style="white-space: pre-wrap;">${utils.escapeHtml(recipe.instructions || 'No instructions provided.')}</div>
+
+              <h3>Tags</h3>
+              <p>${(recipe.tags || []).map(t => `<span class="btn btn-sm">${utils.escapeHtml(t.name || t)}</span>`).join(' ') || 'No tags'}</p>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        utils.showError(el, err.message);
+      }
+    }
+
+    loadRecipe();
+  </script>
+</body>
+</html>

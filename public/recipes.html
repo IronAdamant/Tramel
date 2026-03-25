@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recipes - RecipeLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/recipes.html" class="active">Recipes</a></li>
+        <li><a href="/meal-planner.html">Meal Planner</a></li>
+        <li><a href="/shopping-list.html">Shopping List</a></li>
+        <li><a href="/collections.html">Collections</a></li>
+        <li><a href="/search.html">Search</a></li>
+        <li><a href="/profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="mb-3">
+      <h2>Recipes</h2>
+      <button class="btn btn-primary" onclick="showCreateModal()">Add Recipe</button>
+    </div>
+
+    <div id="recipes-list">
+      <div class="loading">Loading recipes...</div>
+    </div>
+
+    <div id="recipe-detail" class="hidden">
+      <button class="btn btn-secondary mb-2" onclick="hideDetail()">Back to List</button>
+      <div class="card">
+        <div class="card-header">
+          <h3 id="detail-title"></h3>
+        </div>
+        <div class="card-body" id="detail-content"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    let recipes = [];
+
+    async function loadRecipes() {
+      const el = document.getElementById('recipes-list');
+      try {
+        const result = await api.get('/recipes');
+        recipes = result.data || [];
+        renderRecipes(recipes);
+      } catch (err) {
+        utils.showError(el, err.message);
+      }
+    }
+
+    function renderRecipes(recipeList) {
+      const el = document.getElementById('recipes-list');
+      if (recipeList.length === 0) {
+        el.innerHTML = '<p>No recipes found. Create your first recipe!</p>';
+        return;
+      }
+
+      const html = `
+        <div class="grid-3">
+          ${recipeList.map(r => `
+            <div class="recipe-card">
+              <div class="recipe-card-body">
+                <h4 class="recipe-card-title">${utils.escapeHtml(r.title)}</h4>
+                <p class="recipe-card-meta">
+                  Prep: ${utils.formatTime(r.prep_time_minutes)} |
+                  Cook: ${utils.formatTime(r.cook_time_minutes)} |
+                  Serves: ${r.servings || 1}
+                </p>
+                <p>${utils.escapeHtml(r.description || '').substring(0, 100)}...</p>
+                <button class="btn btn-sm btn-primary" onclick="viewRecipe('${r.id}')">View</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteRecipe('${r.id}')">Delete</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      el.innerHTML = html;
+    }
+
+    async function viewRecipe(id) {
+      const result = await api.get(`/recipes/${id}`);
+      const recipe = result.data;
+
+      document.getElementById('recipes-list').classList.add('hidden');
+      document.getElementById('recipe-detail').classList.remove('hidden');
+      document.getElementById('detail-title').textContent = recipe.title;
+
+      const content = document.getElementById('detail-content');
+      content.innerHTML = `
+        <p><strong>Prep Time:</strong> ${utils.formatTime(recipe.prep_time_minutes)}</p>
+        <p><strong>Cook Time:</strong> ${utils.formatTime(recipe.cook_time_minutes)}</p>
+        <p><strong>Servings:</strong> ${recipe.servings || 1}</p>
+        <p><strong>Difficulty:</strong> ${recipe.difficulty || 'medium'}</p>
+        <p><strong>Cuisine:</strong> ${recipe.cuisine || '-'}</p>
+        <hr>
+        <h4>Description</h4>
+        <p>${utils.escapeHtml(recipe.description || 'No description')}</p>
+        <h4>Instructions</h4>
+        <p>${utils.escapeHtml(recipe.instructions || 'No instructions').replace(/\n/g, '<br>')}</p>
+        <h4>Ingredients</h4>
+        <ul>
+          ${(recipe.ingredients || []).map(i => `<li>${i.quantity || ''} ${i.unit || ''} ${utils.escapeHtml(i.name)}</li>`).join('')}
+        </ul>
+      `;
+    }
+
+    function hideDetail() {
+      document.getElementById('recipe-detail').classList.add('hidden');
+      document.getElementById('recipes-list').classList.remove('hidden');
+    }
+
+    async function deleteRecipe(id) {
+      if (!confirm('Are you sure you want to delete this recipe?')) return;
+      await api.delete(`/recipes/${id}`);
+      loadRecipes();
+    }
+
+    function showCreateModal() {
+      const title = prompt('Recipe title:');
+      if (!title) return;
+
+      const recipe = {
+        title,
+        description: prompt('Description:') || '',
+        instructions: prompt('Instructions:') || '',
+        servings: parseInt(prompt('Servings:') || '1', 10),
+        difficulty: prompt('Difficulty (easy, medium, hard):') || 'medium'
+      };
+
+      api.post('/recipes', recipe).then(() => loadRecipes());
+    }
+
+    loadRecipes();
+  </script>
+</body>
+</html>

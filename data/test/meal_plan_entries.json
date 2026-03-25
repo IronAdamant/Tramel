@@ -1,0 +1,122 @@
+[
+  {
+    "id": "49a0b48a-0900-4105-80b8-cd4f84784620",
+    "meal_plan_id": "797cd783-90fd-4eb8-8062-e9d70ae028d5",
+    "recipe_id": "test-recipe-1",
+    "date": "2024-01-01",
+    "meal_type": "breakfast",
+    "servings": 2,
+    "created_at": "2026-03-25T09:05:54.257Z",
+    "updated_at": "2026-03-25T09:05:54.257Z"
+  },
+  {
+    "id": "9c11170c-2d02-4380-b29b-e2e0e25aff08",
+    "meal_plan_id": "19d559a5-3b02-4c6a-bc9a-10f7a9260a58",
+    "recipe_id": "recipe-123",
+    "date": "2024-01-02",
+    "meal_type": "lunch",
+    "servings": 3,
+    "created_at": "2026-03-25T09:05:54.257Z",
+    "updated_at": "2026-03-25T09:05:54.257Z"
+  },
+  {
+    "id": "795265b3-483b-4123-8f7c-9f300a5dcac0",
+    "meal_plan_id": "08b8795e-ca27-4845-a290-5f5976a0a81b",
+    "recipe_id": "test-recipe-1",
+    "date": "2024-01-01",
+    "meal_type": "breakfast",
+    "servings": 2,
+    "created_at": "2026-03-25T09:07:14.615Z",
+    "updated_at": "2026-03-25T09:07:14.615Z"
+  },
+  {
+    "id": "8d73259b-69e8-4067-b61b-8b705cc26b83",
+    "meal_plan_id": "3cec2ab6-5abc-48b3-a7c8-12bca19b75bc",
+    "recipe_id": "recipe-123",
+    "date": "2024-01-02",
+    "meal_type": "lunch",
+    "servings": 3,
+    "created_at": "2026-03-25T09:07:14.615Z",
+    "updated_at": "2026-03-25T09:07:14.615Z"
+  },
+  {
+    "id": "65cb4338-97ee-4757-89d0-4197264ed5bd",
+    "meal_plan_id": "20f1a2a4-3467-4350-9178-87dd20e03d9b",
+    "recipe_id": "test-recipe-1",
+    "date": "2024-01-01",
+    "meal_type": "breakfast",
+    "servings": 2,
+    "created_at": "2026-03-25T09:07:53.829Z",
+    "updated_at": "2026-03-25T09:07:53.829Z"
+  },
+  {
+    "id": "f352bc34-edf4-41d1-8683-2c6fa726215f",
+    "meal_plan_id": "20914e8f-f70c-4c79-acbc-7a88e7f60549",
+    "recipe_id": "recipe-123",
+    "date": "2024-01-02",
+    "meal_type": "lunch",
+    "servings": 3,
+    "created_at": "2026-03-25T09:07:53.830Z",
+    "updated_at": "2026-03-25T09:07:53.830Z"
+  },
+  {
+    "id": "6dc38876-f28b-4b83-b72c-c77d8393279a",
+    "meal_plan_id": "ac787d8c-edaf-4728-8b04-fdd8d11d3e8f",
+    "recipe_id": "test-recipe-1",
+    "date": "2024-01-01",
+    "meal_type": "breakfast",
+    "servings": 2,
+    "created_at": "2026-03-25T09:08:15.437Z",
+    "updated_at": "2026-03-25T09:08:15.437Z"
+  },
+  {
+    "id": "35eb14da-d8ac-4889-8ae6-54d57a35b6ad",
+    "meal_plan_id": "45b71f74-21df-442f-90d5-f2abca50918b",
+    "recipe_id": "recipe-123",
+    "date": "2024-01-02",
+    "meal_type": "lunch",
+    "servings": 3,
+    "created_at": "2026-03-25T09:08:15.438Z",
+    "updated_at": "2026-03-25T09:08:15.438Z"
+  },
+  {
+    "id": "231d698f-7765-49f0-87a6-455173369c29",
+    "meal_plan_id": "b126cfbc-910e-4a92-8b5c-4cc75b450c4c",
+    "recipe_id": "test-recipe-1",
+    "date": "2024-01-01",
+    "meal_type": "breakfast",
+    "servings": 2,
+    "created_at": "2026-03-25T09:30:53.522Z",
+    "updated_at": "2026-03-25T09:30:53.522Z"
+  },
+  {
+    "id": "db008ccb-9715-445b-8011-2609dec4d7cb",
+    "meal_plan_id": "0704c9f5-1bd3-4c7a-85cc-bb0cdccb9d00",
+    "recipe_id": "recipe-123",
+    "date": "2024-01-02",
+    "meal_type": "lunch",
+    "servings": 3,
+    "created_at": "2026-03-25T09:30:53.522Z",
+    "updated_at": "2026-03-25T09:30:53.522Z"
+  },
+  {
+    "id": "bdba90ff-014e-45ee-a316-45f1dc6d55db",
+    "meal_plan_id": "47fe6bff-97e4-411a-b80f-84ca4c8ae116",
+    "recipe_id": "test-recipe-1",
+    "date": "2024-01-01",
+    "meal_type": "breakfast",
+    "servings": 2,
+    "created_at": "2026-03-25T09:33:57.277Z",
+    "updated_at": "2026-03-25T09:33:57.277Z"
+  },
+  {
+    "id": "ea326f0a-f3fb-47ea-a5e1-9483fae9b4ed",
+    "meal_plan_id": "4baea7bc-154c-4fe9-8867-fe1225c3b628",
+    "recipe_id": "recipe-123",
+    "date": "2024-01-02",
+    "meal_type": "lunch",
+    "servings": 3,
+    "created_at": "2026-03-25T09:33:57.277Z",
+    "updated_at": "2026-03-25T09:33:57.277Z"
+  }
+]

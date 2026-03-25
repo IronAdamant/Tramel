@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meal Planner - RecipeLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/recipes.html">Recipes</a></li>
+        <li><a href="/meal-planner.html" class="active">Meal Planner</a></li>
+        <li><a href="/shopping-list.html">Shopping List</a></li>
+        <li><a href="/collections.html">Collections</a></li>
+        <li><a href="/search.html">Search</a></li>
+        <li><a href="/profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="mb-3">
+      <h2>Meal Planner</h2>
+      <button class="btn btn-primary" onclick="generateWeeklyPlan()">Generate Weekly Plan</button>
+    </div>
+
+    <div id="meal-plans">
+      <div class="loading">Loading meal plans...</div>
+    </div>
+
+    <div id="plan-detail" class="hidden">
+      <button class="btn btn-secondary mb-2" onclick="hideDetail()">Back to List</button>
+      <div class="card">
+        <div class="card-header">
+          <h3 id="plan-title"></h3>
+        </div>
+        <div class="card-body" id="plan-content"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    async function loadMealPlans() {
+      const el = document.getElementById('meal-plans');
+      try {
+        const result = await api.get('/meal-plans');
+        const plans = result.data || [];
+        renderMealPlans(plans);
+      } catch (err) {
+        utils.showError(el, err.message);
+      }
+    }
+
+    function renderMealPlans(plans) {
+      const el = document.getElementById('meal-plans');
+      if (plans.length === 0) {
+        el.innerHTML = '<p>No meal plans yet. Generate your first weekly plan!</p>';
+        return;
+      }
+
+      const html = `
+        <div class="grid-2">
+          ${plans.map(p => `
+            <div class="card">
+              <div class="card-body">
+                <h4>${utils.escapeHtml(p.name)}</h4>
+                <p>${utils.formatDate(p.start_date)} to ${utils.formatDate(p.end_date)}</p>
+                <button class="btn btn-sm btn-primary" onclick="viewPlan('${p.id}')">View</button>
+                <button class="btn btn-sm btn-secondary" onclick="generateShoppingList('${p.id}')">Shopping List</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      el.innerHTML = html;
+    }
+
+    async function viewPlan(id) {
+      const result = await api.get(`/meal-plans/${id}`);
+      const plan = result.data;
+
+      document.getElementById('meal-plans').classList.add('hidden');
+      document.getElementById('plan-detail').classList.remove('hidden');
+      document.getElementById('plan-title').textContent = plan.name;
+
+      const content = document.getElementById('plan-content');
+      const entriesByDate = {};
+
+      (plan.entries || []).forEach(entry => {
+        if (!entriesByDate[entry.date]) {
+          entriesByDate[entry.date] = [];
+        }
+        entriesByDate[entry.date].push(entry);
+      });
+
+      let html = '';
+      for (const [date, entries] of Object.entries(entriesByDate)) {
+        html += `<h4>${utils.formatDate(date)}</h4><ul>`;
+        entries.forEach(e => {
+          html += `<li><strong>${e.meal_type}:</strong> Recipe ${e.recipe_id} (${e.servings} servings)</li>`;
+        });
+        html += '</ul>';
+      }
+
+      content.innerHTML = html || '<p>No entries in this plan.</p>';
+    }
+
+    function hideDetail() {
+      document.getElementById('plan-detail').classList.add('hidden');
+      document.getElementById('meal-plans').classList.remove('hidden');
+    }
+
+    async function generateWeeklyPlan() {
+      const servings = parseInt(prompt('Servings per meal:') || '2', 10);
+      const result = await api.get(`/meal-planner/generate?servings=${servings}`);
+      alert('Weekly plan generated!');
+      loadMealPlans();
+    }
+
+    async function generateShoppingList(planId) {
+      try {
+        const result = await api.get(`/shopping-list/generate/${planId}`);
+        alert(`Shopping list created: ${result.data.name}`);
+      } catch (err) {
+        alert('Failed to generate shopping list: ' + err.message);
+      }
+    }
+
+    loadMealPlans();
+  </script>
+</body>
+</html>

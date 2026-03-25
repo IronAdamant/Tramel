@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collections - RecipeLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h1>RecipeLab</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/recipes.html">Recipes</a></li>
+        <li><a href="/meal-planner.html">Meal Planner</a></li>
+        <li><a href="/shopping-list.html">Shopping List</a></li>
+        <li><a href="/collections.html" class="active">Collections</a></li>
+        <li><a href="/search.html">Search</a></li>
+        <li><a href="/profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="mb-3">
+      <h2>Collections</h2>
+      <button class="btn btn-primary" onclick="createCollection()">Create Collection</button>
+    </div>
+
+    <div id="collections-container">
+      <div class="loading">Loading collections...</div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    async function loadCollections() {
+      const el = document.getElementById('collections-container');
+      try {
+        const result = await api.get('/collections');
+        renderCollections(result.data || []);
+      } catch (err) {
+        utils.showError(el, err.message);
+      }
+    }
+
+    function renderCollections(collections) {
+      const el = document.getElementById('collections-container');
+      if (collections.length === 0) {
+        el.innerHTML = '<p>No collections yet. Create one to organize your recipes!</p>';
+        return;
+      }
+
+      el.innerHTML = `
+        <div class="grid-2">
+          ${collections.map(c => `
+            <div class="card">
+              <div class="card-body">
+                <h4>${utils.escapeHtml(c.name)}</h4>
+                <p>${utils.escapeHtml(c.description || '')}</p>
+                <p>${c.recipe_count || 0} recipes</p>
+                <button class="btn btn-sm btn-primary" onclick="viewCollection('${c.id}')">View</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function createCollection() {
+      const name = prompt('Collection name:');
+      if (!name) return;
+
+      const description = prompt('Description:') || '';
+      api.post('/collections', { name, description }).then(() => loadCollections());
+    }
+
+    async function viewCollection(id) {
+      const result = await api.get(`/collections/${id}`);
+      const collection = result.data;
+      alert(`Collection: ${collection.name}\nRecipes: ${collection.recipe_count || 0}`);
+    }
+
+    loadCollections();
+  </script>
+</body>
+</html>
