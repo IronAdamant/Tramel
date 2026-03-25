@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import time as _time
@@ -41,6 +42,156 @@ _CREATION_VERBS = frozenset({
     "set", "setup",
 })
 
+# When keyword overlap with directory names fails, still suggest role-based dirs.
+_ROLE_DIR_SUBSTRINGS = (
+    "service", "route", "controller", "model", "test", "schema", "api",
+    "handler", "view", "repository", "repo",
+)
+
+_CODE_EXT_PATTERN = (
+    r"(?:py|js|mjs|cjs|ts|tsx|jsx|go|rs|java|kt|kts|"
+    r"c|h|hpp|cpp|cc|cxx|cs|rb|php|sql|md|yaml|yml|json|toml)"
+)
+
+
+def _looks_like_rel_project_path(path: str) -> bool:
+    """True if path looks like a relative project file path (conservative)."""
+    p = path.strip().replace("\\", "/")
+    if not p or ".." in p or p.startswith("/"):
+        return False
+    return "/" in p or (len(p) > 2 and "." in os.path.basename(p))
+
+
+def _extract_paths_from_goal(goal: str) -> list[str]:
+    """Parse explicit file paths from goal text (backticks, quotes, slash paths).
+
+    Returns deduplicated relative paths normalized with forward slashes.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    ext = _CODE_EXT_PATTERN
+
+    def _push(raw: str) -> None:
+        p = raw.strip().replace("\\", "/")
+        if not _looks_like_rel_project_path(p) or p in seen:
+            return
+        seen.add(p)
+        ordered.append(p)
+
+    for m in re.finditer(rf"`([^`]+\.{ext})`", goal, re.IGNORECASE):
+        _push(m.group(1))
+    for m in re.finditer(rf'["\']([^"\']+\.{ext})["\']', goal, re.IGNORECASE):
+        _push(m.group(1))
+    for m in re.finditer(
+        rf"\b((?:[a-zA-Z0-9_.-]+/)+[a-zA-Z0-9_.-]+\.{ext})\b",
+        goal,
+        re.IGNORECASE,
+    ):
+        _push(m.group(1))
+
+    return ordered
+
+
+# Common role directory names to fall back on when project-specific dirs don't match.
+# These are used when goal keywords don't match any existing directory paths.
+_FALLBACK_ROLE_DIRS = (
+    "src/services",
+    "src/models",
+    "src/routes",
+    "src/controllers",
+    "src/api",
+    "src/handlers",
+    "src/lib",
+    "src/components",
+    "src/features",
+)
+
+
+def _fallback_directories(
+    goal_keywords: set[str],
+    dirs: dict[str, list[str]],
+    existing_files: set[str],
+) -> list[dict[str, Any]]:
+    """Suggest files in fallback role directories when keyword matching finds nothing.
+
+    When no existing directories match goal keywords, this function suggests new files
+    in common role-based directories (src/services, src/models, etc.) using keyword
+    patterns to infer appropriate file names.
+    """
+    suggestions: list[dict[str, Any]] = []
+    blob = " ".join(goal_keywords).lower()
+
+    # Detect dominant extension from existing project files
+    all_extensions = [os.path.splitext(f)[1] for f in existing_files if os.path.splitext(f)[1]]
+    default_ext = max(set(all_extensions), key=all_extensions.count) if all_extensions else ".js"
+
+    # Find which role keywords appear in the goal
+    matching_roles: list[str] = []
+    for role in _FALLBACK_ROLE_DIRS:
+        role_name = role.split("/")[-1]  # "services" -> "service"
+        singular = role_name.rstrip("s")
+        if role_name in blob or singular in blob:
+            matching_roles.append(role)
+
+    # If no explicit role matches, use all fallback dirs
+    if not matching_roles:
+        matching_roles = list(_FALLBACK_ROLE_DIRS)
+
+    # Keywords to skip (generic terms that create noise)
+    skip_kw = frozenset({"src", "lib", "app", "index", "main", "test", "the", "add", "new", "file", "files", "module"})
+
+    # For each role dir, create suggestions using goal keywords
+    for role_dir in matching_roles[:5]:
+        role_name = role_dir.split("/")[-1]
+        singular = role_name.rstrip("s")
+
+        # Get existing files in this specific directory for sibling naming
+        existing_in_dir = dirs.get(role_dir, [])
+        siblings = sorted(existing_in_dir)
+
+        # Filter keywords to relevant domain terms
+        relevant_kw = [kw for kw in goal_keywords if kw not in skip_kw]
+
+        for kw in relevant_kw[:3]:  # Up to 3 keywords per directory
+            name = _infer_file_name(kw, siblings)
+            # When siblings is empty, _infer_file_name returns just the keyword without extension
+            if not siblings:
+                name = kw + default_ext
+            path = os.path.join(role_dir, name)
+            if path not in existing_files:
+                suggestions.append({
+                    "path": path,
+                    "keyword": kw,
+                    "directory": role_dir,
+                    "inferred_from": siblings[:2] if siblings else [],
+                    "fallback": True,
+                })
+
+    # Deduplicate by path
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for s in suggestions:
+        if s["path"] not in seen:
+            seen.add(s["path"])
+            deduped.append(s)
+
+    return deduped[:8]
+
+
+def _directories_for_role_hints(goal_keywords: set[str], dirs: dict[str, list[str]]) -> list[str]:
+    """Pick directories whose path segments match common role folder names."""
+    if not goal_keywords or not dirs:
+        return []
+    blob = " ".join(goal_keywords).lower()
+    if not any(r in blob for r in _ROLE_DIR_SUBSTRINGS):
+        return []
+    out: list[str] = []
+    for d in sorted(dirs.keys()):
+        dl = d.lower().replace("\\", "/")
+        if any(seg in dl for seg in _ROLE_DIR_SUBSTRINGS):
+            out.append(d)
+    return out[:8]
+
 
 def _extract_goal_keywords(goal: str) -> set[str]:
     """Extract meaningful keywords from a goal, filtering stop words and verbs."""
@@ -76,12 +227,27 @@ def _keyword_variants(keywords: set[str]) -> set[str]:
 def _matched_keywords(
     goal_keywords: set[str], candidate_words: set[str],
 ) -> set[str]:
-    """Return which goal keywords match any candidate word (with plural/singular)."""
+    """Return which goal keywords match any candidate word (variants include plural/singular)."""
     matched: set[str] = set()
     for kw in goal_keywords:
-        if {kw, kw + "s", kw.rstrip("s")} & candidate_words:
+        variants = _keyword_variants({kw})
+        if variants & candidate_words:
             matched.add(kw)
     return matched
+
+
+def _dep_indegree_stats(dep_graph: dict[str, list[str]]) -> tuple[dict[str, int], int]:
+    """In-degree per file (how many files import it) and max in-degree for normalization."""
+    indeg: dict[str, int] = {}
+    for deps in dep_graph.values():
+        for d in deps:
+            indeg[d] = indeg.get(d, 0) + 1
+    mx = max(indeg.values()) if indeg else 0
+    return indeg, mx
+
+
+# Blend keyword overlap with import-graph centrality (hub files get credit).
+_RELEVANCE_KEYWORD_ALPHA = 0.7
 
 
 def _infer_file_name(keyword: str, siblings: list[str]) -> str:
@@ -150,6 +316,9 @@ def _creation_hints(
         if dir_words & kw_variants:
             relevant_dirs.append(d)
 
+    if not relevant_dirs:
+        relevant_dirs = _directories_for_role_hints(goal_keywords, dirs)
+
     # Infer suggested new files from goal keywords + sibling naming patterns
     suggested: list[dict[str, Any]] = []
     for d in relevant_dirs:
@@ -166,7 +335,12 @@ def _creation_hints(
                     "directory": d,
                     "inferred_from": siblings[:3],
                 })
-    suggested = suggested[:5]
+
+    # When no relevant directories found, use fallback role directories
+    if not suggested:
+        suggested = _fallback_directories(goal_keywords, dirs, existing_files)
+
+    suggested = suggested[:8]
 
     return {
         "creation_intent": True,
@@ -223,10 +397,139 @@ def _generate_creation_steps(
     return steps
 
 
+def _scaffold_steps(
+    scaffold: list[dict[str, Any]],
+    start_index: int,
+    existing_files: set[str],
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    """Generate ordered create-steps from explicit scaffold specs.
+
+    Returns (steps, dependency_graph) where dependency_graph maps scaffold
+    file paths to their declared dependencies (for merging into the main graph).
+    """
+    # Index: scaffold file path -> position in scaffold list
+    file_to_pos: dict[str, int] = {}
+    for i, entry in enumerate(scaffold):
+        f = entry.get("file", "")
+        if f:
+            file_to_pos[f] = i
+
+    # Build dependency graph from scaffold entries
+    scaffold_graph: dict[str, list[str]] = {}
+    for entry in scaffold:
+        f = entry.get("file", "")
+        if not f:
+            continue
+        raw_deps = entry.get("depends_on") or []
+        scaffold_graph[f] = [d for d in raw_deps if d]
+
+    # Topological sort scaffold entries so dependencies come first
+    ordered = topological_sort(scaffold_graph)
+
+    # Map scaffold file -> step index (offset by start_index)
+    file_to_step: dict[str, int] = {}
+    steps: list[dict[str, Any]] = []
+    for f in ordered:
+        if f not in file_to_pos:
+            continue  # dependency target that's an existing file, not a scaffold entry
+        entry = scaffold[file_to_pos[f]]
+        if f in existing_files:
+            continue  # skip files that already exist
+
+        step_idx = start_index + len(steps)
+        file_to_step[f] = step_idx
+
+        # Resolve depends_on to step indices (both scaffold and existing-file steps)
+        raw_deps = entry.get("depends_on") or []
+        depends_on = [file_to_step[d] for d in raw_deps if d in file_to_step]
+
+        desc = entry.get("description") or f"Create {f}"
+        if not desc.startswith("Create "):
+            desc = f"Create {f} — {desc}"
+
+        steps.append({
+            "step_index": step_idx,
+            "file": f,
+            "action": "create",
+            "symbols": [],
+            "symbol_count": 0,
+            "description": desc,
+            "rationale": _scaffold_rationale(entry, raw_deps),
+            "depends_on": depends_on,
+            "relevance": 1.0,
+        })
+
+    return steps, scaffold_graph
+
+
+def strategy_to_scaffold(strategy: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build ``scaffold``-style entries from a stored strategy for decompose replay.
+
+    Includes steps with ``action == 'create'`` or zero symbols (new-file placeholders),
+    maps integer ``depends_on`` indices to file paths, and preserves string path deps.
+    """
+    steps = strategy.get("steps") or []
+    idx_to_file: dict[int, str] = {}
+    for s in steps:
+        si = s.get("step_index")
+        f = s.get("file")
+        if isinstance(si, int) and f:
+            idx_to_file[si] = f
+
+    out: list[dict[str, Any]] = []
+    for s in steps:
+        f = s.get("file")
+        if not f or f == "__project__":
+            continue
+        action = s.get("action")
+        sym = s.get("symbol_count")
+        if sym is None:
+            sym = len(s.get("symbols") or [])
+        if action != "create" and sym != 0:
+            continue
+
+        entry: dict[str, Any] = {"file": f}
+        desc = s.get("description")
+        if desc:
+            entry["description"] = desc
+        raw_deps = s.get("depends_on") or []
+        path_deps: list[str] = []
+        for d in raw_deps:
+            if isinstance(d, int):
+                pf = idx_to_file.get(d)
+                if pf:
+                    path_deps.append(pf)
+            elif isinstance(d, str):
+                path_deps.append(d)
+        if path_deps:
+            entry["depends_on"] = path_deps
+        out.append(entry)
+    return out
+
+
+def _scaffold_rationale(entry: dict[str, Any], deps: list[str]) -> str:
+    """Build a rationale string for a scaffold step."""
+    parts: list[str] = ["scaffold: user-specified target"]
+    if deps:
+        dep_summary = ", ".join(deps[:3])
+        if len(deps) > 3:
+            dep_summary += f" (+{len(deps) - 3} more)"
+        parts.append(f"depends on {dep_summary}")
+    return "; ".join(parts)
+
+
 def _score_relevance(
-    filepath: str, sym_names: list[str], goal_keywords: set[str],
+    filepath: str,
+    sym_names: list[str],
+    goal_keywords: set[str],
+    indegree: dict[str, int],
+    max_indegree: int,
 ) -> float:
-    """Score how relevant a file is to the goal (0.0 to 1.0)."""
+    """Score how relevant a file is to the goal (0.0 to 1.0).
+
+    Blends keyword overlap with import in-degree so highly-imported hubs are not
+    scored near zero when the filename omits domain tokens.
+    """
     if not goal_keywords:
         return 1.0
     path_words = set(re.findall(r'[a-z]+', filepath.lower()))
@@ -235,7 +538,17 @@ def _score_relevance(
         sym_words.update(
             p.lower() for p in re.findall(r'[a-z]+|[A-Z][a-z]*', s) if len(p) > 2
         )
-    return len(_matched_keywords(goal_keywords, path_words | sym_words)) / len(goal_keywords)
+    matched = _matched_keywords(goal_keywords, path_words | sym_words)
+    keyword_ratio = len(matched) / max(1, len(goal_keywords))
+    if max_indegree <= 0:
+        graph_boost = 0.0
+    else:
+        raw = indegree.get(filepath, 0)
+        graph_boost = math.log(1 + raw) / math.log(1 + max_indegree)
+    return (
+        _RELEVANCE_KEYWORD_ALPHA * keyword_ratio
+        + (1.0 - _RELEVANCE_KEYWORD_ALPHA) * graph_boost
+    )
 
 
 # ── Step generation ──────────────────────────────────────────────────────────
@@ -257,12 +570,17 @@ def _generate_steps(
     # P4: Compute effective relevance threshold
     threshold = max(min_relevance, 0.01) if relevant_only else min_relevance
 
+    indeg, max_in = _dep_indegree_stats(dep_graph)
+
     for filepath in file_order:
         sym_names = symbols.get(filepath, [])
         if not sym_names:
             continue
 
-        relevance = _score_relevance(filepath, sym_names, goal_keywords) if goal_keywords else None
+        relevance = (
+            _score_relevance(filepath, sym_names, goal_keywords, indeg, max_in)
+            if goal_keywords else None
+        )
         if threshold > 0 and relevance is not None and relevance < threshold:
             continue
 
@@ -468,6 +786,7 @@ class Planner:
         self, goal: str, project_root: str,
         scope: str | None = None, relevant_only: bool = False,
         skip_recipes: bool = False, min_relevance: float = 0.0,
+        scaffold: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         t0 = _time.monotonic()
 
@@ -477,6 +796,10 @@ class Planner:
             recipe = self.store.retrieve_best_recipe(goal, min_similarity=0.7)
             if recipe:
                 recipe.setdefault("_source", "recipe_exact")
+                # Auto-convert recipe create/zero-symbol steps to scaffold entries
+                scaffold_from_recipe = strategy_to_scaffold(recipe)
+                if scaffold_from_recipe:
+                    recipe["scaffold"] = scaffold_from_recipe
                 return recipe
 
         active_constraints = self.store.get_active_constraints()
@@ -497,10 +820,16 @@ class Planner:
             recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
             if recipe:
                 recipe.setdefault("_source", "recipe_structural")
+                # Auto-convert recipe create/zero-symbol steps to scaffold entries
+                scaffold_from_recipe = strategy_to_scaffold(recipe)
+                if scaffold_from_recipe:
+                    recipe["scaffold"] = scaffold_from_recipe
                 return recipe
 
         # Collect near-miss recipes for reference
-        near_matches = self.store.retrieve_near_matches(goal, n=3)
+        near_matches = self.store.retrieve_near_matches(
+            goal, n=3, context_files=all_files,
+        )
 
         relevant_graph = {
             f: [d for d in deps if d in all_files]
@@ -522,11 +851,43 @@ class Planner:
         )
         steps, applied = _apply_constraints(steps, active_constraints)
 
-        # Creation hints + concrete "Create" steps for new-file goals
-        hints = _creation_hints(goal, goal_keywords, all_files)
-        creation_steps = _generate_creation_steps(hints, start_index=len(steps))
-        if creation_steps:
-            steps.extend(creation_steps)
+        # Scaffold: explicit entries, plus paths inferred from goal text (user wins on duplicate paths).
+        # If ``scaffold`` is passed (including []), skip heuristic creation_hints — only inferred paths merge in.
+        inferred_entries = [
+            {"file": p, "description": f"Inferred from goal text: {p}"}
+            for p in _extract_paths_from_goal(goal)
+            if p not in all_files
+        ]
+        merged_scaffold: list[dict[str, Any]] | None = None
+        if scaffold is not None:
+            user_files = {e.get("file") for e in scaffold if e.get("file")}
+            extra = [e for e in inferred_entries if e["file"] not in user_files]
+            merged_scaffold = list(scaffold) + extra
+        elif inferred_entries:
+            merged_scaffold = inferred_entries
+
+        hints: dict[str, Any] | None = None
+        if scaffold is not None:
+            scaffold_steps, scaffold_graph = _scaffold_steps(
+                merged_scaffold or [], start_index=len(steps), existing_files=all_files,
+            )
+            if scaffold_steps:
+                steps.extend(scaffold_steps)
+            for f, deps in scaffold_graph.items():
+                relevant_graph.setdefault(f, []).extend(deps)
+        elif merged_scaffold is not None:
+            scaffold_steps, scaffold_graph = _scaffold_steps(
+                merged_scaffold, start_index=len(steps), existing_files=all_files,
+            )
+            if scaffold_steps:
+                steps.extend(scaffold_steps)
+            for f, deps in scaffold_graph.items():
+                relevant_graph.setdefault(f, []).extend(deps)
+        else:
+            hints = _creation_hints(goal, goal_keywords, all_files)
+            creation_steps = _generate_creation_steps(hints, start_index=len(steps))
+            if creation_steps:
+                steps.extend(creation_steps)
 
         t4 = _time.monotonic()
 
@@ -560,7 +921,13 @@ class Planner:
         }
         if near_matches:
             result["near_match_recipes"] = near_matches
-        if hints:
+        if scaffold is not None or merged_scaffold is not None:
+            result["scaffold_applied"] = len([
+                s for s in steps if s.get("action") == "create"
+            ])
+            if inferred_entries:
+                result["goal_paths_inferred"] = len(inferred_entries)
+        elif hints:
             result["creation_hints"] = hints
 
         return result

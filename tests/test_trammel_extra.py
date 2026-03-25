@@ -17,7 +17,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, plan_and_execute  # noqa: E402
-from trammel.core import Planner, _apply_constraints  # noqa: E402
+from trammel.core import (  # noqa: E402
+    Planner,
+    _apply_constraints,
+    _extract_paths_from_goal,
+    _generate_steps,
+    strategy_to_scaffold,
+)
 from trammel.mcp_server import _TOOL_SCHEMAS, dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.analyzers import detect_language  # noqa: E402
@@ -120,10 +126,66 @@ class TestStoreExtra(unittest.TestCase):
             all_c = store.get_active_constraints()
             self.assertEqual(len(all_c), 2)
 
+    def test_near_matches_composite_ordering(self) -> None:
+        """Structural overlap changes ranking when context_files is set."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RecipeStore(os.path.join(tmp, "near.db"))
+            base = "implement add services routes tests for nutrition module"
+            strat_a = {"steps": [{"file": "foo/services/foo.js"}]}
+            strat_b = {"steps": [{"file": "bar/models/bar.js"}]}
+            store.save_recipe(base + " variant a", strat_a, True)
+            store.save_recipe(base + " variant b", strat_b, True)
+            goal = "implement add services routes tests for nutrition module today"
+            ctx = {"foo/services/foo.js", "app.js"}
+            ranked = store.retrieve_near_matches(goal, n=3, context_files=ctx)
+            self.assertGreaterEqual(len(ranked), 2)
+            patterns = [r["pattern"] for r in ranked]
+            self.assertLess(patterns.index(base + " variant a"), patterns.index(base + " variant b"))
+            for r in ranked:
+                self.assertIn("match_score", r)
+                self.assertIn("match_components", r)
+
 
 # ── Planner extras ───────────────────────────────────────────────────────────
 
 class TestPlannerExtra(unittest.TestCase):
+    def test_extract_paths_from_goal(self) -> None:
+        g = 'Implement `src/new/mod.py` and `"lib/helper.ts"` plus src/extra/file.js'
+        paths = _extract_paths_from_goal(g)
+        self.assertIn("src/new/mod.py", paths)
+        self.assertIn("lib/helper.ts", paths)
+        self.assertIn("src/extra/file.js", paths)
+
+    def test_decompose_infers_scaffold_from_goal_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "gp.db"))
+            result = Planner(store=store).decompose(
+                "Add feature in `src/new/feature.py`", d,
+            )
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            files = {s["file"] for s in create_steps}
+            self.assertIn("src/new/feature.py", files)
+            self.assertGreaterEqual(result.get("goal_paths_inferred", 0), 1)
+
+    def test_relevance_graph_boost_for_import_hub(self) -> None:
+        """Hub file with no keyword match still gets higher relevance than a leaf."""
+        symbols = {
+            "hub.py": ["Thing"],
+            "leaf.py": ["Leaf"],
+        }
+        dep_graph = {
+            "leaf.py": ["hub.py"],
+        }
+        file_order = ["hub.py", "leaf.py"]
+        goal_keywords = {"zzz", "qqq"}
+        steps = _generate_steps(
+            file_order, symbols, dep_graph, "refactor zzz qqq",
+            goal_keywords=goal_keywords, relevant_only=False,
+        )
+        by_file = {s["file"]: s["relevance"] for s in steps}
+        self.assertGreater(by_file["hub.py"], by_file["leaf.py"])
+
     def test_decompose_uses_stored_recipe(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             store = RecipeStore(os.path.join(d, "pl.db"))
@@ -626,6 +688,42 @@ class TestMCPDispatchCoverage(unittest.TestCase):
             self.assertIn("steps", got["strategy"])
             self.assertIn("match_score", got)
             self.assertIn("match_components", got)
+
+    def test_get_recipe_include_scaffold(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "sr2.db"))
+            strat = {
+                "steps": [
+                    {
+                        "step_index": 0, "file": "a.js", "action": "create",
+                        "depends_on": [], "symbol_count": 0, "symbols": [],
+                        "description": "first",
+                    },
+                    {
+                        "step_index": 1, "file": "b.js", "action": "create",
+                        "depends_on": [0], "symbol_count": 0, "symbols": [],
+                    },
+                ],
+            }
+            goal = "refactor auth module with scaffold export"
+            store.save_recipe(goal, strat, True)
+            got = dispatch_tool(store, "get_recipe", {
+                "goal": goal,
+                "include_scaffold": True,
+            })
+            self.assertIn("scaffold", got)
+            self.assertEqual(len(got["scaffold"]), 2)
+            self.assertEqual(got["scaffold"][1].get("depends_on"), ["a.js"])
+
+    def test_strategy_to_scaffold_skips_symbolic_modify_steps(self) -> None:
+        strat = {
+            "steps": [
+                {"step_index": 0, "file": "lib.py", "symbol_count": 2, "symbols": ["a", "b"]},
+                {"step_index": 1, "file": "new.py", "action": "create", "depends_on": [], "symbol_count": 0},
+            ],
+        }
+        sc = strategy_to_scaffold(strat)
+        self.assertEqual([e["file"] for e in sc], ["new.py"])
 
     def test_get_recipe_no_match(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -1264,6 +1362,159 @@ class TestCreationSteps(unittest.TestCase):
             # Should follow snake_case: search_service.py
             found = any("search_service" in s["file"] for s in create_steps)
             self.assertTrue(found, f"Expected snake_case name, got: {[s['file'] for s in create_steps]}")
+
+
+class TestScaffoldSteps(unittest.TestCase):
+    """Scaffold mode: explicit file specs for greenfield work."""
+
+    def test_scaffold_basic(self) -> None:
+        """Scaffold entries produce create-action steps."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sc.db"))
+            result = Planner(store=store).decompose(
+                "build web UI", d,
+                scaffold=[
+                    {"file": "public/index.html", "description": "Main dashboard"},
+                    {"file": "public/css/style.css", "description": "Global stylesheet"},
+                    {"file": "public/js/app.js", "description": "Frontend entry point"},
+                ],
+            )
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertEqual(len(create_steps), 3)
+            files = {s["file"] for s in create_steps}
+            self.assertEqual(files, {"public/index.html", "public/css/style.css", "public/js/app.js"})
+            self.assertEqual(result["scaffold_applied"], 3)
+            self.assertNotIn("creation_hints", result)
+
+    def test_scaffold_dependency_ordering(self) -> None:
+        """Scaffold steps respect declared depends_on for topological ordering."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "so.db"))
+            result = Planner(store=store).decompose(
+                "build web UI", d,
+                scaffold=[
+                    {"file": "public/index.html", "depends_on": ["public/css/style.css", "public/js/app.js"]},
+                    {"file": "public/css/style.css"},
+                    {"file": "public/js/app.js", "depends_on": ["public/js/api.js"]},
+                    {"file": "public/js/api.js"},
+                ],
+            )
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            files_ordered = [s["file"] for s in create_steps]
+            # api.js must come before app.js (app.js depends on api.js)
+            self.assertLess(files_ordered.index("public/js/api.js"), files_ordered.index("public/js/app.js"))
+            # style.css and app.js must come before index.html
+            self.assertLess(files_ordered.index("public/css/style.css"), files_ordered.index("public/index.html"))
+            self.assertLess(files_ordered.index("public/js/app.js"), files_ordered.index("public/index.html"))
+
+    def test_scaffold_depends_on_generates_step_indices(self) -> None:
+        """depends_on in scaffold maps to numeric step indices in output."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "si.db"))
+            result = Planner(store=store).decompose(
+                "build frontend", d,
+                scaffold=[
+                    {"file": "b.js", "depends_on": ["a.js"]},
+                    {"file": "a.js"},
+                ],
+            )
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            step_a = next(s for s in create_steps if s["file"] == "a.js")
+            step_b = next(s for s in create_steps if s["file"] == "b.js")
+            self.assertEqual(step_a["depends_on"], [])
+            self.assertIn(step_a["step_index"], step_b["depends_on"])
+
+    def test_scaffold_skips_existing_files(self) -> None:
+        """Files that already exist in the project are not duplicated as scaffold steps."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "existing.py").write_text("def foo(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "se.db"))
+            result = Planner(store=store).decompose(
+                "add new module", d,
+                scaffold=[
+                    {"file": "existing.py", "description": "Already exists"},
+                    {"file": "new_module.py", "description": "Brand new"},
+                ],
+            )
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertEqual(len(create_steps), 1)
+            self.assertEqual(create_steps[0]["file"], "new_module.py")
+
+    def test_scaffold_empty_list(self) -> None:
+        """Empty scaffold list falls through to no creation steps."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "em.db"))
+            result = Planner(store=store).decompose("refactor", d, scaffold=[])
+            self.assertEqual(result.get("scaffold_applied"), 0)
+
+    def test_scaffold_description_in_step(self) -> None:
+        """Custom descriptions appear in step output."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "ds.db"))
+            result = Planner(store=store).decompose(
+                "build API", d,
+                scaffold=[{"file": "api/routes.py", "description": "REST route handlers"}],
+            )
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertEqual(len(create_steps), 1)
+            self.assertIn("REST route handlers", create_steps[0]["description"])
+
+    def test_scaffold_merges_into_dependency_graph(self) -> None:
+        """Scaffold dependency edges appear in the result dependency_graph."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "mg.db"))
+            result = Planner(store=store).decompose(
+                "build frontend", d,
+                scaffold=[
+                    {"file": "page.js", "depends_on": ["api.js"]},
+                    {"file": "api.js"},
+                ],
+            )
+            graph = result["dependency_graph"]
+            self.assertIn("page.js", graph)
+            self.assertIn("api.js", graph["page.js"])
+
+    def test_scaffold_step_fields(self) -> None:
+        """Scaffold steps have correct field structure."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sf.db"))
+            result = Planner(store=store).decompose(
+                "add module", d,
+                scaffold=[{"file": "mod.py"}],
+            )
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            step = create_steps[0]
+            self.assertEqual(step["action"], "create")
+            self.assertEqual(step["symbols"], [])
+            self.assertEqual(step["symbol_count"], 0)
+            self.assertEqual(step["relevance"], 1.0)
+            self.assertIn("scaffold", step["rationale"])
+
+    def test_scaffold_dispatch(self) -> None:
+        """Scaffold works through MCP dispatch."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sd.db"))
+            result = dispatch_tool(store, "decompose", {
+                "goal": "build web UI",
+                "project_root": d,
+                "scaffold": [
+                    {"file": "public/index.html", "description": "Dashboard"},
+                    {"file": "public/app.js", "depends_on": ["public/api.js"]},
+                    {"file": "public/api.js"},
+                ],
+            })
+            self.assertIn("steps", result)
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertEqual(len(create_steps), 3)
+            self.assertEqual(result["scaffold_applied"], 3)
 
 
 class TestTrammelConfig(unittest.TestCase):
