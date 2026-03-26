@@ -250,6 +250,210 @@ def _dep_indegree_stats(dep_graph: dict[str, list[str]]) -> tuple[dict[str, int]
 _RELEVANCE_KEYWORD_ALPHA = 0.7
 
 
+# ── Architecture pattern detection for scaffold inference ─────────────────────
+
+# Role-based directory fragments that imply layered architecture layers.
+_LAYER_DIRS: tuple[tuple[str, str], ...] = (
+    ("service", "Service layer module"),
+    ("services", "Service layer module"),
+    ("route", "API route module"),
+    ("routes", "API route module"),
+    ("controller", "Controller module"),
+    ("controllers", "Controller module"),
+    ("handler", "Handler module"),
+    ("handlers", "Handler module"),
+    ("engine", "Engine/core module"),
+    ("engines", "Engine/core module"),
+    ("algorithm", "Algorithm module"),
+    ("algorithms", "Algorithm module"),
+    ("collector", "Collector module"),
+    ("aggregator", "Aggregator module"),
+    ("plugin", "Plugin module"),
+    ("plugins", "Plugin module"),
+    ("registry", "Registry module"),
+    ("middleware", "Middleware module"),
+    ("model", "Model module"),
+    ("models", "Model module"),
+    ("repository", "Repository module"),
+    ("repositories", "Repository module"),
+    ("util", "Utility module"),
+    ("utils", "Utility module"),
+)
+
+# Domain keywords that imply specific multi-layer patterns.
+_LAYER_PATTERNS: tuple[dict[str, Any], ...] = (
+    {
+        "keywords": {"similarity", "distance", "comparison", "match"},
+        "role": "engine",
+        "layers": [
+            ("algorithm", "{domain}Algorithms.js"),
+            ("engine", "{domain}Vectorizer.js"),
+            ("service", "{domain}Service.js"),
+            ("route", "{domain}Routes.js"),
+        ],
+        "test_layers": [
+            ("algorithm", "{domain}Algorithms.test.js"),
+            ("service", "{domain}Service.test.js"),
+        ],
+    },
+    {
+        "keywords": {"optimize", "optimizer", "pareto", "frontier"},
+        "role": "service",
+        "layers": [
+            ("algorithm", "{domain}Optimizer.js"),
+            ("service", "{domain}Service.js"),
+            ("route", "{domain}Routes.js"),
+        ],
+        "test_layers": [
+            ("algorithm", "{domain}Optimizer.test.js"),
+            ("service", "{domain}Service.test.js"),
+        ],
+    },
+    {
+        "keywords": {"metric", "metrics", "dashboard", "performance", "monitor"},
+        "role": "collector",
+        "layers": [
+            ("collector", "{domain}Collector.js"),
+            ("aggregator", "{domain}Aggregator.js"),
+            ("route", "{domain}Routes.js"),
+        ],
+        "test_layers": [
+            ("collector", "{domain}Collector.test.js"),
+            ("aggregator", "{domain}Aggregator.test.js"),
+        ],
+    },
+    {
+        "keywords": {"plugin", "dynamic", "registry", "extension"},
+        "role": "plugin",
+        "layers": [
+            ("registry", "{domain}Registry.js"),
+            ("manager", "{domain}PluginManager.js"),
+            ("plugin", "{domain}Plugin.js"),
+        ],
+        "test_layers": [
+            ("registry", "{domain}Registry.test.js"),
+        ],
+    },
+    {
+        "keywords": {"openapi", "swagger", "api", "spec", "documentation"},
+        "role": "generator",
+        "layers": [
+            ("generator", "{domain}Generator.js"),
+        ],
+        "test_layers": [
+            ("generator", "{domain}Generator.test.js"),
+        ],
+    },
+)
+
+
+def _detect_layered_architecture(
+    goal: str,
+    goal_keywords: set[str],
+    existing_files: set[str],
+    dirs: dict[str, list[str]],
+) -> list[dict[str, Any]] | None:
+    """Detect if goal implies a layered architecture pattern and generate scaffold.
+
+    Returns scaffold entries with depends_on chains for multi-layer patterns, or None
+    if no clear pattern is detected.
+    """
+    # Find matching pattern: check if any pattern keyword (or its variants) is in goal keywords
+    matched_pattern: dict[str, Any] | None = None
+    for pat in _LAYER_PATTERNS:
+        for kw in pat["keywords"]:
+            variants = {kw, kw + "s", kw.rstrip("s")}
+            if variants & goal_keywords:
+                matched_pattern = pat
+                break
+        if matched_pattern:
+            break
+
+    if not matched_pattern:
+        return None
+
+    # Extract the primary domain keyword
+    domain_kw = None
+    for kw in sorted(goal_keywords, key=len, reverse=True):
+        if kw in goal_keywords and len(kw) > 3 and kw not in {"service", "services", "route", "routes", "plugin", "plugins"}:
+            domain_kw = kw
+            break
+
+    if not domain_kw:
+        return None
+
+    # Find target directory: prefer existing dirs matching the role
+    role_dir: str | None = None
+    role_label = matched_pattern["role"]
+    for d in sorted(dirs.keys()):
+        dl = d.lower()
+        if role_label in dl or any(seg in dl for seg in ("src/api", "src/services", "src/utils")):
+            if "test" not in dl:
+                role_dir = d
+                break
+
+    if not role_dir:
+        # Fallback: find src/ subdir or use first non-test dir
+        for d in sorted(dirs.keys()):
+            if "test" not in d.split("/"):
+                role_dir = d
+                break
+
+    if not role_dir:
+        return None
+
+    # Build scaffold entries
+    scaffold: list[dict[str, Any]] = []
+    prev_file: str | None = None
+
+    for layer_type, filename_tpl in matched_pattern["layers"]:
+        filename = filename_tpl.format(domain=domain_kw.capitalize())
+        path = f"{role_dir}/{filename}"
+
+        if path in existing_files:
+            prev_file = path
+            continue
+
+        entry: dict[str, Any] = {
+            "file": path,
+            "description": f"{layer_type}: {filename}",
+        }
+        if prev_file:
+            entry["depends_on"] = [prev_file]
+        scaffold.append(entry)
+        prev_file = path
+
+    # Add test files
+    test_dir = role_dir.replace("src/", "tests/")
+    if test_dir == role_dir:
+        test_dir = f"{role_dir}.test"
+    if "/" in role_dir:
+        parts = role_dir.split("/")
+        if "src" in parts:
+            idx = parts.index("src")
+            parts.insert(idx + 1, "tests")
+        else:
+            parts.insert(0, "tests")
+        test_dir = "/".join(parts)
+
+    for layer_type, filename_tpl in matched_pattern["test_layers"]:
+        filename = filename_tpl.format(domain=domain_kw.capitalize())
+        path = f"{test_dir}/{filename}"
+
+        # Find the layer this test depends on
+        layer_filename = filename_tpl.format(domain=domain_kw.capitalize())
+        layer_path = f"{role_dir}/{layer_filename}"
+        test_entry: dict[str, Any] = {
+            "file": path,
+            "description": f"test: {filename}",
+        }
+        if layer_path in existing_files or any(s.get("file") == layer_path for s in scaffold):
+            test_entry["depends_on"] = [layer_path]
+        scaffold.append(test_entry)
+
+    return scaffold if scaffold else None
+
+
 def _infer_file_name(keyword: str, siblings: list[str]) -> str:
     """Infer a new filename from a keyword and existing sibling filenames.
 
@@ -307,6 +511,18 @@ def _creation_hints(
         parent = os.path.dirname(f)
         if parent:
             dirs.setdefault(parent, []).append(os.path.basename(f))
+
+    # Try layered architecture detection first (Issue 1 fix: detect multi-layer patterns)
+    layered = _detect_layered_architecture(goal, goal_keywords, existing_files, dirs)
+    if layered:
+        return {
+            "creation_intent": True,
+            "goal_entities": sorted(goal_keywords),
+            "relevant_directories": [],
+            "directory_structure": {},
+            "suggested_files": [{"path": e["file"], "keyword": e["file"].split("/")[-1].split(".")[0], "directory": os.path.dirname(e["file"]), "inferred_from": [], "layered": True, "depends_on": e.get("depends_on", [])} for e in layered],
+            "layered_scaffold": layered,
+        }
 
     # Find directories relevant to goal keywords
     kw_variants = _keyword_variants(goal_keywords)
@@ -368,30 +584,46 @@ def _generate_creation_steps(
     goal_entities = hints.get("goal_entities", [])
     entity_summary = ", ".join(goal_entities[:4])
 
+    # Map file path -> step index for dependency resolution
+    file_to_step: dict[str, int] = {}
     steps: list[dict[str, Any]] = []
+
     for s in suggested:
         path = s["path"]
         kw = s["keyword"]
         inferred = s.get("inferred_from", [])
-        rationale = (
-            f"Inferred from goal keyword '{kw}' + directory pattern "
-            f"(siblings: {', '.join(inferred)})"
-            if inferred
-            else f"Inferred from goal keyword '{kw}'"
-        )
-        # P5: Goal-aware description instead of bare "Create {path}"
-        desc = f"Create {path} — implement {kw} module"
-        if entity_summary and kw not in entity_summary:
-            desc += f" (related: {entity_summary})"
+        is_layered = s.get("layered", False)
+        step_idx = start_index + len(steps)
+        file_to_step[path] = step_idx
+
+        if is_layered:
+            rationale = f"Layered architecture pattern: {s.get('directory', os.path.dirname(path))}"
+            desc = s.get("description", f"Create {path}")
+        else:
+            rationale = (
+                f"Inferred from goal keyword '{kw}' + directory pattern "
+                f"(siblings: {', '.join(inferred)})"
+                if inferred
+                else f"Inferred from goal keyword '{kw}'"
+            )
+            # P5: Goal-aware description instead of bare "Create {path}"
+            desc = f"Create {path} — implement {kw} module"
+            if entity_summary and kw not in entity_summary:
+                desc += f" (related: {entity_summary})"
+
+        # Resolve depends_on from layered scaffold (file paths -> step indices)
+        raw_deps: list[str] = s.get("depends_on", [])
+        resolved_deps = [file_to_step[d] for d in raw_deps if d in file_to_step]
+
         steps.append({
-            "step_index": start_index + len(steps),
+            "step_index": step_idx,
             "file": path,
             "action": "create",
             "symbols": [],
             "symbol_count": 0,
             "description": desc,
             "rationale": rationale,
-            "depends_on": [],
+            "depends_on": resolved_deps,
             "relevance": 1.0,
         })
     return steps

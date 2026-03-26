@@ -184,6 +184,28 @@ _TS_ALIAS_IMPORT_RE = re.compile(
     r"""|import\(\s*['"]([^'"./][^'"]*?)['"]\s*\)""",
 )
 
+# Fix 3: Detect fs.readFile/readFileSync/readdir/readdirSync with string paths.
+# Matches: fs.readFile('path', ...), fs.readFileSync('path', ...), etc.
+# The first capture group is the string literal path.
+_FS_READ_RE = re.compile(
+    r"(?:fs\.readFile(?:Sync)?|fs\.readdir(?:Sync)?|fs\.promises\.(?:readFile(?:Sync)?|readdir))"
+    r"\s*\(\s*['\"]([^'\"]+)['\"]",
+    re.IGNORECASE,
+)
+
+# Fix 4: Detect runtime registration patterns.
+# Matches: require('path').register(...) or require('path').use(...)
+# where the method name suggests runtime registration (register, use, install, etc.)
+_REGISTRATION_METHOD_RE = re.compile(
+    r"require\(\s*['\"]([^'\"]+)['\"]\s*\)\.(\w+)\s*\(",
+    re.IGNORECASE,
+)
+_REGISTRATION_METHODS = frozenset({
+    "register", "registerHook", "use", "install", "registerPlugin",
+    "add", "attach", "on", "once", "prepend", "append",
+})
+
+
 
 class TypeScriptAnalyzer:
     """TypeScript/JavaScript analysis via regex (stdlib-only, no Node.js required)."""
@@ -242,6 +264,29 @@ class TypeScriptAnalyzer:
                     )
                 if resolved and resolved != rel:
                     deps.add(resolved)
+
+            # Fix 3: Detect fs.readFile/readFileSync/readdir calls that read project files.
+            # This handles OpenApiGenerator.parseRoutes() and similar file-reading patterns.
+            for m in _FS_READ_RE.finditer(src):
+                read_path = m.group(1)
+                if not read_path or read_path.startswith(".") or read_path.startswith("/"):
+                    # Resolve relative fs.readFile paths against the importing file's directory
+                    base = os.path.normpath(os.path.join(os.path.dirname(rel), read_path))
+                    # Try with TS extensions
+                    resolved = TypeScriptAnalyzer._try_resolve(base, file_set)
+                    if resolved and resolved != rel:
+                        deps.add(resolved)
+
+            # Fix 4: Detect runtime registration patterns.
+            # require('./Registry').register(...) indicates a registration dependency.
+            for m in _REGISTRATION_METHOD_RE.finditer(src):
+                req_path, method = m.group(1), m.group(2).lower()
+                if method in _REGISTRATION_METHODS:
+                    if not req_path.startswith("."):
+                        req_path = "./" + req_path
+                    resolved = TypeScriptAnalyzer._resolve_ts_path(rel, req_path, file_set)
+                    if resolved and resolved != rel:
+                        deps.add(resolved)
 
             if deps:
                 graph[rel] = sorted(deps)
