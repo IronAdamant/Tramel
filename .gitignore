@@ -47,3 +47,7 @@ sample_file_test/
 # OS
 .DS_Store
 Thumbs.db
+
+# Documentation (managed separately / local-only)
+*.md
+wiki-local/
