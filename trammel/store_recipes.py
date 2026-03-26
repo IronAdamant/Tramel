@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -436,6 +437,9 @@ class RecipeStoreMixin:
         outcome: bool,
         constraints: list[dict[str, Any]] | None = None,
     ) -> None:
+        # Fix 4: ensure scaffold files appear as explicit create steps so
+        # strategy_to_scaffold() can reconstruct them later for re-use.
+        strategy = self._ensure_scaffold_create_steps(strategy)
         sig = self._stable_strategy_sig(strategy)
         pattern = goal[:_MAX_PATTERN_LENGTH]
         strat_json = dumps_json(strategy)
@@ -462,6 +466,73 @@ class RecipeStoreMixin:
             )
             self._insert_file_entries(sig, self._extract_step_files(strategy))
 
+    def _ensure_scaffold_create_steps(self, strategy: dict[str, Any]) -> dict[str, Any]:
+        """Ensure all scaffold files appear as action=create steps so the recipe
+        can reconstruct the scaffold via strategy_to_scaffold() on replay."""
+        steps = list(strategy.get("steps", []))
+        scaffold = strategy.get("scaffold", [])
+
+        # Files already represented as create steps
+        create_files = {
+            s["file"] for s in steps
+            if s.get("action") == "create" and s.get("file")
+        }
+        # Also accept modify steps as "file already exists, don't recreate"
+        existing_files = {
+            s["file"] for s in steps if s.get("file")
+        }
+
+        scaffold_files = {e.get("file") for e in scaffold if e.get("file")}
+        missing = scaffold_files - create_files - existing_files
+
+        if not missing:
+            return strategy
+
+        # Build file→index map for depends_on resolution
+        file_to_idx: dict[str, int] = {}
+        for i, s in enumerate(steps):
+            f = s.get("file")
+            if f:
+                file_to_idx[f] = i
+
+        for f in sorted(missing):
+            scaffold_entry = next(
+                (e for e in scaffold if e.get("file") == f), {}
+            )
+            # Resolve depends_on to step indices
+            raw_deps = scaffold_entry.get("depends_on", [])
+            if isinstance(raw_deps[0], int) if raw_deps else False:
+                # Already integer indices — resolve to files then back to indices
+                dep_files = [
+                    steps[d]["file"] for d in raw_deps
+                    if d < len(steps) and steps[d].get("file")
+                ]
+                resolved_deps = [
+                    file_to_idx[df] for df in dep_files if df in file_to_idx
+                ]
+            else:
+                # String paths — resolve directly
+                resolved_deps = [
+                    file_to_idx[df] for df in raw_deps if df in file_to_idx
+                ]
+
+            steps.append({
+                "step_index": len(steps),
+                "file": f,
+                "action": "create",
+                "symbols": [],
+                "symbol_count": 0,
+                "description": scaffold_entry.get(
+                    "description", f"Create {f}"
+                ),
+                "rationale": f"Scaffold file from plan: {scaffold_entry.get('description', f)}",
+                "depends_on": resolved_deps,
+            })
+            file_to_idx[f] = len(steps) - 1
+
+        strategy = dict(strategy, steps=steps)
+        return strategy
+
     _W_TEXT = 0.25       # Reduced: text similarity alone shouldn't dominate
     _W_FILES = 0.15      # Reduced: file overlap matters but isn't always available
     _W_SUCCESS = 0.10    # Reduced: success rate is secondary signal
@@ -472,7 +543,7 @@ class RecipeStoreMixin:
     def retrieve_best_recipe(
         self,
         goal: str,
-        min_similarity: float = 0.55,
+        min_similarity: float = 0.30,
         context_files: set[str] | None = None,
     ) -> dict[str, Any] | None:
         goal_tris = unique_trigrams(normalize_goal(goal))
@@ -543,7 +614,7 @@ class RecipeStoreMixin:
             # With structural similarity as the dominant weight (0.40), lower the floor
             # from 0.35 to 0.20 so good structural matches aren't rejected when file
             # overlap is zero (common for greenfield goals with no context files).
-            if context_files is not None and score < 0.20:
+            if context_files is not None and score < 0.15:
                 continue
 
             if score > best_score:
@@ -766,3 +837,190 @@ class RecipeStoreMixin:
             "files_removed": files_removed,
             "recipes_invalidated": len(invalidated),
         }
+
+    # ── Scaffold recipes ────────────────────────────────────────────────────────
+
+    def _init_scaffold_schema(self) -> None:
+        """Ensure scaffold_recipes and scaffold_trigrams tables exist (migration-safe)."""
+        try:
+            self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS scaffold_recipes ("
+                "sig TEXT PRIMARY KEY,"
+                "pattern TEXT NOT NULL,"
+                "scaffold TEXT NOT NULL,"
+                "domain_kw TEXT NOT NULL DEFAULT '',"
+                "role_counts TEXT NOT NULL DEFAULT '{}',"
+                "successes INTEGER NOT NULL DEFAULT 0,"
+                "failures INTEGER NOT NULL DEFAULT 0,"
+                "created REAL NOT NULL,"
+                "updated REAL NOT NULL"
+                ")"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scaffold_trigrams_tri ON scaffold_trigrams(trigram)"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS scaffold_trigrams ("
+                "trigram TEXT NOT NULL,"
+                "scaffold_sig TEXT NOT NULL"
+                ")"
+            )
+        except sqlite3.OperationalError:
+            pass
+
+    def _extract_scaffold_roles(
+        self, scaffold: list[dict[str, Any]]
+    ) -> dict[str, int]:
+        """Count file roles from scaffold entries using the same role patterns as strategy fingerprints."""
+        role_counts: dict[str, int] = {}
+        for entry in scaffold:
+            f = entry.get("file", "")
+            for (pat_re, _offset), role in _FILE_ROLE_RE:
+                if pat_re.search(f):
+                    role_counts[role] = role_counts.get(role, 0) + 1
+                    break
+        return role_counts
+
+    def save_scaffold_recipe(
+        self,
+        goal: str,
+        scaffold: list[dict[str, Any]],
+        outcome: bool,
+    ) -> None:
+        """Save a scaffold template from a successful plan.
+
+        When the LLM provides an explicit scaffold for a goal and the plan succeeds,
+        this stores the scaffold as a reusable template matched by goal text similarity
+        and structural role fingerprint — enabling auto-scaffold for future similar goals.
+        """
+        if not scaffold:
+            return
+        # Stable sig from scaffold entries (ignore description field)
+        scaffold_key = sorted(
+            {"file": e.get("file", ""), "depends_on": sorted(e.get("depends_on", []))}
+            for e in scaffold if e.get("file")
+        )
+        sig = sha256_json(scaffold_key)
+        pattern = goal[:_MAX_PATTERN_LENGTH]
+        scaffold_json = dumps_json(scaffold)
+        role_counts = self._extract_scaffold_roles(scaffold)
+        now = time.time()
+        col = "successes" if outcome else "failures"
+        # Extract primary domain keyword from goal (first meaningful term longer than 3 chars)
+        goal_words = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', goal.lower())
+        role_kw = frozenset({
+            "add", "create", "build", "implement", "with", "using", "file", "files",
+            "service", "services", "route", "routes", "model", "models", "module",
+            "endpoint", "endpoints", "api", "plugin", "plugins", "system",
+        })
+        domain_kw = next(
+            (w for w in goal_words if len(w) > 3 and w not in role_kw),
+            goal_words[-1] if goal_words else "",
+        )
+        try:
+            with transaction(self.conn):
+                self.conn.execute(
+                    f"""INSERT INTO scaffold_recipes
+                        (sig, pattern, scaffold, domain_kw, role_counts, {col}, created, updated)
+                        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                        ON CONFLICT(sig) DO UPDATE SET
+                            {col} = scaffold_recipes.{col} + 1,
+                            pattern = excluded.pattern,
+                            updated = excluded.updated""",
+                    (sig, pattern, scaffold_json, domain_kw, dumps_json(role_counts), now, now),
+                )
+                self.conn.execute(
+                    "DELETE FROM scaffold_trigrams WHERE scaffold_sig = ?", (sig,),
+                )
+                for t in unique_trigrams(normalize_goal(pattern)):
+                    self.conn.execute(
+                        "INSERT INTO scaffold_trigrams (trigram, scaffold_sig) VALUES (?, ?)",
+                        (t, sig),
+                    )
+        except _sqlite3.OperationalError:
+            pass
+
+    def retrieve_best_scaffold_recipe(
+        self,
+        goal: str,
+        min_similarity: float = 0.25,
+    ) -> dict[str, Any] | None:
+        """Find a scaffold recipe matching the goal.
+
+        Uses trigram index + structural fingerprint (role count vector) to find
+        scaffold templates even when goal text differs from stored pattern.
+        Returns the scaffold entries directly, or None if no match above threshold.
+        """
+        goal_tris = unique_trigrams(normalize_goal(goal))
+        if not goal_tris:
+            return None
+        try:
+            tri_in, tri_params = _sql_in(sorted(goal_tris))
+            rows = self.conn.execute(
+                f"""SELECT sig, pattern, scaffold, role_counts, successes, failures, updated
+                    FROM scaffold_recipes WHERE sig IN (
+                        SELECT DISTINCT scaffold_sig FROM scaffold_trigrams
+                        WHERE trigram {tri_in}
+                    )""",
+                tri_params,
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return None
+        if not rows:
+            return None
+        # Structural fingerprint from goal
+        goal_fp = _goal_fingerprint_from_text(goal)
+        best: dict[str, Any] | None = None
+        best_score = -1.0
+        for row in rows:
+            text_sim = goal_similarity(goal, row["pattern"])
+            if text_sim < min_similarity:
+                continue
+            try:
+                recipe_roles = json.loads(row["role_counts"])
+            except (json.JSONDecodeError, TypeError):
+                recipe_roles = {}
+            fp_b = {"role_counts": recipe_roles, "role_vector": tuple(
+                recipe_roles.get(r, 0) for r in (
+                    "algorithm", "engine", "service", "route", "controller", "handler",
+                    "model", "repository", "middleware", "plugin", "registry",
+                    "collector", "aggregator", "generator", "util", "test", "other",
+                )
+            )}
+            struct_sim = _structural_similarity(goal_fp, fp_b)
+            score = 0.4 * struct_sim + 0.35 * text_sim + 0.25 * (
+                row["successes"] / (row["successes"] + row["failures"] + 1)
+            )
+            if score > best_score and score >= min_similarity:
+                best_score = score
+                try:
+                    best = {"scaffold": json.loads(row["scaffold"])}
+                except (json.JSONDecodeError, TypeError):
+                    best = {"scaffold": []}
+                best["match_score"] = round(score, 3)
+                best["pattern"] = row["pattern"]
+        return best
+
+    def _rebuild_scaffold_trigram_index(self) -> None:
+        """Rebuild scaffold_trigrams from all scaffold_recipes patterns."""
+        try:
+            rows = self.conn.execute("SELECT sig, pattern FROM scaffold_recipes").fetchall()
+        except sqlite3.OperationalError:
+            return
+        if not rows:
+            return
+        with transaction(self.conn):
+            self.conn.execute("DELETE FROM scaffold_trigrams")
+            for row in rows:
+                for t in unique_trigrams(normalize_goal(row["pattern"])):
+                    self.conn.execute(
+                        "INSERT INTO scaffold_trigrams (trigram, scaffold_sig) VALUES (?, ?)",
+                        (t, row["sig"]),
+                    )
+

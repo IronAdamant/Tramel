@@ -79,6 +79,24 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             ON recipe_files(recipe_sig);
         CREATE INDEX IF NOT EXISTS idx_recipe_files_path
             ON recipe_files(file_path);
+        CREATE TABLE IF NOT EXISTS scaffold_recipes (
+            sig TEXT PRIMARY KEY,
+            pattern TEXT NOT NULL,
+            scaffold TEXT NOT NULL,
+            domain_kw TEXT NOT NULL DEFAULT '',
+            role_counts TEXT NOT NULL DEFAULT '{}',
+            successes INTEGER NOT NULL DEFAULT 0,
+            failures INTEGER NOT NULL DEFAULT 0,
+            created REAL NOT NULL,
+            updated REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS scaffold_trigrams (
+            trigram TEXT NOT NULL,
+            scaffold_sig TEXT NOT NULL,
+            FOREIGN KEY (scaffold_sig) REFERENCES scaffold_recipes(sig)
+        );
+        CREATE INDEX IF NOT EXISTS idx_scaffold_trigrams_tri
+            ON scaffold_trigrams(trigram);
     """
 
     _SCHEMA_FAILURE_PATTERNS = """
@@ -114,6 +132,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             goal TEXT NOT NULL,
             strategy TEXT NOT NULL,
+            scaffold TEXT NOT NULL DEFAULT '[]',
             status TEXT NOT NULL DEFAULT 'pending',
             current_step INTEGER NOT NULL DEFAULT 0,
             total_steps INTEGER NOT NULL DEFAULT 0,
@@ -165,7 +184,11 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
             + self._SCHEMA_FAILURE_PATTERNS + self._SCHEMA_TELEMETRY
         )
         # Add multi-agent columns (safe migration for existing DBs)
-        for col, default in [("claimed_by TEXT", "NULL"), ("claimed_at REAL", "NULL")]:
+        for col, default in [
+            ("claimed_by TEXT", "NULL"),
+            ("claimed_at REAL", "NULL"),
+            ("scaffold TEXT NOT NULL DEFAULT '[]'", "'[]'"),
+        ]:
             try:
                 self.conn.execute(f"ALTER TABLE steps ADD COLUMN {col} DEFAULT {default}")
             except sqlite3.OperationalError as e:
@@ -174,17 +197,19 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         self.conn.commit()
         self._rebuild_trigram_index()
         self._backfill_files()
+        self._init_scaffold_schema()
 
     # ── Plans ────────────────────────────────────────────────────────────────
 
-    def create_plan(self, goal: str, strategy: dict[str, Any]) -> int:
+    def create_plan(self, goal: str, strategy: dict[str, Any], scaffold: list[dict[str, Any]] | None = None) -> int:
         now = time.time()
         plan_steps = strategy.get("steps", [])
+        scaffold_json = dumps_json(scaffold or [])
         with transaction(self.conn):
             cur = self.conn.execute(
-                "INSERT INTO plans (goal, strategy, status, current_step, total_steps, created, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (goal, dumps_json(strategy), "pending", 0, len(plan_steps), now, now),
+                "INSERT INTO plans (goal, strategy, scaffold, status, current_step, total_steps, created, updated) "
+                "VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)",
+                (goal, dumps_json(strategy), scaffold_json, len(plan_steps), now, now),
             )
             plan_id = int(cur.lastrowid)
             for i, step in enumerate(plan_steps):
@@ -198,7 +223,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
 
     def get_plan(self, plan_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "SELECT id, goal, strategy, status, current_step, total_steps, created, updated "
+            "SELECT id, goal, strategy, scaffold, status, current_step, total_steps, created, updated "
             "FROM plans WHERE id = ?",
             (plan_id,),
         ).fetchone()
@@ -211,6 +236,7 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         return {
             "id": row["id"], "goal": row["goal"],
             "strategy": json.loads(row["strategy"]),
+            "scaffold": json.loads(row["scaffold"]) if row["scaffold"] else [],
             "status": row["status"], "current_step": row["current_step"],
             "total_steps": row["total_steps"],
             "created": row["created"], "updated": row["updated"],
@@ -394,11 +420,17 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         strategy = plan["strategy"]
         self.save_recipe(plan["goal"], strategy, outcome)
 
+        # Fix 1: save scaffold recipe when plan succeeded with an explicit scaffold
+        scaffold = plan.get("scaffold", [])
+        if outcome and scaffold:
+            self.save_scaffold_recipe(plan["goal"], scaffold, outcome)
+
         return {
             "plan_id": plan_id,
             "plan_status": plan_status,
             "steps_updated": steps_updated,
             "recipe_saved": outcome,
+            "scaffold_saved": bool(outcome and scaffold),
         }
 
     # ── Constraints ──────────────────────────────────────────────────────────

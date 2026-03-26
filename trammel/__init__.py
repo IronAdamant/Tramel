@@ -72,7 +72,7 @@ def plan_and_execute(
     with RecipeStore(db_path) as store:
         planner = Planner(store=store, analyzer=analyzer)
         strategy = planner.decompose(goal, project_root, scope=scope)
-        plan_id = store.create_plan(goal, strategy)
+        plan_id = store.create_plan(goal, strategy, scaffold=strategy.get("scaffold"))
         store.update_plan_status(plan_id, "running")
 
         beams = planner.explore_trajectories(strategy, num_beams=num_beams)

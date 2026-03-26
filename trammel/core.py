@@ -858,9 +858,6 @@ def _generate_steps(
     steps: list[dict[str, Any]] = []
     file_to_step: dict[str, int] = {}
 
-    # P4: Compute effective relevance threshold
-    threshold = max(min_relevance, 0.01) if relevant_only else min_relevance
-
     indeg, max_in = _dep_indegree_stats(dep_graph)
 
     for filepath in file_order:
@@ -872,8 +869,6 @@ def _generate_steps(
             _score_relevance(filepath, sym_names, goal_keywords, indeg, max_in)
             if goal_keywords else None
         )
-        if threshold > 0 and relevance is not None and relevance < threshold:
-            continue
 
         step_idx = len(steps)
         file_to_step[filepath] = step_idx
@@ -1108,6 +1103,7 @@ class Planner:
 
         # Structural recipe match: try again with file context
         all_files = set(symbols) | set(dep_graph)
+        scaffold_recipe_scaffold: list[dict[str, Any]] = []
         if not skip_recipes and matched_recipe is None:
             recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
             if recipe:
@@ -1116,6 +1112,18 @@ class Planner:
                 if scaffold_from_recipe:
                     recipe["scaffold"] = scaffold_from_recipe
                 matched_recipe = recipe
+
+        # Fix 1: scaffold recipe lookup — the LLM IS the NLP pipeline; scaffold
+        # recipes are the stored product of prior LLM scaffold decisions. When no
+        # regular recipe matches, check whether a scaffold_recipe fits the goal.
+        if not skip_recipes and matched_recipe is None and scaffold is None:
+            scaffold_match = self.store.retrieve_best_scaffold_recipe(goal)
+            if scaffold_match and scaffold_match.get("scaffold"):
+                scaffold_recipe_scaffold = scaffold_match["scaffold"]
+                if scaffold_recipe_scaffold:
+                    # Use scaffold_recipe scaffold as the effective scaffold directly
+                    # (treat it as a user-provided scaffold)
+                    scaffold = scaffold_recipe_scaffold
 
         # Collect near-miss recipes for reference
         near_matches: list[dict[str, Any]] = []
@@ -1144,6 +1152,14 @@ class Planner:
             min_relevance=min_relevance,
         )
         steps, applied = _apply_constraints(steps, active_constraints)
+
+        # Fix 3: when relevant_only, sort by relevance DESC so most-relevant files
+        # appear first instead of discarding below-threshold files entirely
+        if relevant_only and goal_keywords:
+            steps.sort(key=lambda s: s.get("relevance", 0.0), reverse=True)
+            # Re-index after sort
+            for i, s in enumerate(steps):
+                s["step_index"] = i
 
         # Paths explicitly mentioned in goal text
         inferred_entries = [
@@ -1260,6 +1276,11 @@ class Planner:
         elif hints and effective_scaffold:
             # Surface hint metadata even when merged with recipe scaffold
             result["creation_hints"] = hints
+
+        # Always surface the effective scaffold so callers can persist it for
+        # future scaffold_recipe matching (Fix 1)
+        if effective_scaffold:
+            result["scaffold"] = effective_scaffold
 
         return result
 

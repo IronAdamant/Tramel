@@ -90,7 +90,16 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "Create a tracked plan from a strategy. Persists the plan and its steps "
         "in the database for incremental execution and verification.",
         {"goal": _prop("string", "Goal this plan addresses."),
-         "strategy": _prop("object", "Strategy dict (from decompose) with steps, dependency_graph, etc.")},
+         "strategy": _prop("object", "Strategy dict (from decompose) with steps, dependency_graph, etc."),
+         "scaffold": _prop("array",
+                           "Explicit scaffold entries used for this plan (from decompose's effective_scaffold). "
+                           "Stored to enable scaffold recipe matching on future similar goals. "
+                           "Each entry has 'file' (path) and optional 'depends_on' (list of paths).",
+                           items={"type": "object", "properties": {
+                               "file": {"type": "string"},
+                               "description": {"type": "string"},
+                               "depends_on": {"type": "array", "items": {"type": "string"}},
+                           }, "required": ["file"]})},
         ["goal", "strategy"]),
     "get_plan": _schema("get_plan",
         "Retrieve full plan state including all steps, their statuses, "
@@ -133,7 +142,14 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "retrieved by similarity when future goals match.",
         {"goal": _prop("string", "Goal pattern for future matching."),
          "strategy": _prop("object", "Strategy to persist."),
-         "outcome": _prop("boolean", "True if the strategy succeeded, false if it failed.")},
+         "outcome": _prop("boolean", "True if the strategy succeeded, false if it failed."),
+         "scaffold": _prop("array",
+                           "Scaffold entries to also save as a scaffold_recipe for future auto-scaffold.",
+                           items={"type": "object", "properties": {
+                               "file": {"type": "string"},
+                               "description": {"type": "string"},
+                               "depends_on": {"type": "array", "items": {"type": "string"}},
+                           }, "required": ["file"]})},
         ["goal", "strategy", "outcome"]),
     "get_recipe": _schema("get_recipe",
         "Retrieve the best matching recipe for a goal. Uses blended similarity "
@@ -325,7 +341,9 @@ def _handle_explore(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_create_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
-    return {"plan_id": store.create_plan(args["goal"], args["strategy"])}
+    return {"plan_id": store.create_plan(
+        args["goal"], args["strategy"], scaffold=args.get("scaffold")
+    )}
 
 
 def _handle_get_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -353,7 +371,11 @@ def _handle_record_steps(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_save_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
-    store.save_recipe(args["goal"], args["strategy"], args["outcome"])
+    outcome = bool(args["outcome"])
+    store.save_recipe(args["goal"], args["strategy"], outcome)
+    scaffold = args.get("scaffold")
+    if outcome and scaffold:
+        store.save_scaffold_recipe(args["goal"], scaffold, outcome)
     return {"ok": True}
 
 
