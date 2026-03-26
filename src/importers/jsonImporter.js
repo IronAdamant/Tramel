@@ -2,6 +2,8 @@
 
 const Recipe = require('../models/Recipe');
 
+const fs = require('fs');
+
 /**
  * JSON importer
  */
@@ -15,7 +17,12 @@ class JsonImporter {
    * Import recipes from JSON string
    */
   importFromString(jsonString) {
-    const data = JSON.parse(jsonString);
+    let data;
+    try {
+      data = JSON.parse(jsonString);
+    } catch (err) {
+      return [{ success: false, error: `Invalid JSON: ${err.message}` }];
+    }
 
     if (Array.isArray(data)) {
       return this.importBatch(data);
@@ -63,8 +70,12 @@ class JsonImporter {
    * Import from file
    */
   importFromFile(filePath) {
-    const fs = require('fs');
-    const content = fs.readFileSync(filePath, 'utf8');
+    let content;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      return [{ success: false, error: `Failed to read file: ${err.message}` }];
+    }
     return this.importFromString(content);
   }
 }

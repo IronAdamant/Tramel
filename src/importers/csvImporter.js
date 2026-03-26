@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const Recipe = require('../models/Recipe');
 
 /**
@@ -138,8 +139,12 @@ class CsvImporter {
    * Import from file
    */
   importFromFile(filePath) {
-    const fs = require('fs');
-    const content = fs.readFileSync(filePath, 'utf8');
+    let content;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      return [{ success: false, error: `Failed to read file: ${err.message}` }];
+    }
     return this.importFromString(content);
   }
 }

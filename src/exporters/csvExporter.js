@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const Recipe = require('../models/Recipe');
 
 /**
@@ -65,9 +66,12 @@ class CsvExporter {
    * Export recipes to CSV file
    */
   exportToFile(recipeIds, filePath) {
-    const fs = require('fs');
     const csv = this.exportToString(recipeIds);
-    fs.writeFileSync(filePath, csv, 'utf8');
+    try {
+      fs.writeFileSync(filePath, csv, 'utf8');
+    } catch (err) {
+      return { success: false, error: `Failed to write file: ${err.message}` };
+    }
 
     return { success: true, count: recipeIds ? recipeIds.length : 0, file: filePath };
   }

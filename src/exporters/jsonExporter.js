@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const Recipe = require('../models/Recipe');
 
 /**
@@ -35,13 +36,16 @@ class JsonExporter {
    * Export recipes to file
    */
   exportToFile(recipeIds, filePath) {
-    const fs = require('fs');
     const data = recipeIds
       ? recipeIds.map(id => this.recipe.getById(id)).filter(Boolean)
       : this.store.readAll('recipes').map(r => this.recipe.getById(r.id));
 
     const json = JSON.stringify({ recipes: data }, null, 2);
-    fs.writeFileSync(filePath, json, 'utf8');
+    try {
+      fs.writeFileSync(filePath, json, 'utf8');
+    } catch (err) {
+      return { success: false, error: `Failed to write file: ${err.message}` };
+    }
 
     return { success: true, count: data.length, file: filePath };
   }

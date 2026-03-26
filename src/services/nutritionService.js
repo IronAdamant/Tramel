@@ -1,10 +1,10 @@
 'use strict';
 
-const Recipe = require('../models/Recipe');
-
 /**
  * Nutrition estimation service
  */
+const Recipe = require('../models/Recipe');
+
 class NutritionService {
   constructor(fileStore) {
     this.store = fileStore;

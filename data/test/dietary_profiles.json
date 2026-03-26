@@ -1,0 +1,569 @@
+[
+  {
+    "id": "afda1b15-8de1-4b12-b2fa-6c0d3893d2fd",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:38:05.677Z",
+    "updated_at": "2026-03-25T09:38:05.677Z"
+  },
+  {
+    "id": "7907e52f-c1d3-4f0b-9ca4-72821c180c07",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:38:05.678Z",
+    "updated_at": "2026-03-25T09:38:05.678Z"
+  },
+  {
+    "id": "aef2da7b-959a-4fc5-8a6b-5da0d54c4113",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:38:05.695Z",
+    "updated_at": "2026-03-25T09:38:05.695Z"
+  },
+  {
+    "id": "136ddb8e-5267-4afb-b75e-e2df05972176",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:41:04.849Z",
+    "updated_at": "2026-03-25T09:41:04.849Z"
+  },
+  {
+    "id": "aebcf37e-9ca0-498a-bf07-285577ceea36",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:41:04.851Z",
+    "updated_at": "2026-03-25T09:41:04.851Z"
+  },
+  {
+    "id": "a827280f-1c87-4cdc-a594-a729a202af50",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:41:04.871Z",
+    "updated_at": "2026-03-25T09:41:04.871Z"
+  },
+  {
+    "id": "c9b144af-4144-495c-8280-b4c31a8ef81e",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:42:33.483Z",
+    "updated_at": "2026-03-25T09:42:33.483Z"
+  },
+  {
+    "id": "d094798e-cd8d-4efc-b68b-739b9226e9bd",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:42:33.484Z",
+    "updated_at": "2026-03-25T09:42:33.484Z"
+  },
+  {
+    "id": "54226dcd-2228-454d-b02c-3f365e115de1",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:42:33.509Z",
+    "updated_at": "2026-03-25T09:42:33.509Z"
+  },
+  {
+    "id": "435e42d4-0815-4ce2-be72-431e0f759dfa",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:47:19.613Z",
+    "updated_at": "2026-03-25T09:47:19.613Z"
+  },
+  {
+    "id": "117948e9-7b9b-4451-8f99-f45883b8aabe",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:47:19.616Z",
+    "updated_at": "2026-03-25T09:47:19.616Z"
+  },
+  {
+    "id": "d05ab6c9-438c-4909-a9bc-ca9307458540",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T09:47:19.645Z",
+    "updated_at": "2026-03-25T09:47:19.645Z"
+  },
+  {
+    "id": "776e92b5-d096-4f7e-a0e5-5c4f022cf029",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T19:58:53.465Z",
+    "updated_at": "2026-03-25T19:58:53.465Z"
+  },
+  {
+    "id": "8f9bf2eb-513e-48e7-a752-126b363c60bf",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T19:58:53.467Z",
+    "updated_at": "2026-03-25T19:58:53.467Z"
+  },
+  {
+    "id": "9ad1f06b-d35c-4f67-a8a7-fb11733a2c60",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-25T19:58:53.498Z",
+    "updated_at": "2026-03-25T19:58:53.498Z"
+  },
+  {
+    "id": "82ee251e-ef09-437b-98a1-e0c6759ec7d2",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:56:47.758Z",
+    "updated_at": "2026-03-26T02:56:47.758Z"
+  },
+  {
+    "id": "f2efb642-954e-4655-a1dd-f8458b6ff844",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:56:47.760Z",
+    "updated_at": "2026-03-26T02:56:47.760Z"
+  },
+  {
+    "id": "711aa2c6-10fc-4dd4-8960-ef4aab881e53",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:56:47.796Z",
+    "updated_at": "2026-03-26T02:56:47.796Z"
+  },
+  {
+    "id": "a14d4dbd-5735-49b7-8ca3-c205fcdc35ee",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:56:55.824Z",
+    "updated_at": "2026-03-26T02:56:55.824Z"
+  },
+  {
+    "id": "c45261d0-f860-425a-95b3-546c521f5c88",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:56:55.827Z",
+    "updated_at": "2026-03-26T02:56:55.827Z"
+  },
+  {
+    "id": "2bfdfb96-87d4-40da-a795-2db8ab5d6219",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:56:55.865Z",
+    "updated_at": "2026-03-26T02:56:55.865Z"
+  },
+  {
+    "id": "245e572c-840b-499f-9238-1981539601b3",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:04.824Z",
+    "updated_at": "2026-03-26T02:57:04.824Z"
+  },
+  {
+    "id": "b7f539d3-43aa-44b3-87a7-be85780f60cf",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:04.827Z",
+    "updated_at": "2026-03-26T02:57:04.827Z"
+  },
+  {
+    "id": "7dc05e7e-b2b5-4d07-b7d3-4997511ec197",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:04.868Z",
+    "updated_at": "2026-03-26T02:57:04.868Z"
+  },
+  {
+    "id": "8bd29c2e-a541-455e-80d2-028352461b9f",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:13.758Z",
+    "updated_at": "2026-03-26T02:57:13.758Z"
+  },
+  {
+    "id": "f1e8b07f-4583-43aa-9a7d-a69f338073ce",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:13.761Z",
+    "updated_at": "2026-03-26T02:57:13.761Z"
+  },
+  {
+    "id": "65d21d14-364d-44cb-a50b-333fbf15ebbd",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:13.805Z",
+    "updated_at": "2026-03-26T02:57:13.805Z"
+  },
+  {
+    "id": "b0d47344-7319-43fb-a562-07c7c58f2949",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:22.830Z",
+    "updated_at": "2026-03-26T02:57:22.830Z"
+  },
+  {
+    "id": "adc18106-8e01-4509-aa83-d91129bd43cb",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:22.832Z",
+    "updated_at": "2026-03-26T02:57:22.832Z"
+  },
+  {
+    "id": "96b81c76-abcc-4be0-844b-fddab2303265",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:22.881Z",
+    "updated_at": "2026-03-26T02:57:22.881Z"
+  },
+  {
+    "id": "d52d2624-0be8-493f-8c08-0f2440e410e3",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:35.944Z",
+    "updated_at": "2026-03-26T02:57:35.944Z"
+  },
+  {
+    "id": "ce66c9a6-c65a-49bc-9129-c38ebe4f9858",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:35.947Z",
+    "updated_at": "2026-03-26T02:57:35.947Z"
+  },
+  {
+    "id": "57ae4c11-1bfa-47ad-a270-9a00eb339e03",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:57:36.002Z",
+    "updated_at": "2026-03-26T02:57:36.002Z"
+  },
+  {
+    "id": "00569337-5e3b-4c79-8e64-7b2f3c79d552",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:59:58.495Z",
+    "updated_at": "2026-03-26T02:59:58.495Z"
+  },
+  {
+    "id": "22a0aec9-9c96-4335-bbcf-bb88c8dc5de8",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:59:58.499Z",
+    "updated_at": "2026-03-26T02:59:58.499Z"
+  },
+  {
+    "id": "c8b5b26c-987a-4c1e-97e1-dc2dc911f7c5",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T02:59:58.559Z",
+    "updated_at": "2026-03-26T02:59:58.559Z"
+  },
+  {
+    "id": "d5f750af-6aeb-46a5-9e16-801fc401a886",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T03:03:20.990Z",
+    "updated_at": "2026-03-26T03:03:20.990Z"
+  },
+  {
+    "id": "987d0b1f-2de2-4ad4-affb-2040d4c1ab19",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T03:03:20.994Z",
+    "updated_at": "2026-03-26T03:03:20.994Z"
+  },
+  {
+    "id": "12c94ea3-19ef-4aa1-aa07-ea392702e062",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T03:03:21.058Z",
+    "updated_at": "2026-03-26T03:03:21.058Z"
+  },
+  {
+    "id": "3ed61695-48f7-4d63-82c4-72df2f8c4e22",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:32:11.695Z",
+    "updated_at": "2026-03-26T05:32:11.695Z"
+  },
+  {
+    "id": "0e748193-253e-477b-864d-bf09c2caa554",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:32:11.699Z",
+    "updated_at": "2026-03-26T05:32:11.699Z"
+  },
+  {
+    "id": "c178f4b9-1754-4f08-9323-2baaa53a4f63",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:32:11.707Z",
+    "updated_at": "2026-03-26T05:32:11.707Z"
+  },
+  {
+    "id": "f36945a7-4eba-4f14-b6a0-ca86b3593154",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:32:20.697Z",
+    "updated_at": "2026-03-26T05:32:20.697Z"
+  },
+  {
+    "id": "d9d3d1a7-8cf8-4b06-9418-41ab93c83d7c",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:32:20.702Z",
+    "updated_at": "2026-03-26T05:32:20.702Z"
+  },
+  {
+    "id": "88a09441-b071-4ef0-8208-5ddd319ec7e9",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:32:20.710Z",
+    "updated_at": "2026-03-26T05:32:20.710Z"
+  },
+  {
+    "id": "27d1cd1b-901e-4366-9bb6-6bc6524c3f43",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:33:45.710Z",
+    "updated_at": "2026-03-26T05:33:45.710Z"
+  },
+  {
+    "id": "4f674956-7f15-4f65-b9a9-630f1832ab0b",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:33:45.715Z",
+    "updated_at": "2026-03-26T05:33:45.715Z"
+  },
+  {
+    "id": "8da3810b-fec6-4a4e-8366-56cd478f5739",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:33:45.788Z",
+    "updated_at": "2026-03-26T05:33:45.788Z"
+  },
+  {
+    "id": "e4c803ec-8fa0-4618-95a2-311b1f3a5f14",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:38:18.902Z",
+    "updated_at": "2026-03-26T05:38:18.902Z"
+  },
+  {
+    "id": "3e282655-a1e8-4dbb-88e2-ca1ab6621945",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:38:18.907Z",
+    "updated_at": "2026-03-26T05:38:18.907Z"
+  },
+  {
+    "id": "14a92aa7-4e69-42db-849d-cf42587e0d49",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:38:18.986Z",
+    "updated_at": "2026-03-26T05:38:18.986Z"
+  },
+  {
+    "id": "60badb58-d6cd-4867-8ae0-c0f5cc8707c4",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:44:54.788Z",
+    "updated_at": "2026-03-26T05:44:54.788Z"
+  },
+  {
+    "id": "6810cfbd-101a-40e8-b4ce-e308af5b17e6",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:44:54.793Z",
+    "updated_at": "2026-03-26T05:44:54.793Z"
+  },
+  {
+    "id": "a984dc18-302f-45f7-98a7-db75b9aed3fd",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:44:54.874Z",
+    "updated_at": "2026-03-26T05:44:54.874Z"
+  },
+  {
+    "id": "984ae15a-0f89-4d4d-8d50-7240905620a3",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:50:05.756Z",
+    "updated_at": "2026-03-26T05:50:05.756Z"
+  },
+  {
+    "id": "c2ab07d9-9e91-4834-b4d9-6e9662dcef43",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:50:05.761Z",
+    "updated_at": "2026-03-26T05:50:05.761Z"
+  },
+  {
+    "id": "79fd5862-d8c1-43b5-900e-3053a545eacb",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T05:50:05.843Z",
+    "updated_at": "2026-03-26T05:50:05.843Z"
+  },
+  {
+    "id": "cd3141cf-7685-4485-9095-4bf636b0d5d2",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T06:26:05.634Z",
+    "updated_at": "2026-03-26T06:26:05.634Z"
+  },
+  {
+    "id": "5108be4d-5772-4ec0-814f-9a47791b0846",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T06:26:05.639Z",
+    "updated_at": "2026-03-26T06:26:05.639Z"
+  },
+  {
+    "id": "30e504f3-2778-457f-9602-08806a1df91c",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T06:26:05.724Z",
+    "updated_at": "2026-03-26T06:26:05.724Z"
+  },
+  {
+    "id": "ddaaddb6-fd0c-491a-ad3a-8a239bb95506",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T06:26:44.585Z",
+    "updated_at": "2026-03-26T06:26:44.585Z"
+  },
+  {
+    "id": "8300a3ea-0d9c-4c7d-81df-7b796e5864c2",
+    "name": "vegetarian_test",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T06:26:44.590Z",
+    "updated_at": "2026-03-26T06:26:44.590Z"
+  },
+  {
+    "id": "84077a6c-55cb-4c86-98f1-5148f4e81135",
+    "name": "vegetarian",
+    "restrictions": [
+      "vegetarian"
+    ],
+    "created_at": "2026-03-26T06:26:44.679Z",
+    "updated_at": "2026-03-26T06:26:44.679Z"
+  }
+]

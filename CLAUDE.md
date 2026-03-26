@@ -6,9 +6,9 @@ RecipeLab is a **local-first Recipe & Meal Planner API** built as a dedicated te
 
 The codebase is intentionally designed to stress-test MCP capabilities that showed gaps during ConsistencyHub audits (Phases I–I.14). Every architectural decision should create signal for these tools.
 
-## MCP Validation Results (6 Phases Complete)
+## MCP Validation Results (7 Phases Complete)
 
-Detailed findings per phase in `MCP_Findings/Phase 1 - 2/` through `MCP_Findings/Phase 6/`.
+Detailed findings per phase in `MCP_Findings/Phase 1 - 2/` through `MCP_Findings/Phase_7/`.
 
 ### Chisel — Code Intelligence
 
@@ -49,17 +49,18 @@ Detailed findings per phase in `MCP_Findings/Phase 1 - 2/` through `MCP_Findings
 **VALIDATED (works):**
 - [x] `claim_step` 100% reliable in single-agent workflows (28/28 successes)
 - [x] `complete_plan` excellent for single-agent batch completion
-- [x] `decompose` with `scaffold` produces correct dependency-aware steps (226 edges in Phase 6)
+- [x] `decompose` with `scaffold` produces correct dependency-aware steps (270 edges in Phase 7)
 - [x] `estimate` gives reasonable file counts and language detection
 - [x] Dependency graph accurately maps import chains
+- [x] `decompose` + `create_plan` + `claim_step` + `record_step` + `complete_plan` full workflow validated end-to-end (Phase 7: 5-step database refactor, all passed)
 
 **NOT FIXED — needs MCP server code changes:**
 - [ ] `decompose` without scaffold cannot infer new files from goal description. Phase 3: returned 492 disconnected steps. **Fix needed: goal-text NLP to generate scaffold entries automatically.**
-- [ ] Recipe matching scores too conservative (max 0.203) and doesn't discriminate between structurally similar tasks. **Fix needed: extract structural patterns (model+service+route+test) as matching features.**
+- [ ] Recipe matching scores too conservative (max ~0.2) and doesn't discriminate well between structurally similar tasks. **Fix needed: extract structural patterns (model+service+route+test) as matching features.**
 - [ ] Relevance scoring on non-scaffold steps is near-binary (0.0–0.03). **Fix needed: graduated scoring based on goal keyword proximity.**
 - [ ] No "apply recipe as scaffold" workflow. **Fix needed: recipe → scaffold conversion so matched recipes auto-generate file specs.**
 
-**Breakthrough moment:** Phase 4 — `skip_recipes: true` parameter fixed the Phase 3 regression where false recipe matches returned useless scaffolding steps.
+**Breakthrough moment:** Phase 7 — Full end-to-end Trammel workflow validated: `decompose` with scaffold (2 creates, 3 updates), 270 dependency edges, 5-step plan executed successfully. Recipe saved automatically via `complete_plan`.
 
 ### Remaining Work (Estimated 2-3 Phases)
 
@@ -80,10 +81,10 @@ Detailed findings per phase in `MCP_Findings/Phase 1 - 2/` through `MCP_Findings
 
 ## Tech Stack
 - **Runtime**: Node.js (or Bun)
-- **Database**: SQLite (via better-sqlite3)
-- **API**: Express or Fastify
+- **Database**: SQLite via better-sqlite3 (Phase 7: migrated from FileStore JSON)
+- **API**: Express (24 routes)
 - **Tests**: Jest + Babel (same as ConsistencyHub for apples-to-apples MCP comparison)
-- **CLI**: Commander.js or yargs
+- **CLI**: Commander.js
 
 ## Architecture (Design for MCP Signal)
 
@@ -91,16 +92,17 @@ Detailed findings per phase in `MCP_Findings/Phase 1 - 2/` through `MCP_Findings
 ```
 src/
   models/          — Recipe, Ingredient, Tag, MealPlan, ShoppingList, Collection, DietaryProfile, CookingLog (8)
-  api/routes/      — CRUD + service routes (18 files)
-  services/        — Search, MealPlanner, ShoppingList, Nutrition, RecipeScaling, Collection, DietaryCompliance, Recommendation, CostEstimation (9)
+  api/routes/      — CRUD + service routes (24 files, +6 from Phase 7)
+  services/        — Search, MealPlanner, ShoppingList, Nutrition, RecipeScaling, Collection, DietaryCompliance, Recommendation, CostEstimation + Phase 7: SimilarityService, CouplingExplorer, RelationshipAnalyzer, WorkflowEngine, MetricsAggregator, PluginMarketplace, RecipeTransformationPipeline (16+)
   importers/       — JSON, CSV, Paprika, Cookmate (4, NO tests — deliberate gap)
   exporters/       — JSON, CSV, Markdown, Paprika (4, NO tests — deliberate gap)
-  plugins/         — Plugin system with 18 hooks
+  plugins/         — Plugin system with 18 hooks + Phase 7: DynamicRegistry, DynamicPluginManager
   data/            — Nutrition, density, allergen, seasonal, prices (5)
+  db/              — Phase 7: SQLite wrapper (sqlite.js), migration system (migrations.js), schema (schema.js)
   cli/             — Commander.js CLI
-  utils/           — Validation, units, conversion, conversionEngine (4)
+  utils/           — Validation, units, conversion, conversionEngine + Phase 7: CircularDependencyDetector, OpenApiGenerator
 public/            — Web UI: 8 pages + CSS + JS
-tests/             — 564 tests across models, api, services, utils, plugins, web
+tests/             — 564 tests + Phase 7 additions
 ```
 
 ### Deliberate Test Gaps (for Chisel coverage_gap validation)
@@ -118,12 +120,13 @@ tests/             — 564 tests across models, api, services, utils, plugins, w
 4. **Phase 4** (2026-03-24): Plugin system, recipe scaling, conversion engine — 470 tests, **MCP breakthrough** (require() parser fixed)
 5. **Phase 5** (2026-03-25): Web UI (8 pages) — 496 tests
 6. **Phase 6** (2026-03-25): Collections, dietary compliance, recommendations — 564 tests
+7. **Phase 7** (2026-03-26): SQLite database migration, dynamic plugin system, coupling/similarity/workflow services — **Trammel fully validated** (end-to-end decompose → plan → execute → complete)
 
 ## Planned Phases (MCP Server Fixes)
 
-7. **Phase 7**: Fix Chisel coupling (import-graph analysis), working-tree awareness
 8. **Phase 8**: Fix Stele search (BM25 fallback), impact_radius summary mode
 9. **Phase 9**: Fix Trammel scaffold inference, structural recipe matching
+10. **Phase 10**: Fix Chisel coupling (import-graph analysis), working-tree awareness
 
 ## Environment
 - **Installed tools:** Node.js, npm, Bun, Python

@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const Recipe = require('../models/Recipe');
 
 /**
@@ -119,16 +120,32 @@ class PaprikaExporter {
 
   /**
    * Export to file
+   * @param {number|string|Array} recipeId - Single recipe ID or array of IDs
+   * @param {string} filePath - Output file path
    */
   exportToFile(recipeId, filePath) {
-    const fs = require('fs');
-    const content = this.exportRecipe(recipeId);
+    let content;
 
-    if (!content) {
-      return { success: false, error: 'Recipe not found' };
+    // Handle single ID or array of IDs
+    if (Array.isArray(recipeId)) {
+      const recipes = recipeId.map(id => this.recipe.getById(id)).filter(Boolean);
+      if (recipes.length === 0) {
+        return { success: false, error: 'No recipes found' };
+      }
+      const paprikaRecipes = recipes.map(r => this.toPaprikaFormat(r));
+      content = JSON.stringify({ recipes: paprikaRecipes }, null, 2);
+    } else {
+      content = this.exportRecipe(recipeId);
+      if (!content) {
+        return { success: false, error: 'Recipe not found' };
+      }
     }
 
-    fs.writeFileSync(filePath, content, 'utf8');
+    try {
+      fs.writeFileSync(filePath, content, 'utf8');
+    } catch (err) {
+      return { success: false, error: `Failed to write file: ${err.message}` };
+    }
     return { success: true, file: filePath };
   }
 }

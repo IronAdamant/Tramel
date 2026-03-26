@@ -13,16 +13,21 @@ const { runTests } = require('./testRunner');
 // Load all test files
 const testDir = __dirname;
 
-const testFiles = [
-  'utils/fileStore.test.js',
-  'utils/router.test.js',
-  'utils/validation.test.js',
-  'models/recipe.test.js',
-  'models/tag.test.js',
-  'models/mealPlan.test.js',
-  'services/searchService.test.js',
-  'services/shoppingListService.test.js'
-];
+// Auto-discover all test files
+function findTestFiles(dir) {
+  const results = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name !== 'testRunner.js') {
+      results.push(...findTestFiles(path.join(dir, entry.name)));
+    } else if (entry.name.endsWith('.test.js')) {
+      results.push(path.join(dir, entry.name).replace(__dirname + '/', ''));
+    }
+  }
+  return results;
+}
+
+const testFiles = findTestFiles(__dirname);
 
 console.log('Loading test files...');
 

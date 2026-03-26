@@ -57,7 +57,6 @@ const ALLERGEN_DATA = {
   'soy': ['soy'],
   'tofu': ['soy'],
   'edamame': ['soy'],
-  'soy sauce': ['soy', 'gluten'],
   'tempeh': ['soy'],
 
   // Sesame

@@ -64,6 +64,16 @@ const costRouter = require('./routes/costRoutes');
 const dietaryRouter = require('./routes/dietaryRoutes');
 const conversionRouter = require('./routes/conversionRoutes');
 const scalingRouter = require('./routes/scalingRoutes');
+const similarityRouter = require('./routes/similarityRoutes');
+const metricsRouter = require('./routes/metricsRoutes');
+const workflowRouterFactory = require('./routes/workflowRoutes');
+const relationshipRouterFactory = require('./routes/relationshipRoutes');
+const couplingRouterFactory = require('./routes/couplingRoutes');
+
+// Invoke factory functions to get routers
+const workflowRouter = workflowRouterFactory(db);
+const relationshipRouter = relationshipRouterFactory(db);
+const couplingRouter = couplingRouterFactory(db);
 
 // Mount routes
 apiRouter.get('/health', (req, res) => {
@@ -161,9 +171,63 @@ apiRouter.get('/convert', attachDb, conversionRouter.handle.bind(conversionRoute
 // Scaling
 apiRouter.post('/scale/:recipeId', attachDb, parseBody, scalingRouter.handle.bind(scalingRouter));
 
+// Similarity - routes already prefixed in route files, forward directly
+apiRouter.get('/similarity/:recipeId', attachDb, similarityRouter.handle.bind(similarityRouter));
+apiRouter.post('/similarity/compare', attachDb, parseBody, similarityRouter.handle.bind(similarityRouter));
+apiRouter.post('/similarity/batch', attachDb, parseBody, similarityRouter.handle.bind(similarityRouter));
+apiRouter.post('/similarity/matrix', attachDb, parseBody, similarityRouter.handle.bind(similarityRouter));
+apiRouter.post('/similarity/cluster', attachDb, parseBody, similarityRouter.handle.bind(similarityRouter));
+apiRouter.get('/similarity/algorithms', similarityRouter.handle.bind(similarityRouter));
+apiRouter.get('/similarity/stats', similarityRouter.handle.bind(similarityRouter));
+apiRouter.delete('/similarity/cache', similarityRouter.handle.bind(similarityRouter));
+apiRouter.patch('/similarity/cache', parseBody, similarityRouter.handle.bind(similarityRouter));
+
+// Metrics - routes already prefixed in route files, forward directly
+apiRouter.get('/metrics/summary', metricsRouter.handle.bind(metricsRouter));
+apiRouter.get('/metrics/all', metricsRouter.handle.bind(metricsRouter));
+apiRouter.get('/metrics/aggregated', metricsRouter.handle.bind(metricsRouter));
+apiRouter.get('/metrics/trends', metricsRouter.handle.bind(metricsRouter));
+apiRouter.get('/metrics/anomalies', metricsRouter.handle.bind(metricsRouter));
+apiRouter.get('/metrics/rate', metricsRouter.handle.bind(metricsRouter));
+apiRouter.get('/metrics/windows', metricsRouter.handle.bind(metricsRouter));
+apiRouter.post('/metrics/record', parseBody, metricsRouter.handle.bind(metricsRouter));
+apiRouter.delete('/metrics/all', metricsRouter.handle.bind(metricsRouter));
+apiRouter.patch('/metrics/enabled', parseBody, metricsRouter.handle.bind(metricsRouter));
+apiRouter.get('/metrics/health', metricsRouter.handle.bind(metricsRouter));
+
+// Workflow Automation
+apiRouter.get('/workflows', workflowRouter.handle.bind(workflowRouter));
+apiRouter.get('/workflows/:workflowId', workflowRouter.handle.bind(workflowRouter));
+apiRouter.post('/workflows/:workflowId/execute', workflowRouter.handle.bind(workflowRouter));
+apiRouter.post('/workflows', parseBody, workflowRouter.handle.bind(workflowRouter));
+apiRouter.get('/workflows/history/list', workflowRouter.handle.bind(workflowRouter));
+apiRouter.get('/workflows/executions/active', workflowRouter.handle.bind(workflowRouter));
+
+// Relationship Analysis
+apiRouter.post('/relationships/analyze', parseBody, relationshipRouter.handle.bind(relationshipRouter));
+apiRouter.get('/relationships/related/:recipeId', relationshipRouter.handle.bind(relationshipRouter));
+apiRouter.get('/relationships/graph/:recipeId', relationshipRouter.handle.bind(relationshipRouter));
+apiRouter.get('/relationships/path/:recipeIdA/:recipeIdB', relationshipRouter.handle.bind(relationshipRouter));
+apiRouter.post('/relationships/batch', parseBody, relationshipRouter.handle.bind(relationshipRouter));
+apiRouter.post('/relationships/clear-cache', relationshipRouter.handle.bind(relationshipRouter));
+apiRouter.get('/relationships/types', relationshipRouter.handle.bind(relationshipRouter));
+
+// Coupling Explorer
+apiRouter.post('/coupling/modules', parseBody, couplingRouter.handle.bind(couplingRouter));
+apiRouter.post('/coupling/modules/:moduleId/dependencies', parseBody, couplingRouter.handle.bind(couplingRouter));
+apiRouter.get('/coupling/modules/:moduleId', couplingRouter.handle.bind(couplingRouter));
+apiRouter.get('/coupling/system', couplingRouter.handle.bind(couplingRouter));
+apiRouter.get('/coupling/analysis', couplingRouter.handle.bind(couplingRouter));
+apiRouter.get('/coupling/cycles', couplingRouter.handle.bind(couplingRouter));
+apiRouter.get('/coupling/scc', couplingRouter.handle.bind(couplingRouter));
+apiRouter.get('/coupling/modules/:moduleId/affected', couplingRouter.handle.bind(couplingRouter));
+apiRouter.post('/coupling/analyze', parseBody, couplingRouter.handle.bind(couplingRouter));
+apiRouter.post('/coupling/discover', parseBody, couplingRouter.handle.bind(couplingRouter));
+apiRouter.post('/coupling/reset', couplingRouter.handle.bind(couplingRouter));
+
 // Static file serving
-function serveStatic(req, res) {
-  let filePath = req.url.pathname;
+function serveStatic(req, res, parsedUrl) {
+  let filePath = parsedUrl.pathname;
 
   // Remove query string
   filePath = filePath.split('?')[0];
@@ -218,7 +282,7 @@ const server = http.createServer((req, res) => {
       apiRouter.handle(req, res);
     } else {
       // Static files
-      serveStatic(req, res);
+      serveStatic(req, res, parsedUrl);
     }
   } catch (err) {
     errorHandler(err, req, res);

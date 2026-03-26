@@ -1,69 +1,63 @@
 'use strict';
 
-const { FileStore } = require('../utils/fileStore');
+const { v4: uuidv4 } = require('uuid');
 
 /**
- * Initialize database schema (creates JSON store files).
- * Called by FileStore.initializeAll() or can be called directly.
+ * Initialize database schema (creates SQLite tables).
+ * Called by migrations system via runMigrations().
  */
-function initializeSchema(fileStore) {
-  const tables = [
-    'recipes',
-    'ingredients',
-    'tags',
-    'recipe_tags',
-    'meal_plans',
-    'meal_plan_entries',
-    'shopping_lists',
-    'shopping_list_items',
-    'collections',
-    'collection_recipes',
-    'dietary_profiles',
-    'cooking_logs',
-    'ingredient_prices'
-  ];
-
-  tables.forEach(table => fileStore.initializeTable(table));
+function initializeSchema(db) {
+  // Note: Tables are created via migrations.js:migrateSchema()
+  // This function is kept for compatibility but schema creation
+  // is now handled by the migration system.
 }
 
 /**
  * Create schema with default data
  */
-function createSchemaWithDefaults(fileStore) {
-  // Initialize all tables
-  initializeSchema(fileStore);
+function createSchemaWithDefaults(db) {
+  // Initialize schema via migrations (already done in db/index.js)
+  initializeSchema(db);
 
   // Add some default tags if empty
-  const tags = fileStore.readAll('tags');
-  if (tags.length === 0) {
+  const tags = db.all('SELECT COUNT(*) as count FROM tags');
+  if (tags[0].count === 0) {
     const defaultTags = [
       'breakfast', 'lunch', 'dinner', 'snack',
       'vegetarian', 'vegan', 'gluten-free', 'dairy-free',
       'quick', 'easy', 'healthy', 'comfort-food'
     ];
+    const insert = db.prepare('INSERT INTO tags (id, name) VALUES (?, ?)');
     defaultTags.forEach(name => {
-      fileStore.create('tags', { name });
+      insert.run(uuidv4(), name);
     });
   }
 
   // Add default dietary profile if none exist
-  const profiles = fileStore.readAll('dietary_profiles');
-  if (profiles.length === 0) {
-    fileStore.create('dietary_profiles', {
-      name: 'Default',
-      restrictions: [],
-      allergens: [],
-      nutrition_goals: {
-        calories: 2000,
-        protein: 50,
-        carbs: 250,
-        fat: 65
-      }
-    });
+  const profiles = db.all('SELECT COUNT(*) as count FROM dietary_profiles');
+  if (profiles[0].count === 0) {
+    const id = uuidv4();
+    db.run(
+      `INSERT INTO dietary_profiles (id, name, restrictions, allergens, nutrition_goals)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        id,
+        'Default',
+        JSON.stringify([]),
+        JSON.stringify([]),
+        JSON.stringify({ calories: 2000, protein: 50, carbs: 250, fat: 65 })
+      ]
+    );
   }
 }
 
+/**
+ * Legacy alias for compatibility
+ */
+const createSchema = createSchemaWithDefaults;
+
 module.exports = {
   initializeSchema,
-  createSchemaWithDefaults
+  createSchemaWithDefaults,
+  createSchema
 };

@@ -6,7 +6,10 @@ const crypto = require('crypto');
 
 /**
  * Simple JSON file-based store with file locking.
- * Replaces SQLite for zero-dependency implementation.
+ *
+ * LEGACY/BACKUP: This module is no longer the primary database.
+ * The application now uses SQLite via src/db/sqlite.js.
+ * This file is kept for potential future use or migration purposes.
  */
 class FileStore {
   constructor(dataDir = 'data') {

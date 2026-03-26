@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const Recipe = require('../models/Recipe');
 
 /**
@@ -108,14 +110,17 @@ class MarkdownExporter {
    * Export to Markdown file
    */
   exportToFile(recipeId, filePath) {
-    const fs = require('fs');
     const content = this.exportRecipe(recipeId);
 
     if (!content) {
       return { success: false, error: 'Recipe not found' };
     }
 
-    fs.writeFileSync(filePath, content, 'utf8');
+    try {
+      fs.writeFileSync(filePath, content, 'utf8');
+    } catch (err) {
+      return { success: false, error: `Failed to write file: ${err.message}` };
+    }
     return { success: true, file: filePath };
   }
 
@@ -123,11 +128,12 @@ class MarkdownExporter {
    * Export all to directory
    */
   exportAllToDirectory(directory) {
-    const fs = require('fs');
-    const path = require('path');
-
     if (!fs.existsSync(directory)) {
-      fs.mkdirSync(directory, { recursive: true });
+      try {
+        fs.mkdirSync(directory, { recursive: true });
+      } catch (err) {
+        return { success: false, error: `Failed to create directory: ${err.message}` };
+      }
     }
 
     const recipes = this.store.readAll('recipes');
@@ -138,7 +144,11 @@ class MarkdownExporter {
       const filePath = path.join(directory, filename);
       const content = this.exportRecipe(recipe.id);
 
-      fs.writeFileSync(filePath, content, 'utf8');
+      try {
+        fs.writeFileSync(filePath, content, 'utf8');
+      } catch (err) {
+        return { success: false, error: `Failed to write file ${filename}: ${err.message}` };
+      }
       results.push({ recipe: recipe.title, file: filename });
     }
 

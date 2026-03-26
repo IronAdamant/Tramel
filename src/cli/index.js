@@ -102,7 +102,7 @@ function formatRecipe(r, format = 'text') {
     output += `Ingredients (${r.ingredients.length}):\n`;
     r.ingredients.forEach(ing => {
       const qty = ing.quantity ? `${ing.quantity}` : '';
-      output += `  - ${qty} ${ing.unit || ''} ${ing.name}\n`.replace(/\s+/, ' ');
+      output += `  - ${qty} ${ing.unit || ''} ${ing.name}\n`;
     });
   }
   return output;
@@ -138,7 +138,8 @@ const commands = {
       console.log('Created recipe:', r.id);
     },
     search: (subCmd, options) => {
-      const results = recipe.search({ query: subCmd });
+      const limit = parseInt(options.limit) || 20;
+      const results = recipe.search({ query: subCmd }).slice(0, limit);
       console.log(`Found ${results.length} recipes matching "${subCmd}":\n`);
       results.forEach(r => {
         console.log(`[${r.id}] ${r.title}`);
@@ -248,7 +249,7 @@ function main() {
     if (typeof commands[cmd] === 'function') {
       commands[cmd]();
     } else if (commands[cmd][subCmd]) {
-      commands[cmd][subCmd](options._[0], options);
+      commands[cmd][subCmd](subCmd, options);
     } else {
       // Default to list for known command groups
       if (commands[cmd].list) {

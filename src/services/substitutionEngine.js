@@ -2,7 +2,7 @@
 
 const { getNutrition } = require('../data/nutritionData');
 const { getDensity } = require('../data/densityData');
-const { containsAllergen, getAllergens } = require('../data/allergenData');
+const { getAllergens } = require('../data/allergenData');
 const { getSubstitutionRules, hasSubstitutionRules } = require('../data/substitutionRules');
 
 /**
@@ -25,7 +25,7 @@ class SubstitutionEngine {
    * @returns {Array} Array of { substitute, score, reason, nutrition, density }
    */
   findSubstitutes(ingredientName, constraints = {}) {
-    const { avoidAllergens = [], targetNutrition = {}, maxCost = null } = constraints;
+    const { avoidAllergens = [], targetNutrition = {} } = constraints;
 
     // Step 1: Get nutrition profile for original ingredient
     const originalNutrition = getNutrition(ingredientName);
@@ -34,7 +34,6 @@ class SubstitutionEngine {
     const originalDensity = getDensity(ingredientName);
 
     // Step 3: Get allergens for original ingredient
-    const originalAllergens = getAllergens(ingredientName);
 
     // Step 4: Check for explicit substitution rules
     if (!hasSubstitutionRules(ingredientName)) {
@@ -43,6 +42,7 @@ class SubstitutionEngine {
     }
 
     const rules = getSubstitutionRules(ingredientName);
+    if (!rules) return [];
     const substitutes = [];
 
     for (const rule of rules) {

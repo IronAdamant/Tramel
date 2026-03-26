@@ -2,6 +2,8 @@
 
 const Recipe = require('../models/Recipe');
 
+const fs = require('fs');
+
 /**
  * Paprika app importer
  * Paprika exports in a specific JSON format
@@ -16,7 +18,12 @@ class PaprikaImporter {
    * Import from Paprika JSON string
    */
   importFromString(jsonString) {
-    const data = JSON.parse(jsonString);
+    let data;
+    try {
+      data = JSON.parse(jsonString);
+    } catch (err) {
+      return [{ success: false, error: `Invalid JSON: ${err.message}` }];
+    }
 
     // Paprika format has "recipes" array
     const recipes = data.recipes || [data];
@@ -154,8 +161,12 @@ class PaprikaImporter {
    * Import from file
    */
   importFromFile(filePath) {
-    const fs = require('fs');
-    const content = fs.readFileSync(filePath, 'utf8');
+    let content;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      return [{ success: false, error: `Failed to read file: ${err.message}` }];
+    }
     return this.importFromString(content);
   }
 }

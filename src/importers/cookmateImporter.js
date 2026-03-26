@@ -2,6 +2,8 @@
 
 const Recipe = require('../models/Recipe');
 
+const fs = require('fs');
+
 /**
  * Cookmate app importer
  * Cookmate uses a different JSON format
@@ -16,7 +18,12 @@ class CookmateImporter {
    * Import from Cookmate JSON string
    */
   importFromString(jsonString) {
-    const data = JSON.parse(jsonString);
+    let data;
+    try {
+      data = JSON.parse(jsonString);
+    } catch (err) {
+      return [{ success: false, error: `Invalid JSON: ${err.message}` }];
+    }
 
     // Cookmate may have different structures
     let recipes = [];
@@ -116,8 +123,12 @@ class CookmateImporter {
    * Import from file
    */
   importFromFile(filePath) {
-    const fs = require('fs');
-    const content = fs.readFileSync(filePath, 'utf8');
+    let content;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      return [{ success: false, error: `Failed to read file: ${err.message}` }];
+    }
     return this.importFromString(content);
   }
 }
