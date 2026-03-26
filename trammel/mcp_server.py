@@ -40,7 +40,11 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "Decompose a high-level goal into a dependency-aware strategy with ordered steps. "
         "Analyzes project imports to determine file dependencies, generates steps with "
         "ordering rationale, and checks for matching cached recipes. "
-        "Use summary_only=true for a compact overview or max_steps to cap output size.",
+        "Use summary_only=true for a compact overview or max_steps to cap output size. "
+        "For greenfield work (new directories/subsystems), use scaffold to specify target "
+        "files explicitly instead of relying on heuristic inference from existing files. "
+        "When present, near_match_recipes ranks past recipes using the same composite score "
+        "as structural recipe retrieval (text + file overlap + success + recency), not text alone.",
         {"goal": _prop("string", "High-level goal to decompose (e.g. 'refactor auth module')."),
          "project_root": _prop("string", "Absolute path to the project root directory."),
          "scope": _prop("string", "Subdirectory to scope analysis to (monorepo support). Relative to project_root."),
@@ -55,7 +59,22 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                                "Use when cached recipes return irrelevant steps."),
          "min_relevance": _prop("number", "Minimum relevance score (0.0–1.0) for a file to be included in steps. "
                                 "Higher values produce fewer, more targeted steps. "
-                                "When relevant_only=true, defaults to 0.01; otherwise 0.0.")},
+                                "When relevant_only=true, defaults to 0.01; otherwise 0.0."),
+         "scaffold": _prop("array",
+                           "Explicit file specifications for greenfield work. Use when creating new "
+                           "directories or subsystems where heuristic inference from existing files would "
+                           "produce wrong results. Each entry specifies a file to create, an optional "
+                           "description, and optional depends_on referencing other scaffold entries. "
+                           "Steps are topologically ordered by declared dependencies. "
+                           "Existing files in the list are skipped.",
+                           items={"type": "object", "properties": {
+                               "file": {"type": "string",
+                                        "description": "Relative path of the file to create (e.g. 'public/index.html')."},
+                               "description": {"type": "string",
+                                               "description": "What this file does (used in step description)."},
+                               "depends_on": {"type": "array", "items": {"type": "string"},
+                                              "description": "Other scaffold file paths this file depends on."},
+                           }, "required": ["file"]})},
         ["goal", "project_root"]),
     "explore": _schema("explore",
         "Generate beam variants for a strategy without running verification. "
@@ -118,9 +137,12 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         ["goal", "strategy", "outcome"]),
     "get_recipe": _schema("get_recipe",
         "Retrieve the best matching recipe for a goal. Uses blended similarity "
-        "(trigram + Jaccard + substring, minimum 0.55).",
+        "(trigram + Jaccard + substring, minimum 0.55). "
+        "Set include_scaffold=true to add a scaffold list derived from the strategy "
+        "for passing to decompose.",
         {"goal": _prop("string", "Goal to match against stored recipes."),
-         "context_files": _prop("array", "File paths in the current project for structural matching boost.", items={"type": "string"})},
+         "context_files": _prop("array", "File paths in the current project for structural matching boost.", items={"type": "string"}),
+         "include_scaffold": _prop("boolean", "If true, include a scaffold array derived from create/zero-symbol steps.")},
         ["goal"]),
     "add_constraint": _schema("add_constraint",
         "Record a failure constraint to prevent repeating known-bad approaches. "
@@ -258,6 +280,7 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
         relevant_only=args.get("relevant_only", False),
         skip_recipes=args.get("skip_recipes", False),
         min_relevance=args.get("min_relevance", 0.0),
+        scaffold=args.get("scaffold"),
     )
 
     # summary_only: compact metadata without step details or dependency graph
@@ -341,7 +364,11 @@ def _handle_get_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
     # Surface match metadata at top level for LLM decision-making,
     # then include the strategy separately to keep the structure flat.
     meta = recipe.pop("_match", {})
-    return {**meta, "strategy": recipe}
+    out: dict[str, Any] = {**meta, "strategy": recipe}
+    if args.get("include_scaffold"):
+        from .core import strategy_to_scaffold
+        out["scaffold"] = strategy_to_scaffold(recipe)
+    return out
 
 
 def _handle_list_recipes(store: RecipeStore, args: dict[str, Any]) -> Any:

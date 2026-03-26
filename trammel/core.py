@@ -207,8 +207,26 @@ def _extract_goal_keywords(goal: str) -> set[str]:
 
 
 def _has_creation_intent(goal: str) -> bool:
-    """Check if the goal implies creating new files/modules."""
-    return bool(set(goal.lower().split()) & _CREATION_VERBS)
+    """Check if the goal implies creating new files/modules.
+
+    Returns True if:
+    - A creation verb is present in the goal, OR
+    - The goal contains role-keywords (service, route, plugin, engine, etc.)
+      that typically imply new file creation
+    """
+    if set(goal.lower().split()) & _CREATION_VERBS:
+        return True
+    # Also infer creation intent from role keywords that imply new files
+    goal_lower = goal.lower()
+    role_kw = {
+        "service", "services", "route", "routes", "controller", "controllers",
+        "handler", "handlers", "engine", "engines", "plugin", "plugins",
+        "registry", "registries", "collector", "aggregator", "middleware",
+        "model", "models", "repository", "repositories", "algorithm", "algorithms",
+        "generator", "generators", "workflow", "marketplace", "pipeline",
+    }
+    words = set(re.findall(r'[a-z]+', goal_lower))
+    return bool(words & role_kw)
 
 
 def _keyword_variants(keywords: set[str]) -> set[str]:
@@ -227,12 +245,31 @@ def _keyword_variants(keywords: set[str]) -> set[str]:
 def _matched_keywords(
     goal_keywords: set[str], candidate_words: set[str],
 ) -> set[str]:
-    """Return which goal keywords match any candidate word (variants include plural/singular)."""
+    """Return which goal keywords match any candidate word (variants + substring + CamelCase).
+
+    Uses three-tier matching:
+    1. Exact match with plural/singular variants (original behavior)
+    2. Substring containment: keyword appears inside candidate or vice versa
+    3. CamelCase token overlap: 'workflowAutomation' matches {'workflow', 'automation'}
+    """
     matched: set[str] = set()
+    variants = _keyword_variants(goal_keywords)
+
+    # Tier 1: exact + variants
+    if variants & candidate_words:
+        matched.update(kw for kw in goal_keywords if _keyword_variants({kw}) & candidate_words)
+
+    # Tier 2: substring containment (keyword in candidate or candidate in keyword)
+    # Also build a set of all goal keywords and variants for fast lookup
+    all_goal_terms = variants | goal_keywords
     for kw in goal_keywords:
-        variants = _keyword_variants({kw})
-        if variants & candidate_words:
-            matched.add(kw)
+        kw_lc = kw.lower()
+        for cw in candidate_words:
+            cw_lc = cw.lower()
+            # keyword inside candidate word or vice versa (min length 4 to avoid noise)
+            if (len(kw_lc) >= 4 and kw_lc in cw_lc) or (len(cw_lc) >= 4 and cw_lc in kw_lc):
+                matched.add(kw)
+
     return matched
 
 
@@ -759,26 +796,48 @@ def _score_relevance(
 ) -> float:
     """Score how relevant a file is to the goal (0.0 to 1.0).
 
-    Blends keyword overlap with import in-degree so highly-imported hubs are not
-    scored near zero when the filename omits domain tokens.
+    Uses improved fuzzy keyword matching that handles:
+    - Plural/singular variants (original)
+    - Substring containment (keyword inside path word or vice versa)
+    - CamelCase token splitting for compound identifiers
     """
     if not goal_keywords:
         return 1.0
-    path_words = set(re.findall(r'[a-z]+', filepath.lower()))
+    # Extract words from filepath: standard lowercase words + CamelCase splits
+    path_words_raw = set(re.findall(r'[a-z]+', filepath.lower()))
+    # Also split CamelCase/PascalCase: workflowAutomationEngine -> workflow, automation, engine
+    path_words_raw.update(
+        p.lower() for p in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|$)', filepath) if len(p) > 2
+    )
     sym_words: set[str] = set()
     for s in sym_names:
         sym_words.update(
             p.lower() for p in re.findall(r'[a-z]+|[A-Z][a-z]*', s) if len(p) > 2
         )
-    matched = _matched_keywords(goal_keywords, path_words | sym_words)
+    all_candidate_words = path_words_raw | sym_words
+    matched = _matched_keywords(goal_keywords, all_candidate_words)
     keyword_ratio = len(matched) / max(1, len(goal_keywords))
+
+    # Partial match bonus: if any goal keyword is a substring of a path/sym word, give partial credit
+    partial_credit = 0.0
+    for kw in goal_keywords:
+        if kw not in matched:
+            kw_lc = kw.lower()
+            for cw in all_candidate_words:
+                if len(kw_lc) >= 3 and (kw_lc in cw or cw in kw_lc):
+                    partial_credit += 0.5  # half credit for substring matches
+                    break
+    partial_credit = min(partial_credit, 0.3)  # cap partial credit at 0.3
+
+    keyword_score = min(keyword_ratio + partial_credit, 1.0)
+
     if max_indegree <= 0:
         graph_boost = 0.0
     else:
         raw = indegree.get(filepath, 0)
         graph_boost = math.log(1 + raw) / math.log(1 + max_indegree)
     return (
-        _RELEVANCE_KEYWORD_ALPHA * keyword_ratio
+        _RELEVANCE_KEYWORD_ALPHA * keyword_score
         + (1.0 - _RELEVANCE_KEYWORD_ALPHA) * graph_boost
     )
 
@@ -1024,15 +1083,16 @@ class Planner:
 
         # Fast path: exact text match without project scan
         # P1: skip_recipes bypasses both recipe gates; fast path uses stricter threshold
+        matched_recipe: dict[str, Any] | None = None
+        recipe_scaffold: list[dict[str, Any]] = []
         if not skip_recipes:
             recipe = self.store.retrieve_best_recipe(goal, min_similarity=0.7)
             if recipe:
                 recipe.setdefault("_source", "recipe_exact")
-                # Auto-convert recipe create/zero-symbol steps to scaffold entries
                 scaffold_from_recipe = strategy_to_scaffold(recipe)
                 if scaffold_from_recipe:
                     recipe["scaffold"] = scaffold_from_recipe
-                return recipe
+                matched_recipe = recipe
 
         active_constraints = self.store.get_active_constraints()
         goal_keywords = _extract_goal_keywords(goal)
@@ -1048,21 +1108,23 @@ class Planner:
 
         # Structural recipe match: try again with file context
         all_files = set(symbols) | set(dep_graph)
-        if not skip_recipes:
+        if not skip_recipes and matched_recipe is None:
             recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
             if recipe:
                 recipe.setdefault("_source", "recipe_structural")
-                # Auto-convert recipe create/zero-symbol steps to scaffold entries
                 scaffold_from_recipe = strategy_to_scaffold(recipe)
                 if scaffold_from_recipe:
                     recipe["scaffold"] = scaffold_from_recipe
-                return recipe
+                matched_recipe = recipe
 
         # Collect near-miss recipes for reference
-        near_matches = self.store.retrieve_near_matches(
-            goal, n=3, context_files=all_files,
-        )
+        near_matches: list[dict[str, Any]] = []
+        if not skip_recipes:
+            near_matches = self.store.retrieve_near_matches(
+                goal, n=3, context_files=all_files,
+            )
 
+        # Build steps from existing project files
         relevant_graph = {
             f: [d for d in deps if d in all_files]
             for f, deps in dep_graph.items()
@@ -1083,43 +1145,72 @@ class Planner:
         )
         steps, applied = _apply_constraints(steps, active_constraints)
 
-        # Scaffold: explicit entries, plus paths inferred from goal text (user wins on duplicate paths).
-        # If ``scaffold`` is passed (including []), skip heuristic creation_hints — only inferred paths merge in.
+        # Paths explicitly mentioned in goal text
         inferred_entries = [
             {"file": p, "description": f"Inferred from goal text: {p}"}
             for p in _extract_paths_from_goal(goal)
             if p not in all_files
         ]
-        merged_scaffold: list[dict[str, Any]] | None = None
+
+        # Determine scaffold: explicit user scaffold > recipe scaffold > creation hints
+        # If scaffold arg is provided (including []), use it as base
+        # Otherwise, if we have a matched recipe with scaffold files, use those
+        # Finally, always attempt _creation_hints to supplement any gaps
+        hints: dict[str, Any] | None = None
+        effective_scaffold: list[dict[str, Any]] | None = None
+        scaffold_was_provided = scaffold is not None  # track even if scaffold=[]
+
         if scaffold is not None:
+            # User explicitly provided scaffold
             user_files = {e.get("file") for e in scaffold if e.get("file")}
             extra = [e for e in inferred_entries if e["file"] not in user_files]
-            merged_scaffold = list(scaffold) + extra
-        elif inferred_entries:
-            merged_scaffold = inferred_entries
+            effective_scaffold = list(scaffold) + extra
+        elif matched_recipe is not None:
+            # Use recipe scaffold as base, then supplement with hints
+            recipe_scaffold = matched_recipe.get("scaffold", [])
+            if recipe_scaffold:
+                recipe_files = {e.get("file") for e in recipe_scaffold if e.get("file")}
+                extra_inferred = [e for e in inferred_entries if e["file"] not in recipe_files]
+                effective_scaffold = list(recipe_scaffold) + extra_inferred
 
-        hints: dict[str, Any] | None = None
-        if scaffold is not None:
-            scaffold_steps, scaffold_graph = _scaffold_steps(
-                merged_scaffold or [], start_index=len(steps), existing_files=all_files,
-            )
-            if scaffold_steps:
-                steps.extend(scaffold_steps)
-            for f, deps in scaffold_graph.items():
-                relevant_graph.setdefault(f, []).extend(deps)
-        elif merged_scaffold is not None:
-            scaffold_steps, scaffold_graph = _scaffold_steps(
-                merged_scaffold, start_index=len(steps), existing_files=all_files,
-            )
-            if scaffold_steps:
-                steps.extend(scaffold_steps)
-            for f, deps in scaffold_graph.items():
-                relevant_graph.setdefault(f, []).extend(deps)
-        else:
+        # Always run creation_hints to catch goal keywords the recipe might miss
+        # (regardless of _has_creation_intent — the hint function itself is the gate)
+        if scaffold is None:
             hints = _creation_hints(goal, goal_keywords, all_files)
-            creation_steps = _generate_creation_steps(hints, start_index=len(steps))
-            if creation_steps:
-                steps.extend(creation_steps)
+            hint_files = {s["path"] for s in hints.get("suggested_files", [])} if hints else set()
+            if effective_scaffold is not None:
+                # Merge: add hint files not already in effective_scaffold
+                existing_files = {e.get("file") for e in effective_scaffold if e.get("file")}
+                for h in (hints.get("suggested_files", []) if hints else []):
+                    if h["path"] not in existing_files and h["path"] not in all_files:
+                        effective_scaffold.append({
+                            "file": h["path"],
+                            "description": f"Creation hint: {h.get('keyword', h['path'])}",
+                            "depends_on": h.get("depends_on", []),
+                        })
+            else:
+                # No recipe scaffold: prepend explicit goal paths, then add hints
+                # Explicit paths (from backticks/quotes) always take priority over inferred hints
+                effective_scaffold = list(inferred_entries)
+                if hints and hints.get("suggested_files"):
+                    existing_files = {e["file"] for e in effective_scaffold if e.get("file")}
+                    for s in hints["suggested_files"]:
+                        if s["path"] not in existing_files and s["path"] not in all_files:
+                            effective_scaffold.append({
+                                "file": s["path"],
+                                "description": f"Creation hint: {s.get('keyword', s['path'])}",
+                                "depends_on": s.get("depends_on", []),
+                            })
+
+        # Apply effective scaffold (user-provided or recipe+hints merged)
+        if effective_scaffold:
+            scaffold_steps, scaffold_graph = _scaffold_steps(
+                effective_scaffold, start_index=len(steps), existing_files=all_files,
+            )
+            if scaffold_steps:
+                steps.extend(scaffold_steps)
+            for f, deps in scaffold_graph.items():
+                relevant_graph.setdefault(f, []).extend(deps)
 
         t4 = _time.monotonic()
 
@@ -1153,13 +1244,21 @@ class Planner:
         }
         if near_matches:
             result["near_match_recipes"] = near_matches
-        if scaffold is not None or merged_scaffold is not None:
-            result["scaffold_applied"] = len([
-                s for s in steps if s.get("action") == "create"
-            ])
+        if matched_recipe is not None:
+            result["recipe"] = matched_recipe.get("_source")
+            if matched_recipe.get("_match"):
+                result["recipe_match"] = matched_recipe["_match"]
+        if scaffold_was_provided:
+            result["scaffold_applied"] = len([s for s in steps if s.get("action") == "create"])
             if inferred_entries:
                 result["goal_paths_inferred"] = len(inferred_entries)
-        elif hints:
+        elif effective_scaffold and inferred_entries:
+            # Explicit goal paths were used (even without user scaffold arg)
+            result["goal_paths_inferred"] = len(inferred_entries)
+        if hints and not effective_scaffold:
+            result["creation_hints"] = hints
+        elif hints and effective_scaffold:
+            # Surface hint metadata even when merged with recipe scaffold
             result["creation_hints"] = hints
 
         return result

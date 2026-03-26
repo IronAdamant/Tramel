@@ -265,7 +265,7 @@ _SCAFFOLD_SIGNALS = frozenset({
     "scaffold", "initialize", "setup", "set up", "from scratch", "bootstrap",
     "new project", "phase 1", "build phase", "create project", "start project",
 })
-_SCAFFOLD_PENALTY = 0.25
+_SCAFFOLD_PENALTY = 0.60  # Soft penalty: 40% reduction, not 75% (0.25x)
 
 
 def _is_scaffold_pattern(pattern: str) -> bool:
@@ -462,11 +462,11 @@ class RecipeStoreMixin:
             )
             self._insert_file_entries(sig, self._extract_step_files(strategy))
 
-    _W_TEXT = 0.35
-    _W_FILES = 0.20
-    _W_SUCCESS = 0.15
-    _W_RECENCY = 0.15
-    _W_STRUCTURAL = 0.15  # Fix 2: structural fingerprint similarity
+    _W_TEXT = 0.25       # Reduced: text similarity alone shouldn't dominate
+    _W_FILES = 0.15      # Reduced: file overlap matters but isn't always available
+    _W_SUCCESS = 0.10    # Reduced: success rate is secondary signal
+    _W_RECENCY = 0.10    # Reduced: recency is minor signal
+    _W_STRUCTURAL = 0.40  # Increased: structural fingerprint is key discriminator
     _RECENCY_HALF_LIFE = 30 * 86400  # 30 days in seconds
 
     def retrieve_best_recipe(
@@ -539,8 +539,11 @@ class RecipeStoreMixin:
             if text_sim < min_similarity:
                 continue
 
-            # Floor: reject weak composite matches on the structural path
-            if context_files is not None and score < 0.35:
+            # Floor: reject only very weak composite matches.
+            # With structural similarity as the dominant weight (0.40), lower the floor
+            # from 0.35 to 0.20 so good structural matches aren't rejected when file
+            # overlap is zero (common for greenfield goals with no context files).
+            if context_files is not None and score < 0.20:
                 continue
 
             if score > best_score:
@@ -574,7 +577,7 @@ class RecipeStoreMixin:
         n: int = 3,
         min_score: float = 0.15,
         context_files: set[str] | None = None,
-        min_composite: float = 0.35,
+        min_composite: float = 0.20,
     ) -> list[dict[str, Any]]:
         """Return top-N near-miss recipe candidates for reference.
 
