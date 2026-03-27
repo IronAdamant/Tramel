@@ -34,6 +34,18 @@ Releases are uploaded to PyPI via **Trusted Publishing** (OpenID Connect from Gi
 
 If you need to publish manually, use a short-lived PyPI token only for that session; do not commit tokens.
 
+## Plan fidelity and project configuration
+
+Trammel is built to **reduce repeated work across steps and sessions** and to keep **sub-agents aligned with the main plan** (tracked plans, step claims, recipes).
+
+**Decomposition controls (stdlib-only):**
+
+- **`strict_greenfield`** — If the goal implies new work (creation-style) but there is no scaffold, no explicit file paths in the goal text, and no matching recipe with scaffold steps, decomposition fails with a clear error. Use this when orchestrators must not improvise a vague greenfield plan.
+- **`plan_fidelity`** — Included on decompose results: whether strict mode was on, whether `.trammel.json` / `pyproject` config was merged, optional `focus_globs`, and `max_files` cap.
+- **Relevance signals** — Each file step can include **`relevance_keyword`**, **`relevance_graph`**, composite **`relevance`**, and **`relevance_tier`** (`high` / `medium` / `low`) so prioritization is explainable, not a single opaque score.
+
+**Optional config (no extra dependencies):** merge of **`pyproject.toml`** section **`[tool.trammel]`** (Python 3.11+ `tomllib`) and **`.trammel.json`** (JSON overrides). Supported keys include `default_scope`, `focus_keywords`, `focus_globs`, `max_files`. The existing **`language`** field in `.trammel.json` remains the language-detection override.
+
 ## Quickstart
 
 Run the test suite:

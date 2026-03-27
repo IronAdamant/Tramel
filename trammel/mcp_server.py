@@ -82,6 +82,19 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                               "When true, run full repo symbol/import analysis and append scaffold steps "
                               "(legacy). When false or omitted with a non-empty scaffold, return only "
                               "scaffold-derived steps (default)."),
+         "focus_keywords": _prop("array", "Extra goal keywords for relevance (merged with goal text and "
+                                "optional .trammel.json / pyproject [tool.trammel]).",
+                                  items={"type": "string"}),
+         "focus_globs": _prop("array", "Only include source files matching any of these globs (e.g. "
+                              "'src/**/*.py'). Merged with project config.",
+                               items={"type": "string"}),
+         "max_files": _prop("integer", "Cap analyzed files in dependency order (may truncate the graph); "
+                             "overrides [tool.trammel] max_files when set."),
+         "strict_greenfield": _prop("boolean", "If true, refuse decomposition when the goal implies new "
+                                    "work but there is no scaffold, no explicit paths in the goal, and "
+                                    "no recipe scaffold (plan fidelity for sub-agents)."),
+         "apply_project_config": _prop("boolean", "Load .trammel.json and pyproject [tool.trammel] "
+                                      "for default_scope, focus_keywords, focus_globs, max_files (default true)."),
         },
         ["goal", "project_root"]),
     "explore": _schema("explore",
@@ -298,15 +311,23 @@ def _detect_language(project_root: str) -> Any:
 
 
 def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
-    result = Planner(store=store, analyzer=_get_analyzer(args)).decompose(
-        args["goal"], args["project_root"],
-        scope=args.get("scope"),
-        relevant_only=args.get("relevant_only", False),
-        skip_recipes=args.get("skip_recipes", False),
-        min_relevance=args.get("min_relevance", 0.0),
-        scaffold=args.get("scaffold"),
-        expand_repo=args.get("expand_repo"),
-    )
+    try:
+        result = Planner(store=store, analyzer=_get_analyzer(args)).decompose(
+            args["goal"], args["project_root"],
+            scope=args.get("scope"),
+            relevant_only=args.get("relevant_only", False),
+            skip_recipes=args.get("skip_recipes", False),
+            min_relevance=args.get("min_relevance", 0.0),
+            scaffold=args.get("scaffold"),
+            expand_repo=args.get("expand_repo"),
+            focus_keywords=args.get("focus_keywords"),
+            focus_globs=args.get("focus_globs"),
+            max_files=args.get("max_files"),
+            strict_greenfield=args.get("strict_greenfield", False),
+            apply_project_config=args.get("apply_project_config", True),
+        )
+    except ValueError as exc:
+        return {"error": "decompose_rejected", "message": str(exc)}
 
     # summary_only: compact metadata without step details or dependency graph
     if args.get("summary_only"):

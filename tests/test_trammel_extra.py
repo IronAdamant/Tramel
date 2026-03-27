@@ -1551,6 +1551,97 @@ class TestScaffoldSteps(unittest.TestCase):
             self.assertIn("app.py", files)
             self.assertIn("public/x.html", files)
 
+    def test_strict_greenfield_rejects_under_specified(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "strict.db"))
+            with self.assertRaises(ValueError) as ctx:
+                Planner(store=store).decompose(
+                    "add a new microservice module",
+                    d,
+                    skip_recipes=True,
+                    strict_greenfield=True,
+                )
+            self.assertIn("strict_greenfield", str(ctx.exception).lower())
+
+    def test_strict_greenfield_allows_explicit_path(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "st2.db"))
+            Planner(store=store).decompose(
+                "add feature in `src/mod.py`",
+                d,
+                skip_recipes=True,
+                strict_greenfield=True,
+            )
+
+    def test_relevance_components_on_modify_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "auth_service.py").write_text("def auth(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "rel.db"))
+            r = Planner(store=store).decompose(
+                "refactor authentication",
+                d,
+                skip_recipes=True,
+            )
+            step = next(s for s in r["steps"] if s.get("file") == "auth_service.py")
+            self.assertIn("relevance_keyword", step)
+            self.assertIn("relevance_graph", step)
+            self.assertIn("relevance_tier", step)
+
+    def test_plan_fidelity_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "x.py").write_text("def f(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "pf.db"))
+            r = Planner(store=store).decompose("task", d, skip_recipes=True)
+            self.assertIn("plan_fidelity", r)
+            self.assertIn("strict_greenfield", r["plan_fidelity"])
+
+    def test_mcp_decompose_strict_error_json(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "mcp.db"))
+            out = dispatch_tool(store, "decompose", {
+                "goal": "create a new plugin from scratch",
+                "project_root": d,
+                "skip_recipes": True,
+                "strict_greenfield": True,
+            })
+            self.assertEqual(out.get("error"), "decompose_rejected")
+            self.assertIn("message", out)
+
+
+class TestProjectConfigMerge(unittest.TestCase):
+    def test_load_project_config_json(self) -> None:
+        from trammel.project_config import load_project_config
+
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, ".trammel.json").write_text(
+                '{"default_scope": "lib", "focus_keywords": ["cache"], "max_files": 99}\n',
+                encoding="utf-8",
+            )
+            cfg = load_project_config(d)
+            self.assertEqual(cfg.get("default_scope"), "lib")
+            self.assertEqual(cfg.get("max_files"), 99)
+            self.assertEqual(cfg.get("focus_keywords"), ["cache"])
+
+    @unittest.skipUnless(sys.version_info >= (3, 11), "tomllib available in 3.11+")
+    def test_pyproject_trammel_merged_with_json(self) -> None:
+        from trammel.project_config import load_project_config
+
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "pyproject.toml").write_text(
+                '[tool.trammel]\ndefault_scope = "from_toml"\n',
+                encoding="utf-8",
+            )
+            pathlib.Path(d, ".trammel.json").write_text(
+                '{"focus_keywords": ["api"]}\n',
+                encoding="utf-8",
+            )
+            cfg = load_project_config(d)
+            self.assertEqual(cfg.get("default_scope"), "from_toml")
+            self.assertEqual(cfg.get("focus_keywords"), ["api"])
+
 
 class TestTrammelConfig(unittest.TestCase):
     """P5: .trammel.json provides explicit language override."""

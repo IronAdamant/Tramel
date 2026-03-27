@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import math
 import os
 import re
@@ -11,6 +12,12 @@ from typing import TYPE_CHECKING, Any
 from .store import RecipeStore
 from .strategies import (
     StrategyEntry, _STRATEGY_REGISTRY, _split_active_skipped,
+)
+from .project_config import (
+    effective_max_files,
+    load_project_config,
+    merge_focus_globs,
+    merge_focus_keywords,
 )
 from .utils import sha256_json, topological_sort
 
@@ -749,7 +756,10 @@ def _scaffold_steps(
             "description": desc,
             "rationale": _scaffold_rationale(entry, raw_deps),
             "depends_on": depends_on,
+            "relevance_keyword": 1.0,
+            "relevance_graph": 0.0,
             "relevance": 1.0,
+            "relevance_tier": "high",
         })
 
     return steps, scaffold_graph
@@ -811,25 +821,17 @@ def _scaffold_rationale(entry: dict[str, Any], deps: list[str]) -> str:
     return "; ".join(parts)
 
 
-def _score_relevance(
+def _relevance_components(
     filepath: str,
     sym_names: list[str],
     goal_keywords: set[str],
     indegree: dict[str, int],
     max_indegree: int,
-) -> float:
-    """Score how relevant a file is to the goal (0.0 to 1.0).
-
-    Uses improved fuzzy keyword matching that handles:
-    - Plural/singular variants (original)
-    - Substring containment (keyword inside path word or vice versa)
-    - CamelCase token splitting for compound identifiers
-    """
+) -> tuple[float, float, float]:
+    """Return (keyword_score, graph_boost, composite) in [0,1] for prioritization and tiers."""
     if not goal_keywords:
-        return 1.0
-    # Extract words from filepath: standard lowercase words + CamelCase splits
+        return 1.0, 0.0, 1.0
     path_words_raw = set(re.findall(r'[a-z]+', filepath.lower()))
-    # Also split CamelCase/PascalCase: workflowAutomationEngine -> workflow, automation, engine
     path_words_raw.update(
         p.lower() for p in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|$)', filepath) if len(p) > 2
     )
@@ -842,16 +844,15 @@ def _score_relevance(
     matched = _matched_keywords(goal_keywords, all_candidate_words)
     keyword_ratio = len(matched) / max(1, len(goal_keywords))
 
-    # Partial match bonus: if any goal keyword is a substring of a path/sym word, give partial credit
     partial_credit = 0.0
     for kw in goal_keywords:
         if kw not in matched:
             kw_lc = kw.lower()
             for cw in all_candidate_words:
                 if len(kw_lc) >= 3 and (kw_lc in cw or cw in kw_lc):
-                    partial_credit += 0.5  # half credit for substring matches
+                    partial_credit += 0.5
                     break
-    partial_credit = min(partial_credit, 0.3)  # cap partial credit at 0.3
+    partial_credit = min(partial_credit, 0.3)
 
     keyword_score = min(keyword_ratio + partial_credit, 1.0)
 
@@ -860,10 +861,49 @@ def _score_relevance(
     else:
         raw = indegree.get(filepath, 0)
         graph_boost = math.log(1 + raw) / math.log(1 + max_indegree)
-    return (
+    composite = (
         _RELEVANCE_KEYWORD_ALPHA * keyword_score
         + (1.0 - _RELEVANCE_KEYWORD_ALPHA) * graph_boost
     )
+    return keyword_score, graph_boost, composite
+
+
+def _score_relevance(
+    filepath: str,
+    sym_names: list[str],
+    goal_keywords: set[str],
+    indegree: dict[str, int],
+    max_indegree: int,
+) -> float:
+    """Composite relevance (backward compatible)."""
+    _, _, c = _relevance_components(
+        filepath, sym_names, goal_keywords, indegree, max_indegree,
+    )
+    return c
+
+
+def _relevance_tier(normalized_composite: float) -> str:
+    """Tier label after batch normalization of composite scores."""
+    if normalized_composite >= 0.66:
+        return "high"
+    if normalized_composite >= 0.33:
+        return "medium"
+    return "low"
+
+
+def _filter_paths_by_globs(paths: set[str], globs: list[str]) -> set[str]:
+    """Keep paths matching any glob (POSIX-style via fnmatch)."""
+    if not globs:
+        return paths
+    out: set[str] = set()
+    for p in paths:
+        norm = p.replace("\\", "/")
+        for g in globs:
+            g = g.replace("\\", "/")
+            if fnmatch.fnmatch(norm, g) or fnmatch.fnmatch(os.path.basename(norm), g):
+                out.add(p)
+                break
+    return out
 
 
 # ── Step generation ──────────────────────────────────────────────────────────
@@ -889,10 +929,11 @@ def _generate_steps(
         if not sym_names:
             continue
 
-        relevance = (
-            _score_relevance(filepath, sym_names, goal_keywords, indeg, max_in)
-            if goal_keywords else None
-        )
+        kw_s = gr_s = comp = None
+        if goal_keywords:
+            kw_s, gr_s, comp = _relevance_components(
+                filepath, sym_names, goal_keywords, indeg, max_in,
+            )
 
         step_idx = len(steps)
         file_to_step[filepath] = step_idx
@@ -906,15 +947,17 @@ def _generate_steps(
             "symbols": sym_names,
             "symbol_count": len(sym_names),
             "description": _step_description(filepath, sym_names, goal_keywords),
-            "rationale": _step_rationale(dep_files, sym_names, relevance),
+            "rationale": _step_rationale(dep_files, sym_names, comp),
             "depends_on": depends_on,
         }
-        if relevance is not None:
-            step["relevance"] = round(relevance, 3)
+        if goal_keywords and kw_s is not None and gr_s is not None and comp is not None:
+            step["relevance_keyword"] = round(kw_s, 3)
+            step["relevance_graph"] = round(gr_s, 3)
+            step["relevance"] = round(comp, 3)
         steps.append(step)
 
-    # Spread scores within this batch so similarly-ranked files do not cluster (plan prioritization)
-    if goal_keywords and len(steps) > 1:
+    # Spread composite scores within this batch (plan prioritization across sub-agents)
+    if goal_keywords:
         rel_vals = [s["relevance"] for s in steps if "relevance" in s]
         if len(rel_vals) >= 2:
             lo, hi = min(rel_vals), max(rel_vals)
@@ -923,6 +966,9 @@ def _generate_steps(
                     if "relevance" in s:
                         r = s["relevance"]
                         s["relevance"] = round((r - lo) / (hi - lo), 3)
+        for s in steps:
+            if "relevance" in s:
+                s["relevance_tier"] = _relevance_tier(s["relevance"])
 
     if not steps:
         steps = [{
@@ -1109,6 +1155,11 @@ class Planner:
         skip_recipes: bool = False, min_relevance: float = 0.0,
         scaffold: list[dict[str, Any]] | None = None,
         expand_repo: bool | None = None,
+        focus_keywords: list[str] | None = None,
+        focus_globs: list[str] | None = None,
+        max_files: int | None = None,
+        strict_greenfield: bool = False,
+        apply_project_config: bool = True,
     ) -> dict[str, Any]:
         t0 = _time.monotonic()
 
@@ -1126,7 +1177,17 @@ class Planner:
                 matched_recipe = recipe
 
         active_constraints = self.store.get_active_constraints()
-        goal_keywords = _extract_goal_keywords(goal)
+        proj_cfg: dict[str, Any] = {}
+        if apply_project_config:
+            proj_cfg = load_project_config(project_root)
+        if scope is None and proj_cfg.get("default_scope"):
+            scope = proj_cfg["default_scope"]
+
+        goal_keywords = merge_focus_keywords(
+            _extract_goal_keywords(goal), focus_keywords, proj_cfg,
+        )
+        globs = merge_focus_globs(focus_globs, proj_cfg)
+        max_files_effective = effective_max_files(max_files, proj_cfg)
 
         analysis_root = os.path.join(project_root, scope) if scope else project_root
 
@@ -1138,13 +1199,35 @@ class Planner:
                 if sr:
                     scaffold = sr
 
+        if strict_greenfield and _has_creation_intent(goal):
+            paths = _extract_paths_from_goal(goal)
+            rs = matched_recipe.get("scaffold") if matched_recipe else None
+            has_recipe_scaffold = isinstance(rs, list) and len(rs) > 0
+            if (
+                not paths
+                and not _scaffold_has_entries(scaffold)
+                and not has_recipe_scaffold
+            ):
+                raise ValueError(
+                    "strict_greenfield requires explicit file paths in the goal, a non-empty "
+                    "scaffold, or a matching recipe with scaffold steps; otherwise set "
+                    "strict_greenfield=false",
+                )
+
         # Default: scaffold-only (no full-repo symbol/import scan) when scaffold has entries.
         # Set expand_repo=true to merge scaffold steps with full decomposition (legacy behavior).
         if expand_repo is None:
             expand_repo = not _scaffold_has_entries(scaffold)
 
+        plan_fidelity: dict[str, Any] = {
+            "strict_greenfield": strict_greenfield,
+            "project_config_applied": bool(apply_project_config and proj_cfg),
+            "focus_globs": globs,
+            "max_files_cap": max_files_effective,
+        }
+
         if not expand_repo:
-            return self._decompose_scaffold_only(
+            out = self._decompose_scaffold_only(
                 goal=goal,
                 project_root=project_root,
                 scope=scope,
@@ -1154,6 +1237,8 @@ class Planner:
                 active_constraints=active_constraints,
                 t0=t0,
             )
+            out["plan_fidelity"] = plan_fidelity
+            return out
 
         analyzer = self._get_analyzer(analysis_root)
 
@@ -1165,6 +1250,15 @@ class Planner:
 
         # Structural recipe match: try again with file context
         all_files = set(symbols) | set(dep_graph)
+        if globs:
+            kept = _filter_paths_by_globs(all_files, globs)
+            symbols = {k: v for k, v in symbols.items() if k in kept}
+            dep_graph = {
+                k: [d for d in v if d in kept]
+                for k, v in dep_graph.items()
+                if k in kept
+            }
+            all_files = set(symbols) | set(dep_graph)
         if not skip_recipes and matched_recipe is None:
             recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
             if recipe:
@@ -1194,6 +1288,19 @@ class Planner:
         for f in sorted(symbols.keys()):
             if f not in file_order:
                 file_order.append(f)
+
+        meta_truncated = False
+        if max_files_effective and len(file_order) > max_files_effective:
+            file_order = file_order[:max_files_effective]
+            meta_truncated = True
+            allowed = set(file_order)
+            symbols = {k: v for k, v in symbols.items() if k in allowed}
+            relevant_graph = {
+                f: [d for d in deps if d in allowed]
+                for f, deps in relevant_graph.items()
+                if f in allowed
+            }
+            all_files = set(symbols) | set(relevant_graph)
 
         steps = _generate_steps(
             file_order, symbols, relevant_graph, goal,
@@ -1293,6 +1400,8 @@ class Planner:
                 "total": round(t4 - t0, 3),
             },
         }
+        if meta_truncated:
+            analysis_meta["max_files_truncated"] = True
         if lang_name not in _get_analyzer_registry():
             analysis_meta["warning"] = (
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
@@ -1307,6 +1416,7 @@ class Planner:
             "goal_fingerprint": sha256_json(goal)[:16],
             "analysis_meta": analysis_meta,
             "expand_repo": True,
+            "plan_fidelity": plan_fidelity,
         }
         if near_matches:
             result["near_match_recipes"] = near_matches
