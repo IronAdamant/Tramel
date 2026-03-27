@@ -38,6 +38,8 @@ decompose(goal, root, scope="services/auth")  → monorepo: analyze only a subdi
 
 Returns: steps with file paths, symbols, dependency ordering, rationale, and any constraints already applied. When present, `near_match_recipes` ranks related stored recipes using the same composite score as structural recipe retrieval (not text alone). Goals can name concrete paths in backticks (e.g. `` `src/foo.py` ``) to infer scaffold create-steps without passing a full `scaffold` array.
 
+For **refactor/update** work on existing code, prefer **`skip_recipes=true`**, optional **`relevant_only=true`**, and **`suppress_creation_hints=true`** so heuristic new-file suggestions do not pollute the plan. With a non-empty **`scaffold`**, decomposition is **scaffold-only** by default; use **`expand_repo=true`** to merge with full-repo analysis. **`summary_only=true`** returns compact metadata; when every scaffold file already exists, look for **`skipped_existing_scaffold`** and **`scaffold_dag_metrics`** (critical path and layer widths).
+
 ### 3. Create and track a plan
 
 ```
@@ -147,7 +149,7 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (28 tools)
+## Tool reference (29 tools)
 
 | Tool | Purpose |
 |------|---------|

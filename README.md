@@ -211,6 +211,11 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 
 ## Changelog
 
+### v3.9.4 — RecipeLab findings: scaffold metrics, skip-UX, refactor hints, CI checklist
+
+- **Planner / MCP:** `suppress_creation_hints`, `scaffold_dag_metrics`, `skipped_existing_scaffold`; refactor-verb guard for creation inference; `summary_only` surfaces DAG + skip blocks.
+- **Tests:** `tests/test_findings_checklist.py` encodes validation matrix A–C (305 tests). **Core remains stdlib-only** (zero third-party runtime deps).
+
 ### v3.9.1 — Documentation: MCP-optional integration, releasing guide
 
 - **README:** Integration surfaces (API / CLI / SQLite vs MCP), roadmap notes, release checklist for Trusted Publishing.

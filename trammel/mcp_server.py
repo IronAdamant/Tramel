@@ -95,6 +95,9 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                                     "no recipe scaffold (plan fidelity for sub-agents)."),
          "apply_project_config": _prop("boolean", "Load .trammel.json and pyproject [tool.trammel] "
                                       "for default_scope, focus_keywords, focus_globs, max_files (default true)."),
+         "suppress_creation_hints": _prop("boolean", "When true, skip heuristic creation_hints and do not merge "
+                                          "inferred new-file paths into the scaffold (stdlib-only inference off). "
+                                          "Use for refactor/update goals to avoid spurious suggested_files."),
         },
         ["goal", "project_root"]),
     "explore": _schema("explore",
@@ -325,6 +328,7 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
             max_files=args.get("max_files"),
             strict_greenfield=args.get("strict_greenfield", False),
             apply_project_config=args.get("apply_project_config", True),
+            suppress_creation_hints=args.get("suppress_creation_hints", False),
         )
     except ValueError as exc:
         return {"error": "decompose_rejected", "message": str(exc)}
@@ -332,15 +336,23 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
     # summary_only: compact metadata without step details or dependency graph
     if args.get("summary_only"):
         steps = result.get("steps", [])
+        meta = result.get("analysis_meta") or {}
         summary: dict[str, Any] = {
             "goal": result["goal"],
             "step_count": len(steps),
             "files": [s.get("file") for s in steps],
             "goal_fingerprint": result.get("goal_fingerprint"),
-            "analysis_meta": result.get("analysis_meta"),
+            "analysis_meta": meta,
             "constraints": result.get("constraints"),
             "constraints_applied": result.get("constraints_applied"),
         }
+        # Surface all-skipped scaffold UX without digging into analysis_meta
+        skip = meta.get("skipped_existing_scaffold")
+        if skip:
+            summary["skipped_existing_scaffold"] = skip
+        sdm = meta.get("scaffold_dag_metrics")
+        if sdm:
+            summary["scaffold_dag_metrics"] = sdm
         if "near_match_recipes" in result:
             summary["near_match_recipes"] = result["near_match_recipes"]
         if "creation_hints" in result:

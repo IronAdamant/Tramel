@@ -19,7 +19,7 @@ from .project_config import (
     merge_focus_globs,
     merge_focus_keywords,
 )
-from .utils import sha256_json, topological_sort
+from .utils import compute_scaffold_dag_metrics, sha256_json, topological_sort
 
 if TYPE_CHECKING:
     from .analyzers import LanguageAnalyzer
@@ -47,6 +47,14 @@ _CREATION_VERBS = frozenset({
     "add", "create", "build", "implement", "introduce", "write",
     "make", "generate", "develop", "establish", "initialize", "scaffold",
     "set", "setup",
+})
+
+# Refactor / edit intent — suppress role-keyword creation inference when present
+# without explicit creation verbs (avoids false positives e.g. "refactor … routes").
+_REFACTOR_VERBS = frozenset({
+    "refactor", "consolidate", "deduplicate", "dry", "simplify", "extract",
+    "merge", "reorganize", "cleanup", "clean", "update", "modify", "edit",
+    "fix", "rename", "migrate", "rewrite", "split", "reduce", "improve",
 })
 
 # When keyword overlap with directory names fails, still suggest role-based dirs.
@@ -213,16 +221,25 @@ def _extract_goal_keywords(goal: str) -> set[str]:
     }
 
 
+def _has_refactor_intent(goal: str) -> bool:
+    """True when the goal reads as editing existing code rather than greenfield work."""
+    words = set(re.findall(r"[a-z]+", goal.lower()))
+    return bool(words & _REFACTOR_VERBS)
+
+
 def _has_creation_intent(goal: str) -> bool:
     """Check if the goal implies creating new files/modules.
 
     Returns True if:
     - A creation verb is present in the goal, OR
     - The goal contains role-keywords (service, route, plugin, engine, etc.)
-      that typically imply new file creation
+      that typically imply new file creation — unless the goal is clearly
+      refactor/edit-oriented, in which case role keywords alone are ignored.
     """
     if set(goal.lower().split()) & _CREATION_VERBS:
         return True
+    if _has_refactor_intent(goal):
+        return False
     # Also infer creation intent from role keywords that imply new files
     goal_lower = goal.lower()
     role_kw = {
@@ -697,6 +714,24 @@ def _existing_paths_for_scaffold(
     return out
 
 
+def _declared_scaffold_graph(entries: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Build dependency graph from scaffold entries (``file`` -> ``depends_on``)."""
+    g: dict[str, list[str]] = {}
+    for e in entries:
+        f = e.get("file")
+        if not f:
+            continue
+        g[f] = [d for d in (e.get("depends_on") or []) if d]
+    for deps in list(g.values()):
+        for d in deps:
+            g.setdefault(d, [])
+    return g
+
+
+def _scaffold_target_paths(entries: list[dict[str, Any]]) -> list[str]:
+    return [e["file"] for e in entries if e.get("file")]
+
+
 def _scaffold_steps(
     scaffold: list[dict[str, Any]],
     start_index: int,
@@ -1160,6 +1195,7 @@ class Planner:
         max_files: int | None = None,
         strict_greenfield: bool = False,
         apply_project_config: bool = True,
+        suppress_creation_hints: bool = False,
     ) -> dict[str, Any]:
         t0 = _time.monotonic()
 
@@ -1224,6 +1260,7 @@ class Planner:
             "project_config_applied": bool(apply_project_config and proj_cfg),
             "focus_globs": globs,
             "max_files_cap": max_files_effective,
+            "suppress_creation_hints": suppress_creation_hints,
         }
 
         if not expand_repo:
@@ -1327,7 +1364,7 @@ class Planner:
         # Determine scaffold: explicit user scaffold > recipe scaffold > creation hints
         # If scaffold arg is provided (including []), use it as base
         # Otherwise, if we have a matched recipe with scaffold files, use those
-        # Finally, always attempt _creation_hints to supplement any gaps
+        # Optional _creation_hints merge unless suppress_creation_hints
         hints: dict[str, Any] | None = None
         effective_scaffold: list[dict[str, Any]] | None = None
         scaffold_was_provided = scaffold is not None  # track even if scaffold=[]
@@ -1345,11 +1382,11 @@ class Planner:
                 extra_inferred = [e for e in inferred_entries if e["file"] not in recipe_files]
                 effective_scaffold = list(recipe_scaffold) + extra_inferred
 
-        # Always run creation_hints to catch goal keywords the recipe might miss
-        # (regardless of _has_creation_intent — the hint function itself is the gate)
+        # Creation hints (heuristic new-file paths) — optional; refactor goals often
+        # need suppress_creation_hints=true to avoid spurious suggested_files.
         if scaffold is None:
-            hints = _creation_hints(goal, goal_keywords, all_files)
-            hint_files = {s["path"] for s in hints.get("suggested_files", [])} if hints else set()
+            if not suppress_creation_hints:
+                hints = _creation_hints(goal, goal_keywords, all_files)
             if effective_scaffold is not None:
                 # Merge: add hint files not already in effective_scaffold
                 existing_files = {e.get("file") for e in effective_scaffold if e.get("file")}
@@ -1405,6 +1442,10 @@ class Planner:
         if lang_name not in _get_analyzer_registry():
             analysis_meta["warning"] = (
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
+            )
+        if effective_scaffold:
+            analysis_meta["scaffold_dag_metrics"] = compute_scaffold_dag_metrics(
+                _declared_scaffold_graph(effective_scaffold),
             )
 
         result: dict[str, Any] = {
@@ -1492,6 +1533,9 @@ class Planner:
 
         t4 = _time.monotonic()
 
+        declared_graph = _declared_scaffold_graph(effective_scaffold)
+        dag_metrics = compute_scaffold_dag_metrics(declared_graph)
+
         analysis_meta: dict[str, Any] = {
             "language": lang_name,
             "scope": scope,
@@ -1504,7 +1548,30 @@ class Planner:
                 "total": round(t4 - t0, 3),
             },
             "scaffold_only": True,
+            "scaffold_dag_metrics": dag_metrics,
         }
+        scaffold_targets = _scaffold_target_paths(effective_scaffold)
+        if scaffold_targets and not steps:
+            norm_targets = [p.replace("\\", "/") for p in scaffold_targets]
+            existing_targets = [
+                p for p in norm_targets
+                if os.path.isfile(
+                    os.path.normpath(os.path.join(analysis_root, *p.split("/"))),
+                )
+            ]
+            if len(existing_targets) == len(norm_targets):
+                target_set = set(norm_targets)
+                topo_all = topological_sort(declared_graph)
+                topo_order = [p for p in topo_all if p in target_set]
+                analysis_meta["skipped_existing_scaffold"] = {
+                    "count": len(existing_targets),
+                    "paths": norm_targets,
+                    "topological_order": topo_order,
+                    "summary": (
+                        f"All {len(existing_targets)} scaffold file(s) already exist; "
+                        "no create steps emitted. Use expand_repo or a refactor goal for full-repo steps."
+                    ),
+                }
         if lang_name not in _get_analyzer_registry():
             analysis_meta["warning"] = (
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"

@@ -662,6 +662,25 @@ class TestMCPDispatchCoverage(unittest.TestCase):
             self.assertIn("steps", result)
             self.assertIn("dependency_graph", result)
 
+    def test_decompose_summary_includes_scaffold_dag_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("x=1\n", encoding="utf-8")
+            pathlib.Path(d, "b.py").write_text("y=2\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sdm.db"))
+            summary = dispatch_tool(store, "decompose", {
+                "goal": "verify",
+                "project_root": d,
+                "summary_only": True,
+                "scaffold": [
+                    {"file": "a.py"},
+                    {"file": "b.py", "depends_on": ["a.py"]},
+                ],
+            })
+            self.assertEqual(summary["step_count"], 0)
+            self.assertIn("scaffold_dag_metrics", summary["analysis_meta"])
+            self.assertIn("scaffold_dag_metrics", summary)
+            self.assertIn("skipped_existing_scaffold", summary)
+
     def test_explore_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "a.py").write_text("def foo():\n    pass\n", encoding="utf-8")
@@ -1319,6 +1338,37 @@ class TestCreationSteps(unittest.TestCase):
             self.assertEqual(len(create_steps), 0)
             self.assertNotIn("creation_hints", result)
 
+    def test_refactor_routes_no_creation_hints(self) -> None:
+        """Role keywords like 'routes' must not imply creation under refactor goals."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "mcpChallengeRoutes.js").write_text("export {}\n", encoding="utf-8")
+            pathlib.Path(d, "package.json").write_text('{"name":"t"}\n', encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "rr.db"))
+            result = Planner(store=store).decompose(
+                "Refactor MCP challenge routes: DRY JSON body parsing", d,
+                relevant_only=True,
+                skip_recipes=True,
+            )
+            self.assertNotIn("creation_hints", result)
+            create_steps = [s for s in result["steps"] if s.get("action") == "create"]
+            self.assertEqual(len(create_steps), 0)
+
+    def test_suppress_creation_hints_flag(self) -> None:
+        """suppress_creation_hints skips heuristic suggested_files even with creation verbs."""
+        with tempfile.TemporaryDirectory() as d:
+            svc = os.path.join(d, "src", "services")
+            os.makedirs(svc)
+            pathlib.Path(svc, "authService.js").write_text("function auth() {}\n", encoding="utf-8")
+            pathlib.Path(d, "package.json").write_text('{"name":"t"}\n', encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "sup.db"))
+            result = Planner(store=store).decompose(
+                "add search service", d,
+                suppress_creation_hints=True,
+                skip_recipes=True,
+            )
+            self.assertNotIn("creation_hints", result)
+            self.assertTrue(result["plan_fidelity"].get("suppress_creation_hints"))
+
     def test_no_duplicate_existing_files(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             svc = os.path.join(d, "src", "services")
@@ -1443,6 +1493,34 @@ class TestScaffoldSteps(unittest.TestCase):
             self.assertEqual(len(create_steps), 1)
             self.assertEqual(create_steps[0]["file"], "new_module.py")
 
+    def test_scaffold_all_existing_emits_skip_summary(self) -> None:
+        """When every scaffold target exists, summary explains zero steps + DAG metrics."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "a.py").write_text("x=1\n", encoding="utf-8")
+            pathlib.Path(d, "b.py").write_text("y=2\n", encoding="utf-8")
+            pathlib.Path(d, "c.py").write_text("z=3\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "all.db"))
+            result = Planner(store=store).decompose(
+                "verify layout", d,
+                scaffold=[
+                    {"file": "a.py"},
+                    {"file": "b.py", "depends_on": ["a.py"]},
+                    {"file": "c.py", "depends_on": ["b.py"]},
+                ],
+            )
+            self.assertEqual(len(result["steps"]), 0)
+            meta = result["analysis_meta"]
+            self.assertTrue(meta.get("scaffold_only"))
+            self.assertIn("scaffold_dag_metrics", meta)
+            self.assertEqual(meta["scaffold_dag_metrics"]["critical_path_length"], 3)
+            skip = meta.get("skipped_existing_scaffold")
+            self.assertIsNotNone(skip)
+            self.assertEqual(skip["count"], 3)
+            self.assertEqual(
+                skip["topological_order"],
+                ["a.py", "b.py", "c.py"],
+            )
+
     def test_scaffold_empty_list(self) -> None:
         """Empty scaffold list falls through to no creation steps."""
         with tempfile.TemporaryDirectory() as d:
@@ -1479,6 +1557,23 @@ class TestScaffoldSteps(unittest.TestCase):
             graph = result["dependency_graph"]
             self.assertIn("page.js", graph)
             self.assertIn("api.js", graph["page.js"])
+
+    def test_expand_repo_scaffold_includes_dag_metrics(self) -> None:
+        """expand_repo + user scaffold merges scaffold DAG metrics into analysis_meta."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "dm.db"))
+            result = Planner(store=store).decompose(
+                "build frontend", d,
+                expand_repo=True,
+                scaffold=[
+                    {"file": "page.js", "depends_on": ["api.js"]},
+                    {"file": "api.js"},
+                ],
+            )
+            meta = result["analysis_meta"]
+            self.assertIn("scaffold_dag_metrics", meta)
+            self.assertEqual(meta["scaffold_dag_metrics"]["critical_path_length"], 2)
 
     def test_scaffold_step_fields(self) -> None:
         """Scaffold steps have correct field structure."""

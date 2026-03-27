@@ -465,6 +465,54 @@ def topological_sort(deps: dict[str, list[str]]) -> list[str]:
     return result
 
 
+def compute_scaffold_dag_metrics(graph: dict[str, list[str]]) -> dict[str, Any]:
+    """Metrics for a scaffold DAG (node = file id; edges = depends_on).
+
+    Aligns with common plan-graph summaries: longest chain length (nodes),
+    per-level widths, and max width (parallelism). Uses the same dependency
+    convention as ``topological_sort``: each node lists the files it depends on.
+    """
+    g: dict[str, list[str]] = {k: list(v) for k, v in graph.items()}
+    all_nodes: set[str] = set(g.keys())
+    for targets in g.values():
+        all_nodes.update(targets)
+    for n in all_nodes:
+        g.setdefault(n, [])
+    if not all_nodes:
+        return {
+            "node_count": 0,
+            "edge_count": 0,
+            "max_dependency_depth": 0,
+            "critical_path_length": 0,
+            "max_parallelism": 0,
+            "layer_widths": [],
+        }
+    order = topological_sort(g)
+    longest_path: dict[str, int] = {}
+    for n in order:
+        deps = g.get(n, [])
+        longest_path[n] = 1 + max((longest_path[d] for d in deps), default=0)
+    critical_path_length = max(longest_path.values()) if longest_path else 0
+    level: dict[str, int] = {}
+    for n in order:
+        deps = g.get(n, [])
+        level[n] = max((level[d] for d in deps), default=-1) + 1
+    max_level = max(level.values()) if level else -1
+    layer_widths = [0] * (max_level + 1) if max_level >= 0 else []
+    for n in all_nodes:
+        layer_widths[level[n]] += 1
+    max_parallelism = max(layer_widths) if layer_widths else 0
+    edge_count = sum(len(v) for v in g.values())
+    return {
+        "node_count": len(all_nodes),
+        "edge_count": edge_count,
+        "max_dependency_depth": max_level + 1 if max_level >= 0 else 0,
+        "critical_path_length": critical_path_length,
+        "max_parallelism": max_parallelism,
+        "layer_widths": layer_widths,
+    }
+
+
 # ── Failure analysis ─────────────────────────────────────────────────────────
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
