@@ -1,3 +1,6 @@
+# PyPI Trusted Publishing (OIDC): no long-lived PyPI tokens or TWINE_PASSWORD.
+# Configure on https://pypi.org → Project → Publishing → add GitHub publisher.
+# This workflow must stay on the trusted publisher (repo + workflow file + environment).
 name: Publish to PyPI
 
 on:

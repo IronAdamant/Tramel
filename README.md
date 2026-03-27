@@ -20,10 +20,19 @@ Or install from source:
 
 ```bash
 git clone https://github.com/IronAdamant/Trammel.git
-cd Tramel
+cd Trammel
 pip install -e .               # editable install
 pip install -e '.[mcp]'        # with MCP support
 ```
+
+## Publishing to PyPI (maintainers)
+
+Releases are uploaded to PyPI via **Trusted Publishing** (OpenID Connect from GitHub). You do **not** need a PyPI API token or `~/.pypirc` on your machine.
+
+1. **PyPI:** Project → Publishing → trusted publisher: GitHub → `IronAdamant/Trammel`, workflow `publish.yml`, environment `release`.
+2. **GitHub:** Create a **Release** (publish). That runs `.github/workflows/publish.yml`: build wheel/sdist, run tests, then upload to PyPI using OIDC.
+
+If you need to publish manually, use a short-lived PyPI token only for that session; do not commit tokens.
 
 ## Quickstart
 
