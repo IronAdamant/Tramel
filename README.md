@@ -81,6 +81,26 @@ python -m trammel "fix auth" --root /monorepo --scope services/auth   # monorepo
 echo '{"goal":"fix tests"}' | python -m trammel
 ```
 
+## Integration surfaces (MCP optional)
+
+The **authoritative plan** is not tied to MCP: the same behavior is available through the **Python API**, **CLI**, and **SQLite** (`trammel.db`). In practice, **sub-agents often do not use MCP** (plain shells, task runners, CI, or secondary models). Trammel is designed so **orchestrators** can use MCP where the host supports it, while **workers** still align to **plans, steps, recipes, and constraints** via the store, exported JSON, or thin wrapper scripts.
+
+| Surface | Role |
+|---------|------|
+| **`RecipeStore` / `trammel.db`** | Durable truth for plans, step status, claims, and recipes across processes and sessions. |
+| **`Planner.decompose` / `explore` / `plan_and_execute`** | Programmatic strategies without any MCP process. |
+| **`python -m trammel`**, JSON on stdin | Shell and automation without MCP. |
+| **`trammel-mcp`** | IDEs and hosts that expose MCP (e.g. Cursor, Claude Code). |
+
+### Roadmap and design notes (directional)
+
+Not a commitment—ideas that fit the stdlib-only, plan-fidelity mission:
+
+- **Worth adding:** versioned **plan/strategy export** for external runners; **wire `test_cmd` from project config** into harness defaults when not overridden; optional **hooks or structured logging** (claims, recipe hits, decompose rejects); short **orchestrator checklists** (scaffold vs scope, strict mode, failure modes).
+- **Worth changing carefully:** with **`relevant_only`**, steps may be **re-sorted** by relevance—treat **`depends_on` as execution order**, not display order, or split **priority** vs **execution** in a future payload; **`max_files`** can truncate the graph—document tradeoffs or optional dependency-aware caps later; **unify** `.trammel.json` handling between language override and `project_config` so one dialect evolves cleanly.
+
+**Non-goals:** embeddings, vector DBs, or in-library LLM calls—those stay outside the harness.
+
 ## MCP Server
 
 Trammel exposes its capabilities as an [MCP](https://modelcontextprotocol.io/) server for integration with Claude Code, Cursor, and other MCP-aware clients.
@@ -105,7 +125,7 @@ Configure in `.claude/.mcp.json`:
 }
 ```
 
-**MCP tools (27):** `decompose` (with `scope`), `explore` (with `scope`), `create_plan`, `get_plan`, `verify_step` (with `language`), `record_step`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`, `usage_stats`, `failure_history`, `resolve_failure`, `claim_step`, `release_step`, `available_steps`
+**MCP tools:** the `status` tool reports the current count and names. Core tools include `decompose` (with `scope`, scaffold, `strict_greenfield`, …), `explore`, `create_plan`, `get_plan`, `verify_step`, `record_step`, `record_steps`, `save_recipe`, `get_recipe`, `add_constraint`, `get_constraints`, `list_plans`, `history`, `status`, `list_strategies`, `list_recipes`, `update_plan_status`, `deactivate_constraint`, `prune_recipes`, `resume`, `validate_recipes`, `estimate`, `usage_stats`, `failure_history`, `resolve_failure`, `claim_step`, `release_step`, `available_steps`, `complete_plan`
 
 ## Architecture
 
@@ -125,14 +145,15 @@ trammel/              Importable package
   analyzers.py        LanguageAnalyzer protocol, PythonAnalyzer, TypeScriptAnalyzer, detect_language (~460 LOC)
   analyzers_ext.py    GoAnalyzer, RustAnalyzer, CppAnalyzer (5-pattern symbol detection), JavaAnalyzer (source root detection) (~440 LOC)
   analyzers_ext2.py   CSharpAnalyzer, RubyAnalyzer, PhpAnalyzer, SwiftAnalyzer, DartAnalyzer, ZigAnalyzer (~445 LOC)
-  core.py             Planner: decomposition, constraint enforcement, step generation (~325 LOC)
+  core.py             Planner: decomposition, constraint enforcement, step generation, plan fidelity
+  project_config.py   Merge [tool.trammel] + .trammel.json (default_scope, focus_*, max_files)
   strategies.py       Beam strategy registry and 9 built-in orderings (~280 LOC)
   harness.py          ExecutionHarness: temp copy, edits, test runner, base-copy caching
   store.py            RecipeStore: SQLite persistence (8 tables), telemetry, inherits RecipeStoreMixin (~440 LOC)
   store_recipes.py    RecipeStoreMixin: recipe methods (save, retrieve, list, prune, trigram/file backfill) (~250 LOC)
   utils.py            Trigrams, cosine, failure extraction, goal normalization, shared symbol collection (~370 LOC)
   cli.py              Argparse CLI entry point (--dry-run, --language)
-  mcp_server.py       MCP tool schemas and dispatch-dict routing (22 tools)
+  mcp_server.py       MCP tool schemas and dispatch-dict routing
   mcp_stdio.py        MCP stdio server entry point
 tests/                stdlib unittest (242 tests, 4 modules)
 wiki-local/           Spec, glossary, and wiki index
@@ -154,7 +175,7 @@ pyproject.toml        Package metadata
 
 ## Integration with Stele and Chisel
 
-Trammel works standalone. When co-installed with [Stele](https://github.com/IronAdamant/stele-context) (context retrieval) and [Chisel](https://github.com/IronAdamant/Chisel) (code analysis), all three MCP servers cooperate through the LLM's tool layer -- no cross-dependencies.
+Trammel works standalone. When co-installed with [Stele](https://github.com/IronAdamant/stele-context) (context retrieval) and [Chisel](https://github.com/IronAdamant/Chisel) (code analysis), all three can cooperate **through the LLM's MCP tool layer** where the host exposes MCP—**no cross-dependencies** between the three packages. Workers without MCP still use Trammel via API/CLI/store as in [Integration surfaces](#integration-surfaces-mcp-optional) above.
 
 | Tool | Role |
 |------|------|

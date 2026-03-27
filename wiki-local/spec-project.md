@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 3.7.7
+**Version:** 3.9.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -12,7 +12,22 @@ Part of the **Stele + Chisel + Trammel** triad:
 - **Chisel**: Code analysis, churn, coupling, risk mapping
 - **Trammel**: Planning discipline, verification, failure learning, recipe memory
 
-Each works standalone. When co-installed, they cooperate through the LLM's MCP tool layer.
+Each works standalone. When co-installed, they cooperate through the LLM's MCP tool layer **where the host exposes MCP**.
+
+### 1.1 Integration surfaces (MCP optional)
+
+The **authoritative artifacts** are **not** MCP-specific. They are:
+
+- **`trammel.db` (SQLite):** plans, steps (`status`, `claimed_by`, `depends_on`), constraints, recipes, trajectories.
+- **Python API:** `Planner.decompose`, `explore`, `plan_and_execute`, `RecipeStore`, `ExecutionHarness`.
+- **CLI:** `python -m trammel`, JSON on stdin.
+
+**MCP** (`trammel-mcp`) is a convenience for **MCP-capable** hosts (Cursor, Claude Code, etc.). **Sub-agents** in shells, CI, or secondary models often **do not** use MCP; they should consume **the same plan and store** (exported JSON, shared DB, or wrapper scripts). Trammel is designed for this split: **orchestrator** may use MCP; **workers** follow the persisted plan.
+
+### 1.2 Roadmap and design notes (directional)
+
+- **Worth adding:** versioned **plan/strategy export** for external runners; **apply `test_cmd` from project config** to harness defaults; optional **hooks / structured logging**; orchestrator **checklists** in docs.
+- **Worth changing carefully:** `relevant_only` **re-sorts** steps by relevance—**execution order** remains `depends_on`; **document** or later split **priority** vs **execution** order; **`max_files`** truncation can weaken the graph—document tradeoffs; **consolidate** `.trammel.json` parsing so language and project config stay one evolving dialect.
 
 ## 2. Non-goals
 
@@ -29,7 +44,7 @@ Each works standalone. When co-installed, they cooperate through the LLM's MCP t
 | `synthesize(goal, strategy, db_path="trammel.db")` | Upsert a strategy as successful recipe (caller-verified) |
 | `trammel/__version__` | Derived from `importlib.metadata` at runtime; matches `pyproject.toml` version |
 | CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language`, `--scope` (monorepo support) |
-| MCP `trammel-mcp` | 21 tools over stdio transport |
+| MCP `trammel-mcp` | Many tools over stdio transport; use MCP `status` for current count and names |
 
 ## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
 
@@ -59,6 +74,7 @@ Module split: `analyzers.py` (~460 LOC) holds the protocol, Python, TypeScript, 
 
 - **Recipe hit**: If `retrieve_best_recipe(goal, context_files)` returns a strategy (composite score >= 0.3), use it. Two-phase: text-only fast path, then structural scoring with file overlap.
 - **Scope support**: `decompose(goal, project_root, scope=None)` accepts an optional `scope` subdirectory. When provided, analysis is scoped to `os.path.join(project_root, scope)` while the full project remains available for test execution. Enables monorepo workflows.
+- **Plan fidelity (v3.8+):** With a non-empty `scaffold`, decomposition defaults to **scaffold-only** (no full-repo scan) unless `expand_repo=true`. **`strict_greenfield`** rejects under-specified greenfield goals. Results include **`plan_fidelity`** metadata. Optional **`focus_keywords`**, **`focus_globs`**, **`max_files`**; merged **`[tool.trammel]`** + **`.trammel.json`** via **`project_config.py`**. Steps may expose **`relevance_keyword`**, **`relevance_graph`**, composite **`relevance`**, **`relevance_tier`**. With **`relevant_only`**, steps are re-sorted by relevance—**execution order** for work remains **`depends_on`**.
 - **Import analysis**: Delegated to language-specific analyzers. `Planner` accepts optional `analyzer` and auto-detects language if not provided.
 - **Topological sort**: Kahn's algorithm orders files so dependencies come first. Cycles are appended at end.
 - **Step generation**: Each file with symbols becomes a step with `description`, `rationale`, `depends_on` (indices of prior steps this depends on).
