@@ -666,6 +666,30 @@ def _generate_creation_steps(
     return steps
 
 
+def _scaffold_has_entries(scaffold: list[dict[str, Any]] | None) -> bool:
+    """True when scaffold lists at least one file path (non-empty greenfield spec)."""
+    if not scaffold:
+        return False
+    return any(e.get("file") for e in scaffold)
+
+
+def _existing_paths_for_scaffold(
+    analysis_root: str, entries: list[dict[str, Any]],
+) -> set[str]:
+    """Relative paths under analysis_root that exist on disk (scaffold dep resolution)."""
+    out: set[str] = set()
+    for entry in entries:
+        for path in [entry.get("file")] + list(entry.get("depends_on") or []):
+            if not path or not isinstance(path, str):
+                continue
+            norm = path.replace("\\", "/")
+            join = os.path.join(analysis_root, *norm.split("/"))
+            full = os.path.normpath(join)
+            if os.path.isfile(full):
+                out.add(norm)
+    return out
+
+
 def _scaffold_steps(
     scaffold: list[dict[str, Any]],
     start_index: int,
@@ -889,6 +913,17 @@ def _generate_steps(
             step["relevance"] = round(relevance, 3)
         steps.append(step)
 
+    # Spread scores within this batch so similarly-ranked files do not cluster (plan prioritization)
+    if goal_keywords and len(steps) > 1:
+        rel_vals = [s["relevance"] for s in steps if "relevance" in s]
+        if len(rel_vals) >= 2:
+            lo, hi = min(rel_vals), max(rel_vals)
+            if hi > lo:
+                for s in steps:
+                    if "relevance" in s:
+                        r = s["relevance"]
+                        s["relevance"] = round((r - lo) / (hi - lo), 3)
+
     if not steps:
         steps = [{
             "step_index": 0,
@@ -1073,6 +1108,7 @@ class Planner:
         scope: str | None = None, relevant_only: bool = False,
         skip_recipes: bool = False, min_relevance: float = 0.0,
         scaffold: list[dict[str, Any]] | None = None,
+        expand_repo: bool | None = None,
     ) -> dict[str, Any]:
         t0 = _time.monotonic()
 
@@ -1093,6 +1129,32 @@ class Planner:
         goal_keywords = _extract_goal_keywords(goal)
 
         analysis_root = os.path.join(project_root, scope) if scope else project_root
+
+        # Fix 1: scaffold recipe lookup — before heavy analysis (no project scan).
+        if not skip_recipes and matched_recipe is None and scaffold is None:
+            scaffold_match = self.store.retrieve_best_scaffold_recipe(goal)
+            if scaffold_match and scaffold_match.get("scaffold"):
+                sr = scaffold_match["scaffold"]
+                if sr:
+                    scaffold = sr
+
+        # Default: scaffold-only (no full-repo symbol/import scan) when scaffold has entries.
+        # Set expand_repo=true to merge scaffold steps with full decomposition (legacy behavior).
+        if expand_repo is None:
+            expand_repo = not _scaffold_has_entries(scaffold)
+
+        if not expand_repo:
+            return self._decompose_scaffold_only(
+                goal=goal,
+                project_root=project_root,
+                scope=scope,
+                scaffold=scaffold,
+                skip_recipes=skip_recipes,
+                matched_recipe=matched_recipe,
+                active_constraints=active_constraints,
+                t0=t0,
+            )
+
         analyzer = self._get_analyzer(analysis_root)
 
         t1 = _time.monotonic()
@@ -1103,7 +1165,6 @@ class Planner:
 
         # Structural recipe match: try again with file context
         all_files = set(symbols) | set(dep_graph)
-        scaffold_recipe_scaffold: list[dict[str, Any]] = []
         if not skip_recipes and matched_recipe is None:
             recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
             if recipe:
@@ -1112,18 +1173,6 @@ class Planner:
                 if scaffold_from_recipe:
                     recipe["scaffold"] = scaffold_from_recipe
                 matched_recipe = recipe
-
-        # Fix 1: scaffold recipe lookup — the LLM IS the NLP pipeline; scaffold
-        # recipes are the stored product of prior LLM scaffold decisions. When no
-        # regular recipe matches, check whether a scaffold_recipe fits the goal.
-        if not skip_recipes and matched_recipe is None and scaffold is None:
-            scaffold_match = self.store.retrieve_best_scaffold_recipe(goal)
-            if scaffold_match and scaffold_match.get("scaffold"):
-                scaffold_recipe_scaffold = scaffold_match["scaffold"]
-                if scaffold_recipe_scaffold:
-                    # Use scaffold_recipe scaffold as the effective scaffold directly
-                    # (treat it as a user-provided scaffold)
-                    scaffold = scaffold_recipe_scaffold
 
         # Collect near-miss recipes for reference
         near_matches: list[dict[str, Any]] = []
@@ -1257,6 +1306,7 @@ class Planner:
             "constraints_applied": [c.get("description", "") for c in applied],
             "goal_fingerprint": sha256_json(goal)[:16],
             "analysis_meta": analysis_meta,
+            "expand_repo": True,
         }
         if near_matches:
             result["near_match_recipes"] = near_matches
@@ -1282,6 +1332,95 @@ class Planner:
         if effective_scaffold:
             result["scaffold"] = effective_scaffold
 
+        return result
+
+    def _decompose_scaffold_only(
+        self,
+        goal: str,
+        project_root: str,
+        scope: str | None,
+        scaffold: list[dict[str, Any]] | None,
+        skip_recipes: bool,
+        matched_recipe: dict[str, Any] | None,
+        active_constraints: list[dict[str, Any]],
+        t0: float,
+    ) -> dict[str, Any]:
+        """Dependency steps derived only from scaffold + goal path inference (no repo-wide scan)."""
+        analysis_root = os.path.join(project_root, scope) if scope else project_root
+        analyzer = self._get_analyzer(analysis_root)
+        lang_name = getattr(analyzer, "name", "unknown")
+
+        scaffold_list = list(scaffold) if scaffold else []
+        user_files = {e.get("file") for e in scaffold_list if e.get("file")}
+        base_existing = _existing_paths_for_scaffold(analysis_root, scaffold_list)
+        inferred_entries = [
+            {"file": p, "description": f"Inferred from goal text: {p}"}
+            for p in _extract_paths_from_goal(goal)
+            if p not in base_existing
+        ]
+        extra = [e for e in inferred_entries if e["file"] not in user_files]
+        effective_scaffold = scaffold_list + extra
+
+        all_files = _existing_paths_for_scaffold(analysis_root, effective_scaffold)
+
+        scaffold_steps, scaffold_graph = _scaffold_steps(
+            effective_scaffold, start_index=0, existing_files=all_files,
+        )
+        steps: list[dict[str, Any]] = list(scaffold_steps)
+        relevant_graph: dict[str, list[str]] = {}
+        for f, deps in scaffold_graph.items():
+            relevant_graph.setdefault(f, []).extend(deps)
+
+        steps, applied = _apply_constraints(steps, active_constraints)
+
+        near_matches: list[dict[str, Any]] = []
+        if not skip_recipes:
+            ctx_files = {e.get("file") for e in effective_scaffold if e.get("file")}
+            near_matches = self.store.retrieve_near_matches(
+                goal, n=3, context_files=ctx_files,
+            )
+
+        t4 = _time.monotonic()
+
+        analysis_meta: dict[str, Any] = {
+            "language": lang_name,
+            "scope": scope,
+            "files_analyzed": 0,
+            "dep_files": len(relevant_graph),
+            "dep_edges": sum(len(v) for v in relevant_graph.values()),
+            "timing_s": {
+                "symbols": 0.0,
+                "imports": 0.0,
+                "total": round(t4 - t0, 3),
+            },
+            "scaffold_only": True,
+        }
+        if lang_name not in _get_analyzer_registry():
+            analysis_meta["warning"] = (
+                f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
+            )
+
+        result: dict[str, Any] = {
+            "goal": goal,
+            "steps": steps,
+            "dependency_graph": relevant_graph,
+            "constraints": [c.get("description", "") for c in active_constraints],
+            "constraints_applied": [c.get("description", "") for c in applied],
+            "goal_fingerprint": sha256_json(goal)[:16],
+            "analysis_meta": analysis_meta,
+            "expand_repo": False,
+        }
+        if near_matches:
+            result["near_match_recipes"] = near_matches
+        if matched_recipe is not None:
+            result["recipe"] = matched_recipe.get("_source")
+            if matched_recipe.get("_match"):
+                result["recipe_match"] = matched_recipe["_match"]
+        result["scaffold_applied"] = len([s for s in steps if s.get("action") == "create"])
+        if inferred_entries:
+            result["goal_paths_inferred"] = len(inferred_entries)
+        if effective_scaffold:
+            result["scaffold"] = effective_scaffold
         return result
 
     def explore_trajectories(

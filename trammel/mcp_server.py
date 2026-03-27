@@ -43,6 +43,9 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "Use summary_only=true for a compact overview or max_steps to cap output size. "
         "For greenfield work (new directories/subsystems), use scaffold to specify target "
         "files explicitly instead of relying on heuristic inference from existing files. "
+        "When scaffold lists at least one file, decomposition is scaffold-only by default "
+        "(no full-repo scan; steps match the scaffold DAG). Set expand_repo=true to merge "
+        "with full import-graph decomposition (legacy behavior). "
         "When present, near_match_recipes ranks past recipes using the same composite score "
         "as structural recipe retrieval (text + file overlap + success + recency), not text alone.",
         {"goal": _prop("string", "High-level goal to decompose (e.g. 'refactor auth module')."),
@@ -74,7 +77,12 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                                                "description": "What this file does (used in step description)."},
                                "depends_on": {"type": "array", "items": {"type": "string"},
                                               "description": "Other scaffold file paths this file depends on."},
-                           }, "required": ["file"]})},
+                           }, "required": ["file"]}),
+         "expand_repo": _prop("boolean",
+                              "When true, run full repo symbol/import analysis and append scaffold steps "
+                              "(legacy). When false or omitted with a non-empty scaffold, return only "
+                              "scaffold-derived steps (default)."),
+        },
         ["goal", "project_root"]),
     "explore": _schema("explore",
         "Generate beam variants for a strategy without running verification. "
@@ -297,6 +305,7 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
         skip_recipes=args.get("skip_recipes", False),
         min_relevance=args.get("min_relevance", 0.0),
         scaffold=args.get("scaffold"),
+        expand_repo=args.get("expand_repo"),
     )
 
     # summary_only: compact metadata without step details or dependency graph

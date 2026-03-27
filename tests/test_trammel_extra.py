@@ -1516,6 +1516,41 @@ class TestScaffoldSteps(unittest.TestCase):
             self.assertEqual(len(create_steps), 3)
             self.assertEqual(result["scaffold_applied"], 3)
 
+    def test_scaffold_only_skips_full_repo_steps(self) -> None:
+        """Non-empty scaffold defaults to scaffold-only: no steps from existing files."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "so2.db"))
+            result = Planner(store=store).decompose(
+                "build web UI", d,
+                scaffold=[
+                    {"file": "public/index.html"},
+                    {"file": "public/app.js"},
+                ],
+            )
+            self.assertTrue(result["analysis_meta"].get("scaffold_only"))
+            self.assertEqual(result["analysis_meta"]["files_analyzed"], 0)
+            self.assertIs(result.get("expand_repo"), False)
+            self.assertEqual(len(result["steps"]), 2)
+            self.assertEqual({s["file"] for s in result["steps"]}, {"public/index.html", "public/app.js"})
+
+    def test_expand_repo_true_merges_full_decomposition(self) -> None:
+        """expand_repo=true restores full-repo scan plus scaffold create steps."""
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "app.py").write_text("def main(): pass\n", encoding="utf-8")
+            store = RecipeStore(os.path.join(d, "er.db"))
+            result = Planner(store=store).decompose(
+                "build web UI", d,
+                scaffold=[{"file": "public/x.html"}],
+                expand_repo=True,
+            )
+            self.assertNotIn("scaffold_only", result["analysis_meta"])
+            self.assertIs(result.get("expand_repo"), True)
+            self.assertGreaterEqual(result["analysis_meta"]["files_analyzed"], 1)
+            files = {s["file"] for s in result["steps"]}
+            self.assertIn("app.py", files)
+            self.assertIn("public/x.html", files)
+
 
 class TestTrammelConfig(unittest.TestCase):
     """P5: .trammel.json provides explicit language override."""
