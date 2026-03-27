@@ -29,8 +29,23 @@ pip install -e '.[mcp]'        # with MCP support
 
 Releases are uploaded to PyPI via **Trusted Publishing** (OpenID Connect from GitHub). You do **not** need a PyPI API token or `~/.pypirc` on your machine.
 
-1. **PyPI:** Project → Publishing → trusted publisher: GitHub → `IronAdamant/Trammel`, workflow `publish.yml`, environment `release`.
-2. **GitHub:** Create a **Release** (publish). That runs `.github/workflows/publish.yml`: build wheel/sdist, run tests, then upload to PyPI using OIDC.
+1. **PyPI (once):** Project → Publishing → trusted publisher: GitHub → `IronAdamant/Trammel`, workflow `publish.yml`, environment `release`.
+2. **Each release:** Publishing a **GitHub Release** runs `.github/workflows/publish.yml` (build wheel/sdist, tests, upload to PyPI via OIDC).
+
+### Release checklist (GitHub + PyPI)
+
+Do this from a clean `main` after merging what you want to ship:
+
+1. Bump **`version`** in `pyproject.toml` (and add a **Changelog** entry in this README if you like).
+2. Run tests: `python -m unittest discover -q -s tests -p 'test_*.py'`
+3. Commit and push: `git push origin main`
+4. Tag and push (replace `X.Y.Z`):  
+   `git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin vX.Y.Z`
+5. Create the GitHub Release (triggers PyPI):  
+   `gh release create vX.Y.Z --repo IronAdamant/Trammel --title "vX.Y.Z" --notes "…"`  
+   Or use the GitHub UI: **Releases → Draft a new release → choose the tag → Publish release**.
+
+Wait for the **Publish to PyPI** workflow to finish; then confirm [pypi.org/project/trammel](https://pypi.org/project/trammel/).
 
 If you need to publish manually, use a short-lived PyPI token only for that session; do not commit tokens.
 
@@ -195,6 +210,12 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### v3.9.1 — Documentation: MCP-optional integration, releasing guide
+
+- **README:** Integration surfaces (API / CLI / SQLite vs MCP), roadmap notes, release checklist for Trusted Publishing.
+- **Wiki / spec:** §1.1–1.2 alignment; `SYSTEM_PROMPT.md` tracked in repo (sub-agents without MCP).
+- **No API changes** — doc and packaging metadata refresh for PyPI long description.
 
 ### v3.7.9 — Comprehensive cleanup: dead code, bug fixes, modernization, robustness
 - **Bug fixes**: CLI goal validation (`str(None)` bug), missing `created` column in step queries, mixin stubs now raise `NotImplementedError`, `_sql_in` empty-input guard.
