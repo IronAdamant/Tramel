@@ -20,6 +20,7 @@ from .project_config import (
     merge_focus_keywords,
 )
 from .utils import compute_scaffold_dag_metrics, sha256_json, topological_sort
+from .implicit_deps import ImplicitDependencyGraphEngine
 
 if TYPE_CHECKING:
     from .analyzers import LanguageAnalyzer
@@ -1319,6 +1320,16 @@ class Planner:
             if f in all_files
         }
 
+        # Enhance with implicit dependencies (naming conventions, shared state, patterns)
+        # This addresses Trammel's blindness to ~50% of actual dependencies
+        implicit_engine = ImplicitDependencyGraphEngine()
+        implicit_engine.analyze_project(
+            analysis_root,
+            {f: f for f in all_files},  # module_files: name -> path mapping
+            dep_graph,  # Pass explicit graph for pattern learning
+        )
+        relevant_graph = implicit_engine.get_hybrid_dependency_graph(relevant_graph)
+
         file_order = topological_sort(relevant_graph)
         file_order = [f for f in file_order if f in symbols]
 
@@ -1447,6 +1458,26 @@ class Planner:
             analysis_meta["scaffold_dag_metrics"] = compute_scaffold_dag_metrics(
                 _declared_scaffold_graph(effective_scaffold),
             )
+
+        # Include implicit dependency analysis in metadata
+        if expand_repo and dep_graph:
+            gap_analysis = implicit_engine.get_gap_analysis(dep_graph)
+            analysis_meta["implicit_dependency_analysis"] = {
+                "inferred_edges": gap_analysis["summary"]["totalImplicit"],
+                "trammel_blind_spots": gap_analysis["summary"]["trammelBlindSpots"],
+                "naming_convention_inferences": sum(
+                    1 for d in gap_analysis.get("invisibleToStatic", [])
+                    if d.get("type") == "naming_convention"
+                ),
+                "shared_state_inferences": sum(
+                    1 for d in gap_analysis.get("invisibleToStatic", [])
+                    if d.get("type") == "shared_state"
+                ),
+                "pattern_based_inferences": sum(
+                    1 for d in gap_analysis.get("invisibleToStatic", [])
+                    if d.get("type") == "pattern_based"
+                ),
+            }
 
         result: dict[str, Any] = {
             "goal": goal,

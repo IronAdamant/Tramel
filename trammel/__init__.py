@@ -18,6 +18,12 @@ from .analyzers_ext2 import (
     CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
 )
 from .core import Planner
+from .implicit_deps import (
+    ImplicitDependencyGraphEngine,
+    NamingConventionEngine,
+    PatternLearner,
+    SharedStateDetector,
+)
 from .strategies import get_strategies, register_strategy
 from .harness import ExecutionHarness
 from .store import RecipeStore
@@ -139,13 +145,17 @@ __all__ = [
     "DartAnalyzer",
     "ExecutionHarness",
     "GoAnalyzer",
+    "ImplicitDependencyGraphEngine",
     "JavaAnalyzer",
+    "NamingConventionEngine",
+    "PatternLearner",
     "PhpAnalyzer",
     "Planner",
     "PythonAnalyzer",
     "RecipeStore",
     "RubyAnalyzer",
     "RustAnalyzer",
+    "SharedStateDetector",
     "SwiftAnalyzer",
     "TypeScriptAnalyzer",
     "ZigAnalyzer",
