@@ -146,11 +146,28 @@ Configure in `.claude/.mcp.json`:
 
 Trammel treats planning as a structured search problem:
 
-1. **Decompose** -- Analyze project imports (Python AST; TypeScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig regex), build dependency graph, topological sort, generate steps with ordering rationale
+1. **Decompose** -- Analyze project imports (Python AST; TypeScript, Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig regex), build dependency graph, topological sort, generate steps with ordering rationale. Returns **scaffold DAG metrics** (`max_parallelism`, `layer_widths`, `critical_path_length`, `max_dependency_depth`) for multi-agent dispatch.
 2. **Explore** -- Generate beam variants with genuinely different strategies (`bottom_up`, `top_down`, `risk_first`, `critical_path`, `cohesion`, `minimal_change`), executed in parallel via `ProcessPoolExecutor`
 3. **Verify** -- Run edits in isolated temp copies, per-step or full-run; extract structured failure analysis on failure
 4. **Constrain** -- Propagate failure reasons as persistent constraints that block repetition across sessions
 5. **Remember** -- Store successful strategies as recipes, retrieved by composite scoring (text similarity + file overlap + success ratio)
+
+### Scaffold DAG Metrics for Multi-Agent Dispatch
+
+When `decompose` is called with a `scaffold`, the response includes `scaffold_dag_metrics` in `analysis_meta`:
+
+| Metric | Description | Use case |
+|--------|-------------|----------|
+| `node_count` | Total files in the DAG | Plan size |
+| `edge_count` | Total dependency edges | Complexity indicator |
+| `max_dependency_depth` | Number of layers in the DAG | Minimum sequential rounds |
+| `critical_path_length` | Longest dependency chain | Bottleneck identification |
+| `max_parallelism` | Widest layer (most concurrent files) | Agent pool sizing |
+| `layer_widths` | Array of file counts per layer, e.g. `[7, 12, 6, 10, 3, 2]` | Per-round agent dispatch |
+
+**Multi-agent workflow:** Use `layer_widths` to dispatch agents in rounds. Layer 0 files have no dependencies and can all start immediately. Layer 1 files depend only on layer 0, so they can start once layer 0 completes. `max_parallelism` tells you the peak agent count needed. For example, `layer_widths: [7, 12, 6, 10, 3, 2]` means you need up to 12 agents at peak (layer 1), with 6 sequential rounds minimum.
+
+**Validated scale:** Tested with 40-step / 59-edge scaffolds across 6 feature trees with correct topological ordering, 6-layer depth, and 12-file peak parallelism (RecipeLab Review Ten).
 
 ## Project Layout
 
@@ -170,7 +187,7 @@ trammel/              Importable package
   cli.py              Argparse CLI entry point (--dry-run, --language)
   mcp_server.py       MCP tool schemas and dispatch-dict routing
   mcp_stdio.py        MCP stdio server entry point
-tests/                stdlib unittest (242 tests, 4 modules)
+tests/                stdlib unittest (328 tests, 6 modules)
 wiki-local/           Spec, glossary, and wiki index
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 pyproject.toml        Package metadata
@@ -210,6 +227,13 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### v3.10.3 — Documentation: scaffold DAG metrics for multi-agent dispatch
+
+- **README:** New "Scaffold DAG Metrics for Multi-Agent Dispatch" section documenting `max_parallelism`, `layer_widths`, `critical_path_length`, and `max_dependency_depth` with usage guidance for parallel agent workflows.
+- **Spec:** Added scaffold DAG metrics documentation to §5 Planner.
+- **RecipeLab Review Ten closure:** Zero bugs found. Validated 40-step / 59-edge scaffold decomposition with correct topological ordering across 6 feature trees. Largest scaffold and most complex DAG ever tested — flawless.
+- **No API changes** — documentation update only.
 
 ### v3.10.1 — Fix critical create_plan scaffold migration bug
 

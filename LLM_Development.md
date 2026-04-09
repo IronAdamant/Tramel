@@ -8,10 +8,32 @@
 
 ## Active context
 
-- **Version:** 3.10.1
-- **Focus:** Fix critical `create_plan` schema migration bug blocking plan execution workflow.
+- **Version:** 3.10.3
+- **Focus:** Documentation: scaffold DAG metrics for multi-agent dispatch (RecipeLab Review Ten closure).
 
 ## Session log
+
+---
+
+## v3.10.3 — Documentation: scaffold DAG metrics for multi-agent dispatch
+
+**Date:** 2026-04-10
+
+### Summary
+Documentation update based on RecipeLab Review Ten closure. Zero bugs found — Trammel's strongest performance across all review phases. Added scaffold DAG metrics documentation (`max_parallelism`, `layer_widths`, `critical_path_length`, `max_dependency_depth`) to README and spec for multi-agent workflow dispatch.
+
+### Review Ten findings
+- **decompose** (with scaffold): 40 steps, 59 edges, correct topological ordering across 6 feature trees — FLAWLESS
+- **create_plan**: Plan #3 created from 40-step strategy — RELIABLE
+- **complete_plan**: All 40 steps batch-processed, recipe + scaffold saved — PERFECT
+- **Refactoring plan** (Plan #4): 14 steps, 5 edges, 2-layer structure — FLAWLESS
+- **Recipe library**: Grew to 4 recipes spanning 3 distinct patterns (migration, feature build, refactoring)
+- **DAG metrics validated**: 40 nodes, 59 edges, 6-layer depth, 12-file peak parallelism, critical path length 6
+
+### Changes
+- **README.md**: New "Scaffold DAG Metrics for Multi-Agent Dispatch" section with metric table and usage guidance; updated Architecture description; added v3.10.3 changelog entry.
+- **wiki-local/spec-project.md**: Added scaffold DAG metrics documentation to §5 Planner.
+- **No code changes** — documentation only.
 
 ---
 
