@@ -903,8 +903,9 @@ class RecipeStoreMixin:
             return
         # Stable sig from scaffold entries (ignore description field)
         scaffold_key = sorted(
-            {"file": e.get("file", ""), "depends_on": sorted(e.get("depends_on", []))}
-            for e in scaffold if e.get("file")
+            ({"file": e.get("file", ""), "depends_on": sorted(e.get("depends_on", []))}
+             for e in scaffold if e.get("file")),
+            key=lambda x: (x["file"], tuple(x["depends_on"])),
         )
         sig = sha256_json(scaffold_key)
         pattern = goal[:_MAX_PATTERN_LENGTH]

@@ -254,6 +254,14 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
                 "UPDATE plans SET status = ?, updated = ? WHERE id = ?",
                 (status, time.time(), plan_id),
             )
+        if status == "completed":
+            plan = self.get_plan(plan_id)
+            if plan is not None:
+                outcome = True
+                self.save_recipe(plan["goal"], plan["strategy"], outcome)
+                scaffold = plan.get("scaffold", [])
+                if scaffold:
+                    self.save_scaffold_recipe(plan["goal"], scaffold, outcome)
 
     def list_plans(self, status: str | None = None) -> list[dict[str, Any]]:
         query = ("SELECT id, goal, status, current_step, total_steps, created, updated "
