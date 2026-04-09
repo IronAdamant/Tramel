@@ -183,7 +183,7 @@ pyproject.toml        Package metadata
 | `recipes` | Successful strategies keyed by SHA-256, with pattern, constraints, success/failure counts |
 | `recipe_trigrams` | Inverted trigram index for fast recipe retrieval (trigram → recipe sig) |
 | `recipe_files` | File paths associated with recipe steps, for structural matching (Jaccard overlap) |
-| `plans` | Goal + strategy snapshot with step progress tracking |
+| `plans` | Goal + strategy snapshot + scaffold with step progress tracking |
 | `steps` | Individual work units with dependencies, rationale, verification results |
 | `constraints` | Failure records (dependency/incompatible/requires/avoid) that prevent known-bad repetition |
 | `trajectories` | Harness run logs per beam: outcome, steps completed, failure reason |
@@ -210,6 +210,11 @@ Contributions are welcome. Please open an issue first to discuss what you would 
 6. Open a pull request
 
 ## Changelog
+
+### v3.10.1 — Fix critical create_plan scaffold migration bug
+
+- **Bug fix**: `create_plan` failed with `"table plans has no column named scaffold"` on existing databases. The schema migration was targeting the wrong table (`steps` instead of `plans`). Fixed in `store.py`.
+- **Impact**: Unblocks full plan execution workflow (`create_plan` → `claim_step` → `record_steps` → `complete_plan`).
 
 ### v3.9.4 — RecipeLab findings: scaffold metrics, skip-UX, refactor hints, CI checklist
 

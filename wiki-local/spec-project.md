@@ -101,7 +101,7 @@ Module split: `store.py` (~342 LOC) holds schema init, plans, steps, constraints
 - `recipes(sig PK, pattern, strategy, constraints, successes, failures, created, updated)` — sig = SHA-256 of canonical JSON strategy.
 - `recipe_trigrams(trigram, recipe_sig FK)` — inverted index for fast recipe retrieval. Indexed on `trigram`. Populated on `save_recipe`, auto-backfilled on schema init.
 - `recipe_files(file_path, recipe_sig FK)` — file paths from strategy steps for structural matching. Indexed on both `file_path` and `recipe_sig`. Populated on `save_recipe`, auto-backfilled via `_backfill_files()`.
-- `plans(id, goal, strategy, status, current_step, total_steps, created, updated)`.
+- `plans(id, goal, strategy, scaffold, status, current_step, total_steps, created, updated)`.
 - `steps(id, plan_id FK, step_index, description, rationale, depends_on, status, edits_json, verification, constraints_found)`.
 - `constraints(id, plan_id FK, step_id FK, constraint_type, description, context, active)` — types: dependency, incompatible, requires, avoid.
 - `trajectories(id, plan_id FK, beam_id, strategy_variant, steps_completed, outcome, failure_reason)`.

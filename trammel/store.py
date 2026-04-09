@@ -187,13 +187,18 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         for col, default in [
             ("claimed_by TEXT", "NULL"),
             ("claimed_at REAL", "NULL"),
-            ("scaffold TEXT NOT NULL DEFAULT '[]'", "'[]'"),
         ]:
             try:
                 self.conn.execute(f"ALTER TABLE steps ADD COLUMN {col} DEFAULT {default}")
             except sqlite3.OperationalError as e:
                 if "duplicate column" not in str(e):
                     raise
+        # Add scaffold column to plans table (migration for pre-scaffold DBs)
+        try:
+            self.conn.execute("ALTER TABLE plans ADD COLUMN scaffold TEXT NOT NULL DEFAULT '[]'")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
         self.conn.commit()
         self._rebuild_trigram_index()
         self._backfill_files()
