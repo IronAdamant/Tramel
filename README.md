@@ -204,6 +204,14 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
+### v3.11.1 — Review findings: plan validation, ambiguity detection, verify_step static analysis, MinHash recipe retrieval
+
+- **`create_plan` pre-flight validation**: Added topological cycle detection to `create_plan`. Plans with cyclic step dependencies are rejected with a clear `circular_dependency` error instead of being persisted.
+- **Ambiguity detection in `decompose`**: New `ambiguity` field in `analysis_meta` scores goals for vague phrasing (`real-time`, `AI-powered`, `conflict resolution`, etc.), scope words, and conjunction density. Helps flag underspecified goals before planning.
+- **`verify_step` static analysis**: Step verification now includes a `static_analysis` object with file-path convention checks and test-coverage heuristics (e.g., missing matching test files), surfacing warnings even when tests pass.
+- **MinHash-enhanced recipe retrieval**: `retrieve_best_recipe` and `retrieve_near_matches` now union candidates from both the TF-IDF inverted word index and the MinHash LSH index, improving recall for synonym/reordered goals.
+- **346 tests passing**.
+
 ### v3.11.0 — Core modularization, recipe word index + MinHash, analyzer farm collapse
 
 - **core.py modularization**: Extracted monolith into `scoring.py`, `scaffold_logic.py`, `goal_nlp.py`, `constraints.py`, `scaffold_templates.py`. Orchestrator reduced from ~1,700 LOC to ~570 LOC.

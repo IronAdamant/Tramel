@@ -36,14 +36,14 @@ decompose(goal, root, language="typescript")  → for non-Python projects
 decompose(goal, root, scope="services/auth")  → monorepo: analyze only a subdirectory
 ```
 
-Returns: steps with file paths, symbols, dependency ordering, rationale, and any constraints already applied. When present, `near_match_recipes` ranks related stored recipes using the same composite score as structural recipe retrieval (not text alone). Goals can name concrete paths in backticks (e.g. `` `src/foo.py` ``) to infer scaffold create-steps without passing a full `scaffold` array.
+Returns: steps with file paths, symbols, dependency ordering, rationale, and any constraints already applied. `analysis_meta` includes an `ambiguity` score when goals contain vague phrasing (`real-time`, `AI-powered`, `conflict resolution`, etc.) — use it to decide whether the goal needs clarification. When present, `near_match_recipes` ranks related stored recipes using the same composite score as structural recipe retrieval (not text alone). Goals can name concrete paths in backticks (e.g. `` `src/foo.py` ``) to infer scaffold create-steps without passing a full `scaffold` array.
 
 For **refactor/update** work on existing code, prefer **`skip_recipes=true`**, optional **`relevant_only=true`**, and **`suppress_creation_hints=true`** so heuristic new-file suggestions do not pollute the plan. With a non-empty **`scaffold`**, decomposition is **scaffold-only** by default; use **`expand_repo=true`** to merge with full-repo analysis. **`summary_only=true`** returns compact metadata; when every scaffold file already exists, look for **`skipped_existing_scaffold`** and **`scaffold_dag_metrics`** (critical path and layer widths).
 
 ### 3. Create and track a plan
 
 ```
-create_plan(goal, strategy)       → plan_id for tracking
+create_plan(goal, strategy)       → plan_id for tracking (validates step dependencies for cycles)
 update_plan_status(plan_id, "running")
 ```
 
@@ -74,7 +74,7 @@ For each step in your chosen beam:
    record_step(step_id, "passed", edits=[...], verification={...})
    ```
 
-The `verify_step` tool runs your edits in an isolated temp copy with test discovery. On failure, it returns structured `failure_analysis` with `error_type`, `message`, `file`, `line`, and `suggestion`.
+The `verify_step` tool runs your edits in an isolated temp copy with test discovery. It returns `static_analysis` with path-convention and test-coverage heuristics, and on failure it returns structured `failure_analysis` with `error_type`, `message`, `file`, `line`, and `suggestion`.
 
 ### 6. Handle failures
 

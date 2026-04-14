@@ -664,9 +664,15 @@ class RecipeStoreMixin(RecipeIndexMixin):
         context_files: set[str] | None = None,
     ) -> dict[str, Any] | None:
         term_results = self.search_recipes_by_terms(goal, top_k=50)
-        if not term_results:
+        minhash_results = self.search_recipes_by_minhash(goal, threshold=0.3, top_n=50)
+        sig_set: set[str] = set()
+        for sig, _ in term_results:
+            sig_set.add(sig)
+        for sig, _ in minhash_results:
+            sig_set.add(sig)
+        if not sig_set:
             return None
-        sig_list = [sig for sig, _ in term_results]
+        sig_list = sorted(sig_set)
         sig_in, sig_params = _sql_in(sig_list)
         cur = self.conn.execute(
             f"SELECT sig, pattern, strategy, successes, failures, updated FROM recipes "
@@ -765,9 +771,15 @@ class RecipeStoreMixin(RecipeIndexMixin):
         ``match_components`` when structural scoring applies.
         """
         term_results = self.search_recipes_by_terms(goal, top_k=50)
-        if not term_results:
+        minhash_results = self.search_recipes_by_minhash(goal, threshold=0.3, top_n=50)
+        sig_set: set[str] = set()
+        for sig, _ in term_results:
+            sig_set.add(sig)
+        for sig, _ in minhash_results:
+            sig_set.add(sig)
+        if not sig_set:
             return []
-        sig_list = [sig for sig, _ in term_results]
+        sig_list = sorted(sig_set)
         sig_in, sig_params = _sql_in(sig_list)
         rows = self.conn.execute(
             f"SELECT sig, pattern, strategy, successes, failures, updated FROM recipes WHERE sig {sig_in}",

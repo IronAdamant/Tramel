@@ -129,6 +129,75 @@ def _keyword_variants(keywords: set[str]) -> set[str]:
     return variants
 
 
+_AMBIGUITY_PHRASES = frozenset({
+    "conflict resolution", "real-time", "real time", "ai-powered", "ai powered",
+    "collaborative", "fallback", "merge suggestions", "smart", "intelligent",
+    "automated", "dynamic", "adaptive", "context-aware", "context aware",
+    "best practice", "industry standard", "enterprise grade", "scalable",
+    "robust", "seamless", "end-to-end", "end to end", "holistic",
+    "comprehensive", "integrated", "unified", "next-gen", "next gen",
+    "cutting edge", "state of the art", "modernized", "optimized",
+})
+
+_AMBIGUITY_SCOPE_WORDS = frozenset({
+    "system", "framework", "platform", "infrastructure", "architecture",
+    "ecosystem", "solution", "stack", "suite", "toolkit",
+})
+
+
+def _compute_ambiguity_score(goal: str) -> dict[str, Any]:
+    """Score how ambiguous/vague a goal is based on wording and structure.
+
+    Returns a dict with score (0.0–1.0), flag (low/medium/high),
+    and a list of detected ambiguity signals.
+    """
+    goal_lower = goal.lower()
+    signals: list[str] = []
+    score = 0.0
+
+    # Detect vague phrases
+    for phrase in _AMBIGUITY_PHRASES:
+        if phrase in goal_lower:
+            signals.append(f"vague_phrase: '{phrase}'")
+            score += 0.15
+
+    # Detect scope words that imply undefined boundaries
+    words = set(re.findall(r'[a-z]+', goal_lower))
+    scope_hits = words & _AMBIGUITY_SCOPE_WORDS
+    for w in scope_hits:
+        signals.append(f"scope_word: '{w}'")
+        score += 0.10
+
+    # Complexity: many conjunctions suggesting overlapping concerns
+    conjunctions = sum(1 for w in goal_lower.split() if w in {"and", "with", "or", "plus"})
+    if conjunctions >= 4:
+        signals.append("high_conjunction_count")
+        score += 0.15
+    elif conjunctions >= 2:
+        signals.append("medium_conjunction_count")
+        score += 0.05
+
+    # Length penalty: very long goals are often less focused
+    word_count = len(goal_lower.split())
+    if word_count > 20:
+        score += 0.05
+
+    score = min(score, 1.0)
+
+    if score >= 0.5:
+        flag = "high"
+    elif score >= 0.25:
+        flag = "medium"
+    else:
+        flag = "low"
+
+    return {
+        "score": round(score, 2),
+        "flag": flag,
+        "signals": signals,
+    }
+
+
 def _matched_keywords(
     goal_keywords: set[str], candidate_words: set[str],
 ) -> set[str]:

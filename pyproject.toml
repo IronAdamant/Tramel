@@ -1,6 +1,6 @@
 [project]
 name = "trammel"
-version = "3.11.0"
+version = "3.11.1"
 description = "Dependency-aware planning, incremental verification, and recipe memory for LLM-assisted coding (stdlib-only core)."
 readme = "README.md"
 license = "MIT"

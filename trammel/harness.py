@@ -34,6 +34,63 @@ def _apply_edits(root: str, edits: list[dict[str, Any]]) -> None:
             fp.write(content if isinstance(content, str) else str(content))
 
 
+def _static_analysis(
+    edits: list[dict[str, Any]],
+    project_root: str,
+) -> dict[str, Any]:
+    """Run lightweight static-analysis heuristics on a step's edits.
+
+    Checks file-path conventions and test coverage without executing code.
+    Returns warnings and a confidence score (0.0–1.0).
+    """
+    warnings: list[str] = []
+    score = 1.0
+
+    edited_paths: list[str] = []
+    for ed in edits:
+        rel = ed.get("path") or ed.get("file")
+        if not rel:
+            warnings.append("edit missing path/file")
+            score -= 0.2
+            continue
+        if os.path.isabs(rel) or ".." in rel.replace("\\", "/").split("/"):
+            warnings.append(f"suspicious path: {rel}")
+            score -= 0.1
+        edited_paths.append(rel)
+
+    # Test-coverage heuristic: if we're editing a source file, does a matching
+    # test file exist in the project?
+    test_misses: list[str] = []
+    for rel in edited_paths:
+        base = os.path.basename(rel)
+        name, ext = os.path.splitext(base)
+        parent = os.path.dirname(rel)
+        # Common test file patterns
+        candidates: list[str] = []
+        if parent.startswith("src/"):
+            test_parent = parent.replace("src/", "tests/", 1)
+            candidates.append(os.path.join(test_parent, f"{name}.test{ext}"))
+            candidates.append(os.path.join(test_parent, f"test_{name}{ext}"))
+        candidates.append(os.path.join(parent, f"{name}.test{ext}"))
+        candidates.append(os.path.join(parent, f"test_{name}{ext}"))
+        candidates.append(os.path.join("tests", parent, f"{name}.test{ext}"))
+        if not any(os.path.isfile(os.path.join(project_root, c)) for c in candidates):
+            test_misses.append(rel)
+    if test_misses:
+        warnings.append(
+            f"no matching test file found for {len(test_misses)} edited source file(s)"
+        )
+        score -= 0.1
+
+    score = max(score, 0.0)
+    return {
+        "confidence": round(score, 2),
+        "warnings": warnings,
+        "edited_files": edited_paths,
+        "test_coverage_checked": True,
+    }
+
+
 def _run_tests(
     tmp: str,
     timeout_s: int,
@@ -124,6 +181,7 @@ class ExecutionHarness:
         prior_edits: edits from already-verified steps to apply first.
         """
         project_root = os.path.abspath(project_root)
+        static = _static_analysis(edits, project_root)
         with tempfile.TemporaryDirectory() as tmp:
             shutil.copytree(
                 project_root, tmp, dirs_exist_ok=True, ignore=_ignore_copy,
@@ -131,11 +189,13 @@ class ExecutionHarness:
             if prior_edits:
                 _apply_edits(tmp, prior_edits)
             _apply_edits(tmp, edits)
-            return _run_tests(
+            result = _run_tests(
                 tmp, self.timeout_s,
                 self._effective_test_cmd(project_root),
                 self._effective_error_patterns(),
             )
+        result["static_analysis"] = static
+        return result
 
     def run_incremental(
         self,

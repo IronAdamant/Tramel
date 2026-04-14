@@ -208,9 +208,49 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
 
     # ── Plans ────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _validate_plan_steps(steps: list[dict[str, Any]]) -> None:
+        """Validate step dependencies for cycles before plan creation.
+
+        Raises ValueError if the step dependency graph contains a cycle.
+        """
+        # Build graph: step_index -> list of dependency step indices
+        graph: dict[int, list[int]] = {}
+        for i, step in enumerate(steps):
+            idx = step.get("step_index", i)
+            deps = step.get("depends_on", [])
+            graph[idx] = [d for d in deps if isinstance(d, int)]
+
+        # DFS cycle detection
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color = {idx: WHITE for idx in graph}
+
+        def dfs(node: int, path: list[int]) -> list[int] | None:
+            color[node] = GRAY
+            for dep in graph.get(node, []):
+                if dep not in color:
+                    continue
+                if color.get(dep, WHITE) == GRAY:
+                    cycle_start = path.index(dep)
+                    return path[cycle_start:] + [dep]
+                if color.get(dep, WHITE) == WHITE:
+                    cycle = dfs(dep, path + [dep])
+                    if cycle:
+                        return cycle
+            color[node] = BLACK
+            return None
+
+        for idx in graph:
+            if color[idx] == WHITE:
+                cycle = dfs(idx, [idx])
+                if cycle:
+                    cycle_str = " → ".join(str(x) for x in cycle)
+                    raise ValueError(f"circular_dependency detected in plan steps: {cycle_str}")
+
     def create_plan(self, goal: str, strategy: dict[str, Any], scaffold: list[dict[str, Any]] | None = None) -> int:
         now = time.time()
         plan_steps = strategy.get("steps", [])
+        self._validate_plan_steps(plan_steps)
         scaffold_json = dumps_json(scaffold or [])
         with transaction(self.conn):
             cur = self.conn.execute(

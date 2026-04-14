@@ -19,7 +19,7 @@ from .project_config import (
 from .utils import sha256_json
 from .implicit_deps import ImplicitDependencyGraphEngine
 from .constraints import _apply_constraints
-from .goal_nlp import _extract_goal_keywords, _extract_paths_from_goal, _has_creation_intent
+from .goal_nlp import _compute_ambiguity_score, _extract_goal_keywords, _extract_paths_from_goal, _has_creation_intent
 from .scoring import _filter_paths_by_globs, _generate_steps
 from .scaffold_logic import (
     _creation_hints,
@@ -352,6 +352,8 @@ class Planner:
                 _declared_scaffold_graph(effective_scaffold),
             )
 
+        analysis_meta["ambiguity"] = _compute_ambiguity_score(goal)
+
         if expand_repo and dep_graph:
             gap_analysis = implicit_engine.get_gap_analysis(dep_graph)
             analysis_meta["implicit_dependency_analysis"] = {
@@ -468,6 +470,7 @@ class Planner:
             },
             "scaffold_only": True,
             "scaffold_dag_metrics": dag_metrics,
+            "ambiguity": _compute_ambiguity_score(goal),
         }
         scaffold_targets = _scaffold_target_paths(effective_scaffold)
         if scaffold_targets and not steps:

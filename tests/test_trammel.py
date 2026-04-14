@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, explore, plan_and_execute, synthesize  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
+from trammel.goal_nlp import _compute_ambiguity_score  # noqa: E402
+from trammel.harness import _static_analysis  # noqa: E402
 from trammel.utils import (  # noqa: E402
     _cosine,
     dumps_json,
@@ -165,6 +167,102 @@ class TestStore(unittest.TestCase):
             self.assertGreater(len(rows), 0)
 
 
+class TestPlanValidation(unittest.TestCase):
+    def test_create_plan_rejects_cycles(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "v.db"))
+            strat = {
+                "steps": [
+                    {"step_index": 0, "description": "a", "depends_on": [1]},
+                    {"step_index": 1, "description": "b", "depends_on": [2]},
+                    {"step_index": 2, "description": "c", "depends_on": [0]},
+                ],
+            }
+            with self.assertRaises(ValueError) as ctx:
+                store.create_plan("cycle goal", strat)
+            self.assertIn("circular_dependency", str(ctx.exception))
+
+    def test_create_plan_allows_acyclic(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "v2.db"))
+            strat = {
+                "steps": [
+                    {"step_index": 0, "description": "a", "depends_on": []},
+                    {"step_index": 1, "description": "b", "depends_on": [0]},
+                    {"step_index": 2, "description": "c", "depends_on": [1]},
+                ],
+            }
+            pid = store.create_plan("acyclic goal", strat)
+            plan = store.get_plan(pid)
+            self.assertIsNotNone(plan)
+            self.assertEqual(plan["total_steps"], 3)
+
+
+class TestAmbiguity(unittest.TestCase):
+    def test_low_ambiguity_clear_goal(self) -> None:
+        result = _compute_ambiguity_score("refactor auth module")
+        self.assertEqual(result["flag"], "low")
+        self.assertLess(result["score"], 0.2)
+
+    def test_high_ambiguity_vague_goal(self) -> None:
+        goal = (
+            "Add a real-time collaborative recipe editing system with conflict resolution, "
+            "WebSocket fallback, and AI-powered merge suggestions"
+        )
+        result = _compute_ambiguity_score(goal)
+        self.assertIn(result["flag"], {"medium", "high"})
+        self.assertGreaterEqual(result["score"], 0.25)
+        signals = " ".join(result["signals"])
+        self.assertIn("real-time", signals)
+        self.assertIn("conflict resolution", signals)
+
+    def test_ambiguity_via_decompose_meta(self) -> None:
+        from trammel.core import Planner
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "src").mkdir()
+            pathlib.Path(d, "src", "app.py").write_text("x = 1\n", encoding="utf-8")
+            result = Planner().decompose(
+                "Add a real-time collaborative system with conflict resolution",
+                d,
+                scaffold=[{"file": "src/service.py", "depends_on": []}],
+            )
+            meta = result.get("analysis_meta", {})
+            self.assertIn("ambiguity", meta)
+            self.assertGreaterEqual(meta["ambiguity"]["score"], 0.2)
+
+
+class TestHarnessStaticAnalysis(unittest.TestCase):
+    def test_static_analysis_empty_edits(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            result = _static_analysis([], d)
+            self.assertEqual(result["confidence"], 1.0)
+            self.assertEqual(result["warnings"], [])
+
+    def test_static_analysis_missing_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "src").mkdir()
+            pathlib.Path(d, "src", "mod.py").write_text("x = 1\n", encoding="utf-8")
+            edits = [{"path": "src/mod.py", "content": "x = 2\n"}]
+            result = _static_analysis(edits, d)
+            self.assertLess(result["confidence"], 1.0)
+            self.assertTrue(any("test" in w for w in result["warnings"]))
+
+    def test_verify_step_includes_static_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            tdir = pathlib.Path(d) / "tests"
+            tdir.mkdir()
+            (tdir / "test_x.py").write_text(
+                "import unittest\nclass T(unittest.TestCase):\n"
+                "    def test_t(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            h = ExecutionHarness(timeout_s=30)
+            r = h.verify_step([], d)
+            self.assertTrue(r["success"])
+            self.assertIn("static_analysis", r)
+            self.assertEqual(r["static_analysis"]["confidence"], 1.0)
+
+
 class TestRecipeMatching(unittest.TestCase):
     def test_normalize_goal_verb_replacement(self) -> None:
         result = normalize_goal("refactor the auth module")
@@ -223,6 +321,20 @@ class TestRecipeMatching(unittest.TestCase):
             store.save_recipe("refactor auth module", strat, True)
             got = store.retrieve_best_recipe("add logging to database")
             self.assertIsNone(got)
+
+    def test_minhash_search_finds_related_goal(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "mh.db"))
+            strat = {"steps": [{"file": "collab.py", "description": "collab editing"}]}
+            store.save_recipe("Build real-time collaborative editing with WebSocket fallback", strat, True)
+            # Search with a goal that shares many words but in different order
+            minhash_results = store.search_recipes_by_minhash(
+                "WebSocket fallback real-time collaborative editing build", threshold=0.3
+            )
+            self.assertTrue(len(minhash_results) > 0)
+            # Ensure retrieve_best_recipe also finds it (MinHash + TF-IDF combined)
+            got = store.retrieve_best_recipe("WebSocket fallback real-time collaborative editing build")
+            self.assertIsNotNone(got)
 
 
 class TestRecipePruning(unittest.TestCase):
