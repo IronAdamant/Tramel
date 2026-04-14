@@ -331,6 +331,16 @@ class TestMCPDispatch(unittest.TestCase):
             with self.assertRaises(ValueError):
                 dispatch_tool(store, "nonexistent", {})
 
+    def test_complete_plan_records_trajectory(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "m.db"))
+            strat = {"steps": [{"description": "s1", "rationale": "r", "depends_on": []}]}
+            result = dispatch_tool(store, "create_plan", {"goal": "test", "strategy": strat})
+            plan_id = result["plan_id"]
+            dispatch_tool(store, "complete_plan", {"plan_id": plan_id, "outcome": True})
+            stats = store.get_strategy_stats()
+            self.assertIn("complete_plan", stats)
+            self.assertGreater(stats["complete_plan"][0], 0)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -1139,6 +1149,24 @@ class TestMonorepoScope(unittest.TestCase):
                 "scope": "pkg", "num_beams": 2,
             })
             self.assertIn("beams", result)
+
+    def test_explore_fallback_on_over_constrained(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "sc_fallback.db"))
+            # Provide an over-constrained scaffold that would fail normal decompose
+            result = dispatch_tool(store, "explore", {
+                "goal": "create over constrained",
+                "project_root": d,
+                "scaffold": [
+                    {
+                        "file": "src/over.js",
+                        "depends_on": ["a.js", "b.js", "c.js", "d.js", "e.js"],
+                    },
+                ],
+                "num_beams": 2,
+            })
+            self.assertIn("beams", result)
+            self.assertGreater(len(result["strategy"].get("steps", [])), 0)
 
     def test_scope_cli_flag(self) -> None:
         with tempfile.TemporaryDirectory() as d:

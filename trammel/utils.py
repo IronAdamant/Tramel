@@ -550,6 +550,8 @@ def validate_scaffold(
 
     Detects cycles, duplicate files, self-referential entries,
     over-constrained nodes (>4 deps), and missing dependencies.
+    ``over_constrained`` is surfaced as a warning and does not invalidate
+    the scaffold, because test files and facades commonly have 5+ deps.
     Returns a dict with ``valid`` bool and diagnostic details.
     """
     result: dict[str, Any] = {
@@ -590,13 +592,10 @@ def validate_scaffold(
         result["valid"] = False
         result["error"] = "self_referential"
 
-    # Over-constrained (>4 deps)
+    # Over-constrained (>4 deps) — warn only, do not fail
     for f, deps in graph.items():
         if len(deps) > 4:
             result["over_constrained"].append({"file": f, "deps": deps})
-    if result["over_constrained"] and result["valid"]:
-        result["valid"] = False
-        result["error"] = "over_constrained"
 
     # Missing dependencies
     if existing_files is not None:

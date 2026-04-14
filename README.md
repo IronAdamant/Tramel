@@ -164,7 +164,7 @@ trammel/              Importable package
   mcp_stdio.py        MCP stdio server entry point
   plan_merge.py       Plan merging engine: conflict detection + 4 resolution strategies
   store_agents.py     Multi-agent coordination: step claiming, availability, proximity warnings
-tests/                358 tests across 6 modules (stdlib unittest)
+tests/                361 tests across 6 modules (stdlib unittest)
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 ```
 
@@ -205,6 +205,15 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 
 <details>
 <summary><strong>Full Changelog</strong></summary>
+
+### v3.11.3 — Robustness improvements for test-heavy projects, explore fallback, and strategy trajectory data
+
+- **`over_constrained` no longer fatal**: `validate_scaffold` treats `>4` dependencies as a warning rather than a fatal error. Test files and facades with many dependencies no longer block decomposition.
+- **Partial-plan recovery**: When scaffold validation detects issues (self-referential, missing dependencies, etc.), `decompose` now returns whatever steps can still be inferred from the scaffold instead of an empty plan.
+- **`explore` fallback mode**: If `explore` receives an empty or error result from `decompose`, it automatically retries with `suppress_creation_hints=true` and `expand_repo=false` to produce a usable strategy.
+- **Auto-persisting strategy trajectories**: `complete_plan` now logs a trajectory entry automatically, so `list_strategies` accumulates empirical success/failure data over time.
+- **Improved MCP tool descriptions**: `strict_greenfield` and `suppress_creation_hints` descriptions now explicitly mention test-heavy projects and refactor goals.
+- **361 tests passing**.
 
 ### v3.11.2 — Major robustness improvements: scaffold-less decomposition, plan merging, recipe matching, verify_step depth
 

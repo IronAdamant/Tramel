@@ -510,6 +510,21 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         if outcome and scaffold:
             self.save_scaffold_recipe(plan["goal"], scaffold, outcome)
 
+        # Auto-persist trajectory data so strategy recommendations become data-driven
+        strategy_variant = (
+            strategy.get("variant", "complete_plan")
+            if isinstance(strategy, dict) else "complete_plan"
+        )
+        total_steps = len(plan.get("steps", []))
+        self.log_trajectory(
+            plan_id=plan_id,
+            beam_id=0,
+            strategy_variant=strategy_variant,
+            steps_completed=total_steps,
+            outcome={"success": outcome, "steps_completed": total_steps, "source": "complete_plan"},
+            failure_reason=None if outcome else "plan_completed_with_failure",
+        )
+
         return {
             "plan_id": plan_id,
             "plan_status": plan_status,

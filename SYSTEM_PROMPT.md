@@ -38,7 +38,7 @@ decompose(goal, root, scope="services/auth")  → monorepo: analyze only a subdi
 
 Returns: steps with file paths, symbols, dependency ordering, rationale, and any constraints already applied. `analysis_meta` includes an `ambiguity` score when goals contain vague phrasing (`real-time`, `AI-powered`, `conflict resolution`, etc.) — use it to decide whether the goal needs clarification. When present, `near_match_recipes` ranks related stored recipes using the same composite score as structural recipe retrieval (not text alone). Goals can name concrete paths in backticks (e.g. `` `src/foo.py` ``) to infer scaffold create-steps without passing a full `scaffold` array.
 
-For **refactor/update** work on existing code, prefer **`skip_recipes=true`**, optional **`relevant_only=true`**, and **`suppress_creation_hints=true`** so heuristic new-file suggestions do not pollute the plan. With a non-empty **`scaffold`**, decomposition is **scaffold-only** by default; use **`expand_repo=true`** to merge with full-repo analysis. **`summary_only=true`** returns compact metadata; when every scaffold file already exists, look for **`skipped_existing_scaffold`** and **`scaffold_dag_metrics`** (critical path and layer widths).
+For **refactor/update** work on existing code, prefer **`skip_recipes=true`**, optional **`relevant_only=true`**, and **`suppress_creation_hints=true`** so heuristic new-file suggestions do not pollute the plan. This is especially important for **test-heavy projects** and facades with many dependencies. With a non-empty **`scaffold`**, decomposition is **scaffold-only** by default; use **`expand_repo=true`** to merge with full-repo analysis. **`summary_only=true`** returns compact metadata; when every scaffold file already exists, look for **`skipped_existing_scaffold`** and **`scaffold_dag_metrics`** (critical path and layer widths). If scaffold validation issues occur (e.g., over-constrained or missing dependencies), `decompose` returns a **partial plan** with a warning rather than failing completely.
 
 ### 3. Create and track a plan
 
@@ -58,7 +58,7 @@ Returns multiple execution orderings:
 - **top_down**: API surface first, then internals
 - **risk_first**: Highest-coupling files first (maximum impact)
 
-Choose the variant that best fits your situation, or try multiple.
+If the first decomposition attempt fails (e.g., on a test-heavy project), `explore` automatically retries with a **fallback scaffold-only strategy** so you still receive usable beams.
 
 ### 5. Execute and verify each step
 

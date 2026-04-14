@@ -163,20 +163,26 @@ class Planner:
             )
             validation = validate_scaffold(scaffold, existing_for_validation)
             if not validation["valid"]:
-                return {
-                    "goal": goal,
-                    "steps": [],
-                    "dependency_graph": {},
-                    "constraints": [c.get("description", "") for c in active_constraints],
-                    "constraints_applied": [],
-                    "goal_fingerprint": sha256_json(goal)[:16],
-                    "analysis_meta": {
-                        "scaffold_validation": validation,
-                    },
-                    "plan_fidelity": plan_fidelity,
-                    "scaffold_applied": 0,
-                    "error": validation["error"],
-                }
+                # Partial-plan recovery: return whatever steps can be inferred
+                # from the scaffold even when validation issues are present.
+                partial = self._decompose_scaffold_only(
+                    goal=goal,
+                    project_root=project_root,
+                    scope=scope,
+                    scaffold=scaffold,
+                    skip_recipes=skip_recipes,
+                    matched_recipe=matched_recipe,
+                    active_constraints=active_constraints,
+                    t0=t0,
+                )
+                partial["plan_fidelity"] = plan_fidelity
+                partial["analysis_meta"]["scaffold_validation"] = validation
+                partial["analysis_meta"]["warning"] = (
+                    f"Scaffold validation issue: {validation['error']}. "
+                    "Returning partial plan from scaffold only."
+                )
+                partial["error"] = validation["error"]
+                return partial
 
         # Guard against massive full-repo expansions when no scaffold exists
         if expand_repo and not _scaffold_has_entries(scaffold) and not scaffold_was_provided:
@@ -194,6 +200,7 @@ class Planner:
                 matched_recipe=matched_recipe,
                 active_constraints=active_constraints,
                 t0=t0,
+                scaffold_validation=validation,
             )
             out["plan_fidelity"] = plan_fidelity
             return out
@@ -354,6 +361,8 @@ class Planner:
             analysis_meta["warning"] = (
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"
             )
+        if scaffold is not None and 'validation' in locals() and validation is not None:
+            analysis_meta["scaffold_validation"] = validation
         if effective_scaffold:
             analysis_meta["scaffold_dag_metrics"] = compute_scaffold_dag_metrics(
                 _declared_scaffold_graph(effective_scaffold),
@@ -423,6 +432,7 @@ class Planner:
         matched_recipe: dict[str, Any] | None,
         active_constraints: list[dict[str, Any]],
         t0: float,
+        scaffold_validation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Dependency steps derived only from scaffold + goal path inference (no repo-wide scan)."""
         analysis_root = os.path.join(project_root, scope) if scope else project_root
@@ -502,6 +512,8 @@ class Planner:
                         "no create steps emitted. Use expand_repo or a refactor goal for full-repo steps."
                     ),
                 }
+        if scaffold_validation is not None:
+            analysis_meta["scaffold_validation"] = scaffold_validation
         if lang_name not in _get_analyzer_registry():
             analysis_meta["warning"] = (
                 f"Language '{lang_name}' may not have a native analyzer; results may be approximate"

@@ -92,12 +92,14 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                              "overrides [tool.trammel] max_files when set."),
          "strict_greenfield": _prop("boolean", "If true, refuse decomposition when the goal implies new "
                                     "work but there is no scaffold, no explicit paths in the goal, and "
-                                    "no recipe scaffold (plan fidelity for sub-agents)."),
+                                    "no recipe scaffold. Set to false for refactor/update goals or when "
+                                    "working with test-heavy projects."),
          "apply_project_config": _prop("boolean", "Load .trammel.json and pyproject [tool.trammel] "
                                       "for default_scope, focus_keywords, focus_globs, max_files (default true)."),
          "suppress_creation_hints": _prop("boolean", "When true, skip heuristic creation_hints and do not merge "
-                                          "inferred new-file paths into the scaffold (stdlib-only inference off). "
-                                          "Use for refactor/update goals to avoid spurious suggested_files."),
+                                          "inferred new-file paths into the scaffold. Essential for test-heavy "
+                                          "projects and facades with many dependencies. Use for refactor/update "
+                                          "goals to avoid spurious suggested_files."),
         },
         ["goal", "project_root"]),
     "explore": _schema("explore",
@@ -386,7 +388,22 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 def _handle_explore(store: RecipeStore, args: dict[str, Any]) -> Any:
     planner = Planner(store=store, analyzer=_get_analyzer(args))
-    strategy = planner.decompose(args["goal"], args["project_root"], scope=args.get("scope"))
+    goal = args["goal"]
+    project_root = args["project_root"]
+    scope = args.get("scope")
+
+    strategy = planner.decompose(goal, project_root, scope=scope)
+
+    # Fallback: if decompose failed or returned no steps, try scaffold-only
+    # with creation hints disabled to avoid over-constrained issues on
+    # test-heavy projects.
+    if strategy.get("error") or not strategy.get("steps"):
+        strategy = planner.decompose(
+            goal, project_root, scope=scope,
+            suppress_creation_hints=True,
+            expand_repo=False,
+        )
+
     beams = planner.explore_trajectories(strategy, num_beams=args.get("num_beams", 3))
     return {"strategy": strategy, "beams": beams}
 

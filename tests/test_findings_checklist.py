@@ -175,9 +175,12 @@ class TestFindingsChecklistAdversarialScaffold(unittest.TestCase):
             self.assertIn("warning", result["analysis_meta"])
             self.assertEqual(result["steps"], [])
 
-    def test_d4_over_constrained_returns_error(self) -> None:
+    def test_d4_over_constrained_returns_partial_plan(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             store = RecipeStore(os.path.join(d, "o.db"))
+            # Create dependency files so missing_dependencies does not trigger
+            for dep in ["a.js", "b.js", "c.js", "d.js", "e.js"]:
+                open(os.path.join(d, dep), "w").close()
             result = Planner(store=store).decompose(
                 "create over constrained",
                 d,
@@ -188,9 +191,15 @@ class TestFindingsChecklistAdversarialScaffold(unittest.TestCase):
                     },
                 ],
             )
-            self.assertEqual(result.get("error"), "over_constrained")
+            # Over-constrained is now a warning, not a fatal error
+            self.assertIsNone(result.get("error"))
+            self.assertGreater(len(result.get("steps", [])), 0)
+            self.assertIn("scaffold_validation", result["analysis_meta"])
+            self.assertTrue(
+                result["analysis_meta"]["scaffold_validation"]["over_constrained"]
+            )
 
-    def test_d5_self_referential_returns_error(self) -> None:
+    def test_d5_self_referential_returns_partial_plan(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             store = RecipeStore(os.path.join(d, "s.db"))
             result = Planner(store=store).decompose(
@@ -201,6 +210,22 @@ class TestFindingsChecklistAdversarialScaffold(unittest.TestCase):
                 ],
             )
             self.assertEqual(result.get("error"), "self_referential")
+            self.assertGreater(len(result.get("steps", [])), 0)
+            self.assertIn("scaffold_validation", result["analysis_meta"])
+
+    def test_d7_missing_dependencies_returns_partial_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "miss.db"))
+            result = Planner(store=store).decompose(
+                "create missing dep",
+                d,
+                scaffold=[
+                    {"file": "src/a.js", "depends_on": ["nonexistent.js"]},
+                ],
+            )
+            self.assertEqual(result.get("error"), "missing_dependencies")
+            self.assertGreater(len(result.get("steps", [])), 0)
+            self.assertIn("scaffold_validation", result["analysis_meta"])
 
     def test_d6_diamond_dependency_produces_four_steps(self) -> None:
         with tempfile.TemporaryDirectory() as d:
