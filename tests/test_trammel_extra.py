@@ -623,6 +623,19 @@ class TestNewMCPTools(unittest.TestCase):
             self.assertIn("tools", result)
             self.assertEqual(result["tools"], len(_TOOL_SCHEMAS))
 
+    def test_status_includes_tools_by_category(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "st.db"))
+            result = dispatch_tool(store, "status", {})
+            self.assertIn("tools_by_category", result)
+            categories = result["tools_by_category"]
+            self.assertIsInstance(categories, dict)
+            total_in_categories = sum(len(v) for v in categories.values())
+            self.assertEqual(total_in_categories, len(_TOOL_SCHEMAS))
+            for name, schema in _TOOL_SCHEMAS.items():
+                cat = schema.get("category", "general")
+                self.assertIn(name, categories.get(cat, []))
+
     def test_all_schemas_valid(self) -> None:
         self.assertGreaterEqual(len(_TOOL_SCHEMAS), 1)
         for name, schema in _TOOL_SCHEMAS.items():

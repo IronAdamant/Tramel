@@ -517,6 +517,45 @@ class RecipeStoreMixin(RecipeIndexMixin):
                 [(sig, f) for f in files],
             )
 
+    def search_recipes_by_trigrams(
+        self, goal: str, threshold: float = 0.3, top_n: int = 20,
+    ) -> list[tuple[str, float]]:
+        """Trigram overlap search over indexed recipe patterns.
+
+        Returns list of (recipe_sig, jaccard-like overlap score) sorted descending.
+        """
+        goal_tris = unique_trigrams(normalize_goal(goal))
+        if not goal_tris:
+            return []
+        try:
+            tri_in, tri_params = _sql_in(sorted(goal_tris))
+            rows = self.conn.execute(
+                f"""SELECT recipe_sig, COUNT(DISTINCT trigram) AS matches
+                    FROM recipe_trigrams WHERE trigram {tri_in}
+                    GROUP BY recipe_sig""",
+                tri_params,
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        if not rows:
+            return []
+        candidates: list[tuple[str, float]] = []
+        for row in rows:
+            sig = row["recipe_sig"]
+            matches = row["matches"]
+            # Total trigrams for this recipe
+            total_row = self.conn.execute(
+                "SELECT COUNT(DISTINCT trigram) FROM recipe_trigrams WHERE recipe_sig = ?",
+                (sig,),
+            ).fetchone()
+            total = total_row[0] if total_row else 0
+            union = len(goal_tris) + total - matches
+            score = matches / union if union > 0 else 0.0
+            if score >= threshold:
+                candidates.append((sig, score))
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[:top_n]
+
     def _rebuild_trigram_index(self) -> None:
         """Rebuild recipe_trigrams using normalized goal text for synonym-aware matching."""
         rows = self.conn.execute("SELECT sig, pattern FROM recipes").fetchall()
@@ -665,15 +704,18 @@ class RecipeStoreMixin(RecipeIndexMixin):
     def retrieve_best_recipe(
         self,
         goal: str,
-        min_similarity: float = 0.30,
+        min_similarity: float = 0.55,
         context_files: set[str] | None = None,
         scaffold: list[dict[str, Any]] | None = None,
         debug: bool = False,
     ) -> dict[str, Any] | None:
         term_results = self.search_recipes_by_terms(goal, top_k=50)
+        trigram_results = self.search_recipes_by_trigrams(goal, threshold=0.3, top_n=50)
         minhash_results = self.search_recipes_by_minhash(goal, threshold=0.3, top_n=50)
         sig_set: set[str] = set()
         for sig, _ in term_results:
+            sig_set.add(sig)
+        for sig, _ in trigram_results:
             sig_set.add(sig)
         for sig, _ in minhash_results:
             sig_set.add(sig)
@@ -747,7 +789,7 @@ class RecipeStoreMixin(RecipeIndexMixin):
             )
             if text_sim < min_similarity:
                 continue
-            if context_files is not None and score < 0.15:
+            if context_files is not None and score < 0.35:
                 continue
 
             if debug:
@@ -809,9 +851,12 @@ class RecipeStoreMixin(RecipeIndexMixin):
         ``match_components`` when structural scoring applies.
         """
         term_results = self.search_recipes_by_terms(goal, top_k=50)
+        trigram_results = self.search_recipes_by_trigrams(goal, threshold=0.3, top_n=50)
         minhash_results = self.search_recipes_by_minhash(goal, threshold=0.3, top_n=50)
         sig_set: set[str] = set()
         for sig, _ in term_results:
+            sig_set.add(sig)
+        for sig, _ in trigram_results:
             sig_set.add(sig)
         for sig, _ in minhash_results:
             sig_set.add(sig)
