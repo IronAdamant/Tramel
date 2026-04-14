@@ -8,10 +8,37 @@
 
 ## Active context
 
-- **Version:** 3.10.3
-- **Focus:** Documentation: scaffold DAG metrics for multi-agent dispatch (RecipeLab Review Ten closure).
+- **Version:** 3.10.4
+- **Focus:** Adversarial scaffold hardening + structural recipe matching fix (Review Nineteen closure).
 
 ## Session log
+
+---
+
+## v3.10.4 — Adversarial scaffold hardening + structural recipe matching fix
+
+**Date:** 2026-04-14
+
+### Summary
+Closed Review Nineteen findings from `findings/trammel.md`. Addressed two critical gaps (`decompose` crashes on circular scaffolds; empty scaffold triggers massive incorrect decompositions) and two high-severity gaps (no update mode for existing scaffold files; recipe matching structural similarity stuck at 0.0).
+
+### Findings addressed
+| Gap | Fix |
+|-----|-----|
+| `decompose` crashes on circular scaffolds | Added `validate_scaffold()` with DFS cycle detection; returns `{"error": "circular_dependency", "cycle": [...]}` |
+| Empty scaffold defaults to full-repo refactor | Early return with `{"error": "empty_scaffold", "warning": ...}` for creation-intent goals |
+| No "update existing files" scaffold mode | Scaffold entries now support `action: "update"` |
+| Recipe matching structural similarity 0.0 | `_goal_fingerprint_from_text` now uses word-based `_GOAL_ROLE_RE`; scaffold recipes use `_scaffold_fingerprint` with DAG metrics |
+
+### Changes
+- **`trammel/utils.py`**: New `validate_scaffold()` function (cycles, duplicates, self-reference, over-constrained, missing deps). Hardened `compute_scaffold_dag_metrics` against cycles (`longest_path.get(d, 0)`).
+- **`trammel/core.py`**: Empty-scaffold guard and scaffold validation in `Planner.decompose()`. `_scaffold_steps()` respects `action: "update"`.
+- **`trammel/store_recipes.py`**: Fixed `_goal_fingerprint_from_text` word-based role detection. Added `_scaffold_fingerprint`, `_scaffold_structural_similarity`, and `_goal_scaffold_fingerprint_from_text` for DAG-aware scaffold recipe matching.
+- **`tests/test_findings_checklist.py`**: 9 new adversarial scaffold tests (circular, missing, empty, over-constrained, self-ref, diamond, deep nesting, duplicate, update action).
+- **Documentation**: Updated `README.md`, `COMPLETE_PROJECT_DOCUMENTATION.md`, `LLM_Development.md`. Renamed `findings/trammel.md` → `findings/trammel.md_closed`.
+
+### Tests
+337 passing (328 existing + 9 new).
 
 ---
 

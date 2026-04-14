@@ -19,7 +19,7 @@ from .project_config import (
     merge_focus_globs,
     merge_focus_keywords,
 )
-from .utils import compute_scaffold_dag_metrics, sha256_json, topological_sort
+from .utils import compute_scaffold_dag_metrics, sha256_json, topological_sort, validate_scaffold
 from .implicit_deps import ImplicitDependencyGraphEngine
 
 if TYPE_CHECKING:
@@ -769,8 +769,9 @@ def _scaffold_steps(
         if f not in file_to_pos:
             continue  # dependency target that's an existing file, not a scaffold entry
         entry = scaffold[file_to_pos[f]]
-        if f in existing_files:
-            continue  # skip files that already exist
+        action = entry.get("action", "create")
+        if action == "create" and f in existing_files:
+            continue  # skip files that already exist for create actions
 
         step_idx = start_index + len(steps)
         file_to_step[f] = step_idx
@@ -779,14 +780,19 @@ def _scaffold_steps(
         raw_deps = entry.get("depends_on") or []
         depends_on = [file_to_step[d] for d in raw_deps if d in file_to_step]
 
-        desc = entry.get("description") or f"Create {f}"
-        if not desc.startswith("Create "):
-            desc = f"Create {f} — {desc}"
+        if action == "update":
+            desc = entry.get("description") or f"Update {f}"
+            if not desc.startswith("Update "):
+                desc = f"Update {f} — {desc}"
+        else:
+            desc = entry.get("description") or f"Create {f}"
+            if not desc.startswith("Create "):
+                desc = f"Create {f} — {desc}"
 
         steps.append({
             "step_index": step_idx,
             "file": f,
-            "action": "create",
+            "action": action,
             "symbols": [],
             "symbol_count": 0,
             "description": desc,
@@ -1253,6 +1259,7 @@ class Planner:
 
         # Default: scaffold-only (no full-repo symbol/import scan) when scaffold has entries.
         # Set expand_repo=true to merge scaffold steps with full decomposition (legacy behavior).
+        expand_repo_explicit = expand_repo
         if expand_repo is None:
             expand_repo = not _scaffold_has_entries(scaffold)
 
@@ -1263,6 +1270,52 @@ class Planner:
             "max_files_cap": max_files_effective,
             "suppress_creation_hints": suppress_creation_hints,
         }
+
+        scaffold_was_provided = scaffold is not None
+
+        # Empty scaffold with creation intent should not fall back to full-repo refactor
+        if scaffold_was_provided and not _scaffold_has_entries(scaffold):
+            if _has_creation_intent(goal) and expand_repo_explicit is not True:
+                return {
+                    "goal": goal,
+                    "steps": [],
+                    "dependency_graph": {},
+                    "constraints": [c.get("description", "") for c in active_constraints],
+                    "constraints_applied": [],
+                    "goal_fingerprint": sha256_json(goal)[:16],
+                    "analysis_meta": {
+                        "warning": (
+                            "No scaffold provided for greenfield goal. "
+                            "Provide a non-empty scaffold or set expand_repo=true for full-repo decomposition."
+                        ),
+                    },
+                    "plan_fidelity": plan_fidelity,
+                    "scaffold_applied": 0,
+                    "error": "empty_scaffold",
+                }
+
+        # Pre-flight scaffold validation (cycles, duplicates, self-reference, etc.)
+        if scaffold is not None:
+            existing_for_validation = (
+                _existing_paths_for_scaffold(analysis_root, scaffold)
+                if analysis_root else set()
+            )
+            validation = validate_scaffold(scaffold, existing_for_validation)
+            if not validation["valid"]:
+                return {
+                    "goal": goal,
+                    "steps": [],
+                    "dependency_graph": {},
+                    "constraints": [c.get("description", "") for c in active_constraints],
+                    "constraints_applied": [],
+                    "goal_fingerprint": sha256_json(goal)[:16],
+                    "analysis_meta": {
+                        "scaffold_validation": validation,
+                    },
+                    "plan_fidelity": plan_fidelity,
+                    "scaffold_applied": 0,
+                    "error": validation["error"],
+                }
 
         if not expand_repo:
             out = self._decompose_scaffold_only(

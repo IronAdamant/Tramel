@@ -56,6 +56,35 @@ _FILE_ROLE_RE: list[tuple[tuple[str, int], str]] = [
     for offset, (pat, role) in enumerate(_FILE_ROLE_PATTERNS)
 ]
 
+# Word-based role patterns for goal-text fingerprinting (paths rarely appear in goals)
+_GOAL_ROLE_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\bservice(s)?\b", "service"),
+    (r"\broute(s)?\b", "route"),
+    (r"\bcontroller(s)?\b", "controller"),
+    (r"\bhandler(s)?\b", "handler"),
+    (r"\bengine(s)?\b", "engine"),
+    (r"\balgorithm(s)?\b", "algorithm"),
+    (r"\bmodel(s)?\b", "model"),
+    (r"\brepository|repositories\b", "repository"),
+    (r"\bmiddleware\b", "middleware"),
+    (r"\bplugin(s)?\b", "plugin"),
+    (r"\bregistry|registries\b", "registry"),
+    (r"\bcollector(s)?\b", "collector"),
+    (r"\baggregator(s)?\b", "aggregator"),
+    (r"\bgenerator(s)?\b", "generator"),
+    (r"\butil(s)?\b", "util"),
+    (r"\btest(s)?\b", "test"),
+    (r"\bspec(s)?\b", "test"),
+    (r"\bconfig(s)?\b", "config"),
+    (r"\bindex\b", "entry"),
+    (r"\bschema(s)?\b", "schema"),
+)
+
+_GOAL_ROLE_RE: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(pat, re.IGNORECASE), role)
+    for pat, role in _GOAL_ROLE_PATTERNS
+]
+
 
 def _strategy_fingerprint(strategy: dict[str, Any]) -> dict[str, Any]:
     """Extract structural features from a strategy for structural matching.
@@ -178,7 +207,7 @@ def _goal_fingerprint_from_text(goal: str) -> dict[str, Any]:
     has_test = has_service = has_route = has_algorithm = False
     has_collector = has_aggregator = has_generator = has_registry = has_manager = False
 
-    for (pat_re, _offset), role in _FILE_ROLE_RE:
+    for pat_re, role in _GOAL_ROLE_RE:
         matches = pat_re.findall(goal_lower)
         if matches:
             role_counts[role] = role_counts.get(role, 0) + len(matches)
@@ -260,6 +289,91 @@ def _goal_fingerprint_from_text(goal: str) -> dict[str, Any]:
         "has_manager": has_manager,
         "role_vector": role_vec,
     }
+
+def _scaffold_fingerprint(scaffold: list[dict[str, Any]]) -> dict[str, Any]:
+    """Extract structural fingerprint from a scaffold including DAG metrics."""
+    from .utils import _declared_scaffold_graph, compute_scaffold_dag_metrics
+
+    graph = _declared_scaffold_graph(scaffold)
+    metrics = compute_scaffold_dag_metrics(graph)
+    role_counts: dict[str, int] = {}
+    for entry in scaffold:
+        f = entry.get("file", "")
+        for (pat_re, _offset), role in _FILE_ROLE_RE:
+            if pat_re.search(f):
+                role_counts[role] = role_counts.get(role, 0) + 1
+                break
+
+    ALL_ROLES = (
+        "algorithm", "engine", "service", "route", "controller", "handler",
+        "model", "repository", "middleware", "plugin", "registry",
+        "collector", "aggregator", "generator", "util", "test", "other",
+    )
+    role_vec = tuple(role_counts.get(r, 0) for r in ALL_ROLES)
+    dag_vec = (
+        metrics.get("node_count", 0),
+        metrics.get("edge_count", 0),
+        metrics.get("critical_path_length", 0),
+        metrics.get("max_parallelism", 0),
+    )
+    return {
+        "role_counts": role_counts,
+        "role_vector": role_vec,
+        "dag_vector": dag_vec,
+        "node_count": metrics.get("node_count", 0),
+        "edge_count": metrics.get("edge_count", 0),
+        "critical_path_length": metrics.get("critical_path_length", 0),
+        "max_parallelism": metrics.get("max_parallelism", 0),
+    }
+
+
+def _scaffold_structural_similarity(fp_a: dict[str, Any], fp_b: dict[str, Any]) -> float:
+    """Compare two scaffold fingerprints using role vectors and DAG metrics."""
+    from .utils import _cosine
+
+    role_a = list(fp_a.get("role_vector") or ())
+    role_b = list(fp_b.get("role_vector") or ())
+    max_len = max(len(role_a), len(role_b))
+    role_a = role_a + [0] * (max_len - len(role_a))
+    role_b = role_b + [0] * (max_len - len(role_b))
+    role_sim = _cosine(role_a, role_b)
+
+    dag_a = list(fp_a.get("dag_vector") or ())
+    dag_b = list(fp_b.get("dag_vector") or ())
+    max_dag = max(len(dag_a), len(dag_b))
+    dag_a = dag_a + [0] * (max_dag - len(dag_a))
+    dag_b = dag_b + [0] * (max_dag - len(dag_b))
+    dag_sim = _cosine(dag_a, dag_b)
+
+    # Weighted combination: 60% role, 40% DAG
+    return 0.6 * role_sim + 0.4 * dag_sim
+
+
+def _goal_scaffold_fingerprint_from_text(goal: str) -> dict[str, Any]:
+    """Estimate a scaffold fingerprint from goal text for matching stored scaffolds."""
+    base = _goal_fingerprint_from_text(goal)
+    goal_lower = goal.lower()
+
+    node_count = base.get("total_files", 0) or 1
+
+    dep_indicators = ["depends on", "requires", "after", "before", "then", "next", "chain"]
+    edge_count = sum(1 for ind in dep_indicators if ind in goal_lower)
+
+    role_vec = base.get("role_vector", ())
+    active_roles = sum(1 for r in role_vec if r > 0)
+    critical_path_length = max(active_roles, 1)
+
+    plural_kw = ["services", "routes", "controllers", "handlers", "models", "tests"]
+    parallelism = 1 + sum(1 for kw in plural_kw if kw in goal_lower)
+
+    dag_vec = (node_count, edge_count, critical_path_length, parallelism)
+    base["dag_vector"] = dag_vec
+    base["node_count"] = node_count
+    base["edge_count"] = edge_count
+    base["critical_path_length"] = critical_path_length
+    base["max_parallelism"] = parallelism
+    return base
+
 
 # P3: Scaffold detection — reject scaffold recipes on populated projects
 _SCAFFOLD_SIGNALS = frozenset({
@@ -975,8 +1089,8 @@ class RecipeStoreMixin:
             return None
         if not rows:
             return None
-        # Structural fingerprint from goal
-        goal_fp = _goal_fingerprint_from_text(goal)
+        # Structural fingerprint from goal (includes estimated DAG metrics)
+        goal_fp = _goal_scaffold_fingerprint_from_text(goal)
         best: dict[str, Any] | None = None
         best_score = -1.0
         for row in rows:
@@ -984,17 +1098,11 @@ class RecipeStoreMixin:
             if text_sim < min_similarity:
                 continue
             try:
-                recipe_roles = json.loads(row["role_counts"])
+                recipe_scaffold = json.loads(row["scaffold"])
             except (json.JSONDecodeError, TypeError):
-                recipe_roles = {}
-            fp_b = {"role_counts": recipe_roles, "role_vector": tuple(
-                recipe_roles.get(r, 0) for r in (
-                    "algorithm", "engine", "service", "route", "controller", "handler",
-                    "model", "repository", "middleware", "plugin", "registry",
-                    "collector", "aggregator", "generator", "util", "test", "other",
-                )
-            )}
-            struct_sim = _structural_similarity(goal_fp, fp_b)
+                recipe_scaffold = []
+            fp_b = _scaffold_fingerprint(recipe_scaffold)
+            struct_sim = _scaffold_structural_similarity(goal_fp, fp_b)
             score = 0.4 * struct_sim + 0.35 * text_sim + 0.25 * (
                 row["successes"] / (row["successes"] + row["failures"] + 1)
             )

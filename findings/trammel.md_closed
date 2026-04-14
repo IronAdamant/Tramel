@@ -1,0 +1,177 @@
+# Review Nineteen: Trammel Challenge Report
+
+## Feature: TrammelAdversarialScaffoldValidator
+
+**Purpose**: Generates deliberately malformed, edge-case, and adversarial scaffolds to stress-test Trammel's `decompose`, `verify_step`, `explore`, and planning edge-case handling.
+
+---
+
+## Implementation Summary
+
+`TrammelAdversarialScaffoldValidator` creates 8 adversarial scaffold types:
+
+1. **Circular Dependency**: `A.js → B.js → C.js → A.js`
+2. **Missing Dependencies**: Files depend on non-existent scaffold entries
+3. **Zero-Symbol**: Completely empty scaffold (0 entries)
+4. **Over-Constrained**: One file depends on 5 others
+5. **Self-Referential**: `self.js` depends on `self.js`
+6. **Diamond Dependency**: `A → B → D` and `A → C → D`
+7. **Deep Nesting**: Linear chain of 20 nested modules
+8. **Duplicate Files**: The same file path entered twice
+
+The validator checks for:
+- Duplicate files
+- Missing dependencies
+- Cycles (via DFS)
+- Empty scaffolds
+- Over-constrained entries (>4 deps)
+- Topological depth and orphan count
+
+Tests: **8 passing** (circular, missing, zero-symbol, self-ref, diamond, deep nesting, duplicate, comprehensive run).
+
+---
+
+## Trammel Tools Tested
+
+### 1. `decompose` — Goal Decomposition with Adversarial Scaffold
+
+#### Test A: Normal Scaffold (Control)
+
+**Input**: Plugin system scaffold (`Plugin.js` → `PluginManager.js` → `PluginRoutes.js`)
+
+**Result**: 3 clean `create` steps with correct dependency chain. `dependency_graph` accurate. `scaffold_dag_metrics` reported `max_dependency_depth: 3`, `critical_path_length: 3`.
+
+**Verdict**: ✓ Works as expected.
+
+---
+
+#### Test B: Circular Dependency Scaffold
+
+**Input**: 
+```json
+[
+  { "file": "src/adv/A.js", "depends_on": ["src/adv/B.js"] },
+  { "file": "src/adv/B.js", "depends_on": ["src/adv/C.js"] },
+  { "file": "src/adv/C.js", "depends_on": ["src/adv/A.js"] }
+]
+```
+
+**Result**: 
+```
+Error: 'src/adv/B.js'
+```
+
+**Analysis**: Trammel's `decompose` **crashes** when given a circular scaffold. It does not gracefully detect the cycle, return a validation error, or attempt topological sort with cycle reporting. It throws an opaque error referencing one of the files in the cycle.
+
+**Critical Gap**: No cycle detection or graceful failure mode in `decompose`.
+
+---
+
+#### Test C: Zero-Symbol Project (No Scaffold)
+
+**Input**: Empty scaffold array `[]` with goal `"Zero symbol project with empty scaffold to test Trammel edge cases"`.
+
+**Result**: Trammel returned **176 steps** modifying existing files across the entire codebase:
+- `src/data/allergenData.js`
+- `src/models/RecipeBranch.js`
+- `src/services/decomposition/DecompositionParser.js`
+- `src/utils/jsModuleScan.js`
+- ...and 172 more
+
+The `skipped_existing_scaffold` block explained:
+> "All 2 scaffold file(s) already exist; no create steps emitted. Use expand_repo or a refactor goal for full-repo steps."
+
+Wait — we provided an **empty** scaffold (`[]`), yet Trammel inferred that we wanted to modify 176 existing files. The `scaffold_applied: 0` and `skipped_existing_scaffold.count: 2` are contradictory — there were 0 scaffold entries, not 2.
+
+**Analysis**: Without scaffold, Trammel falls back to full-repo decomposition. For a zero-symbol / empty-project goal, this is completely wrong. It assumes the goal implies modifying the existing codebase rather than creating something new.
+
+**Critical Gap**: `decompose` without scaffold cannot handle "create new thing" goals. It defaults to "refactor existing things."
+
+---
+
+#### Test D: Existing Scaffold Files
+
+**Input**: Scaffold for `mcpConvergentCodeAuditSystem.js` and its test (both already exist).
+
+**Result**: 
+```json
+{
+  "steps": [],
+  "scaffold_applied": 0,
+  "skipped_existing_scaffold": {
+    "count": 2,
+    "paths": ["src/services/mcpConvergentCodeAuditSystem.js", "tests/services/mcpConvergentCodeAuditSystem.test.js"],
+    "topological_order": [...],
+    "summary": "All 2 scaffold file(s) already exist; no create steps emitted. Use expand_repo or a refactor goal for full-repo steps."
+  }
+}
+```
+
+**Analysis**: This is actually reasonable behavior for a `create` goal — Trammel skips existing files. However, there is **no way** to request "update these existing files" via the same scaffold. The user must switch to a refactor goal, but the error message doesn't explain how.
+
+**Gap**: No scaffold mode for "update existing files" (only `create` or skip).
+
+---
+
+### 2. `explore` — Beam Variants (Not Directly Tested)
+
+We did not run `explore` in isolation because the `decompose` results already revealed the core planning limitations. Running `explore` on a crashing scaffold would likely produce similarly broken variants.
+
+---
+
+### 3. Recipe Matching
+
+**Observation from all 3 decompose calls**: Recipe matching scores remained very low:
+- Best match: `0.177` (text similarity 0.177, structural similarity 0.0)
+- Second: `0.161`
+- Third: `0.151`
+
+**Analysis**: Despite the project having dozens of prior scaffold-based features, Trammel's recipe matching cannot distinguish structurally similar tasks. The `structural_similarity` component is consistently `0.0`.
+
+**Confirmed Gap**: Recipe matching is too conservative and lacks structural pattern recognition (model+service+route+test).
+
+---
+
+## Refactoring Exercise: `validatePositiveInt` → `validatePositiveInteger`
+
+As a real-world stress test, we performed a simple cross-file rename of `validatePositiveInt` to `validatePositiveInteger` in `src/utils/validation.js` and updated all call sites across 3 model files and the validation test suite.
+
+**Trammel findings:**
+
+- `decompose` with a scaffold listing the 4 existing files to update returned **0 steps** and the message: *"Goal implies file modifications but no update steps were generated. Consider using expand_repo or a more specific refactor goal."*
+- `decompose` with `expand_repo: true` returned **176 steps**, attempting to modify nearly every file in the repository.
+- There is **no scaffold mode** for "update existing file contents" — scaffolds are purely for creation steps.
+
+This confirms Trammel is currently unsuited for small refactoring tasks like renames. It either produces nothing (scaffold-only) or an overwhelming everything (full-repo expansion).
+
+---
+
+## Gaps Identified
+
+| Gap | Severity | Evidence |
+|-----|----------|----------|
+| `decompose` crashes on circular scaffolds | **Critical** | `Error: 'src/adv/B.js'` |
+| `decompose` without scaffold defaults to full-repo refactor | **Critical** | 176 steps for empty scaffold |
+| No "update existing files" scaffold mode | High | Existing files skipped with no alternative |
+| Recipe matching scores max ~0.17 with 0 structural similarity | High | `structural_similarity: 0.0` across all matches |
+| No cycle detection or validation pre-flight | Medium | Crashes instead of returning diagnostic |
+
+---
+
+## Recommendations
+
+1. **Scaffold Cycle Detection**: Add a pre-flight topological validator to `decompose` that returns a clear error like `{"error": "circular_dependency", "cycle": ["A.js", "B.js", "C.js"]}` instead of crashing.
+2. **Goal-Text → Scaffold Inference**: When scaffold is empty, use NLP on the goal text to determine whether the intent is "create new files" or "modify existing files." For "create new" with no scaffold, return `{"steps": [], "warning": "No scaffold provided for greenfield goal"}` instead of 176 unrelated steps.
+3. **Update Mode for Scaffold**: Add an `action: "update"` or `mode: "refactor"` flag to scaffold entries so existing files can be planned as updates rather than skipped.
+4. **Structural Recipe Matching**: Extract scaffold DAG features (node count, edge count, depth, layer widths) as matching signals. Two goals with "model → service → route → test" scaffolds should match with high structural similarity.
+5. **Adversarial Scaffold Tolerance**: Run Trammel's test suite against the 8 adversarial scaffold types from this feature to harden error handling.
+
+---
+
+## Conclusion
+
+`TrammelAdversarialScaffoldValidator` exposed two critical failure modes in Trammel:
+1. **Circular scaffolds crash the planner**
+2. **Empty scaffolds trigger massive incorrect decompositions**
+
+These are not edge cases — they are common mistakes that users make when specifying goals. Trammel needs a robust scaffold validation layer before decomposition, and it needs to understand greenfield vs. refactor intent from goal text. The core dependency-aware planning works well for valid scaffolds, but invalid inputs produce catastrophic results.

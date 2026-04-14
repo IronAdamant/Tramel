@@ -160,7 +160,7 @@ trammel/              Importable package
   cli.py              CLI entry point
   mcp_server.py       MCP tool schemas and dispatch
   mcp_stdio.py        MCP stdio server entry point
-tests/                328 tests across 6 modules (stdlib unittest)
+tests/                337 tests across 6 modules (stdlib unittest)
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 ```
 

@@ -471,6 +471,7 @@ def compute_scaffold_dag_metrics(graph: dict[str, list[str]]) -> dict[str, Any]:
     Aligns with common plan-graph summaries: longest chain length (nodes),
     per-level widths, and max width (parallelism). Uses the same dependency
     convention as ``topological_sort``: each node lists the files it depends on.
+    Handles cycles gracefully by using longest-path DP with safe fallbacks.
     """
     g: dict[str, list[str]] = {k: list(v) for k, v in graph.items()}
     all_nodes: set[str] = set(g.keys())
@@ -491,12 +492,14 @@ def compute_scaffold_dag_metrics(graph: dict[str, list[str]]) -> dict[str, Any]:
     longest_path: dict[str, int] = {}
     for n in order:
         deps = g.get(n, [])
-        longest_path[n] = 1 + max((longest_path[d] for d in deps), default=0)
+        # Use .get(d, 0) so cycles (where a dependency hasn't been processed yet)
+        # don't crash with KeyError.
+        longest_path[n] = 1 + max((longest_path.get(d, 0) for d in deps), default=0)
     critical_path_length = max(longest_path.values()) if longest_path else 0
     level: dict[str, int] = {}
     for n in order:
         deps = g.get(n, [])
-        level[n] = max((level[d] for d in deps), default=-1) + 1
+        level[n] = max((level.get(d, -1) for d in deps), default=-1) + 1
     max_level = max(level.values()) if level else -1
     layer_widths = [0] * (max_level + 1) if max_level >= 0 else []
     for n in all_nodes:
@@ -511,6 +514,106 @@ def compute_scaffold_dag_metrics(graph: dict[str, list[str]]) -> dict[str, Any]:
         "max_parallelism": max_parallelism,
         "layer_widths": layer_widths,
     }
+
+
+def validate_scaffold(
+    entries: list[dict[str, Any]],
+    existing_files: set[str] | None = None,
+) -> dict[str, Any]:
+    """Pre-flight validation for scaffold entries.
+
+    Detects cycles, duplicate files, self-referential entries,
+    over-constrained nodes (>4 deps), and missing dependencies.
+    Returns a dict with ``valid`` bool and diagnostic details.
+    """
+    result: dict[str, Any] = {
+        "valid": True,
+        "error": None,
+        "cycle": None,
+        "duplicates": [],
+        "missing_deps": [],
+        "over_constrained": [],
+        "self_referential": [],
+    }
+
+    files = [e.get("file") for e in entries if e.get("file")]
+    file_set = set(files)
+
+    # Duplicate files
+    seen: set[str] = set()
+    for f in files:
+        if f in seen:
+            result["duplicates"].append(f)
+        seen.add(f)
+    if result["duplicates"]:
+        result["valid"] = False
+        result["error"] = "duplicate_files"
+
+    # Build declared graph
+    graph: dict[str, list[str]] = {}
+    for e in entries:
+        f = e.get("file")
+        if f:
+            graph[f] = [d for d in (e.get("depends_on") or []) if d]
+
+    # Self-referential
+    for f, deps in graph.items():
+        if f in deps:
+            result["self_referential"].append(f)
+    if result["self_referential"] and result["valid"]:
+        result["valid"] = False
+        result["error"] = "self_referential"
+
+    # Over-constrained (>4 deps)
+    for f, deps in graph.items():
+        if len(deps) > 4:
+            result["over_constrained"].append({"file": f, "deps": deps})
+    if result["over_constrained"] and result["valid"]:
+        result["valid"] = False
+        result["error"] = "over_constrained"
+
+    # Missing dependencies
+    if existing_files is not None:
+        all_known = file_set | existing_files
+        for f, deps in graph.items():
+            for d in deps:
+                if d not in all_known:
+                    result["missing_deps"].append({"file": f, "missing": d})
+        if result["missing_deps"] and result["valid"]:
+            result["valid"] = False
+            result["error"] = "missing_dependencies"
+
+    # Cycle detection via DFS
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {f: WHITE for f in graph}
+
+    def dfs(node: str, path: list[str]) -> list[str] | None:
+        color[node] = GRAY
+        for neighbor in graph.get(node, []):
+            if neighbor not in graph:
+                continue
+            ncolor = color.get(neighbor, WHITE)
+            if ncolor == GRAY:
+                cycle_start = path.index(neighbor)
+                return path[cycle_start:] + [neighbor]
+            if ncolor == WHITE:
+                cycle = dfs(neighbor, path + [neighbor])
+                if cycle:
+                    return cycle
+        color[node] = BLACK
+        return None
+
+    if result["valid"]:
+        for f in graph:
+            if color[f] == WHITE:
+                cycle = dfs(f, [f])
+                if cycle:
+                    result["cycle"] = cycle
+                    result["valid"] = False
+                    result["error"] = "circular_dependency"
+                    break
+
+    return result
 
 
 # ── Failure analysis ─────────────────────────────────────────────────────────
