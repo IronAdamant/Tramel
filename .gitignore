@@ -52,3 +52,8 @@ Thumbs.db
 # Documentation (managed separately / local-only)
 *.md
 wiki-local/
+
+# Private planning files
+plan/
+*.plan.md
+

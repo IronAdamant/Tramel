@@ -29,9 +29,44 @@ def _prop(type_: str, desc: str, **kw: Any) -> dict[str, Any]:
     return p
 
 
+_TOOL_CATEGORIES: dict[str, str] = {
+    "decompose": "planning",
+    "explore": "planning",
+    "create_plan": "planning",
+    "get_plan": "planning",
+    "update_plan_status": "planning",
+    "resume": "planning",
+    "merge_plans": "planning",
+    "complete_plan": "planning",
+    "verify_step": "execution",
+    "record_step": "execution",
+    "record_steps": "execution",
+    "claim_step": "execution",
+    "release_step": "execution",
+    "available_steps": "execution",
+    "save_recipe": "memory",
+    "get_recipe": "memory",
+    "list_recipes": "memory",
+    "prune_recipes": "memory",
+    "validate_recipes": "memory",
+    "add_constraint": "coordination",
+    "get_constraints": "coordination",
+    "deactivate_constraint": "coordination",
+    "list_plans": "coordination",
+    "history": "coordination",
+    "status": "telemetry",
+    "list_strategies": "telemetry",
+    "usage_stats": "telemetry",
+    "failure_history": "telemetry",
+    "resolve_failure": "telemetry",
+    "estimate": "telemetry",
+}
+
+
 def _schema(name: str, desc: str, props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     """Build a tool schema dict."""
     return {"name": name, "description": desc,
+            "category": _TOOL_CATEGORIES.get(name, "general"),
             "parameters": {"type": "object", "properties": props, "required": required or []}}
 
 
@@ -181,10 +216,11 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "Retrieve the best matching recipe for a goal. Uses blended similarity "
         "(trigram + Jaccard + substring, minimum 0.55). "
         "Set include_scaffold=true to add a scaffold list derived from the strategy "
-        "for passing to decompose.",
+        "for passing to decompose. Set debug=true to see all candidate scores and match components.",
         {"goal": _prop("string", "Goal to match against stored recipes."),
          "context_files": _prop("array", "File paths in the current project for structural matching boost.", items={"type": "string"}),
-         "include_scaffold": _prop("boolean", "If true, include a scaffold array derived from create/zero-symbol steps.")},
+         "include_scaffold": _prop("boolean", "If true, include a scaffold array derived from create/zero-symbol steps."),
+         "debug": _prop("boolean", "If true, return all candidate recipes with their raw scores and components.")},
         ["goal"]),
     "add_constraint": _schema("add_constraint",
         "Record a failure constraint to prevent repeating known-bad approaches. "
@@ -448,13 +484,20 @@ def _handle_save_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_get_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
-    recipe = store.retrieve_best_recipe(args["goal"], context_files=set(files) if (files := args.get("context_files")) else None)
+    recipe = store.retrieve_best_recipe(
+        args["goal"],
+        context_files=set(files) if (files := args.get("context_files")) else None,
+        debug=args.get("debug", False),
+    )
     if recipe is None:
         return {"match": None}
     # Surface match metadata at top level for LLM decision-making,
     # then include the strategy separately to keep the structure flat.
     meta = recipe.pop("_match", {})
+    debug_candidates = recipe.pop("_debug_candidates", None)
     out: dict[str, Any] = {**meta, "strategy": recipe}
+    if debug_candidates is not None:
+        out["debug_candidates"] = debug_candidates
     if args.get("include_scaffold"):
         from .core import strategy_to_scaffold
         out["scaffold"] = strategy_to_scaffold(recipe)
@@ -508,6 +551,10 @@ def _handle_history(store: RecipeStore, args: dict[str, Any]) -> Any:
 def _handle_status(store: RecipeStore, _args: dict[str, Any]) -> Any:
     summary = store.get_status_summary()
     summary["tools"] = len(_TOOL_SCHEMAS)
+    categories: dict[str, list[str]] = {}
+    for name, schema in _TOOL_SCHEMAS.items():
+        categories.setdefault(schema.get("category", "general"), []).append(name)
+    summary["tools_by_category"] = {k: sorted(v) for k, v in categories.items()}
     return summary
 
 

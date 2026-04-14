@@ -370,6 +370,11 @@ class Planner:
 
         analysis_meta["ambiguity"] = _compute_ambiguity_score(goal)
 
+        # Strategy suggestion based on trajectory data or cold-start heuristics
+        suggested = _suggest_strategy(self.store, goal, lang_name)
+        if suggested:
+            analysis_meta["suggested_strategy"] = suggested
+
         if expand_repo and dep_graph:
             gap_analysis = implicit_engine.get_gap_analysis(dep_graph)
             analysis_meta["implicit_dependency_analysis"] = {
@@ -588,3 +593,43 @@ class Planner:
             beams.append(beam)
 
         return beams
+
+
+def _suggest_strategy(
+    store: Any,
+    goal: str,
+    language: str,
+) -> dict[str, Any] | None:
+    """Return a strategy recommendation based on trajectory data or cold-start
+    heuristics."""
+    stats = store.get_strategy_stats()
+    if stats:
+        best_variant: str | None = None
+        best_rate = -1.0
+        for name, (succ, fail) in stats.items():
+            rate = succ / (succ + fail + 1)
+            if rate > best_rate:
+                best_rate = rate
+                best_variant = name
+        if best_variant is not None and best_rate > 0:
+            return {
+                "strategy": best_variant,
+                "reason": "highest_success_rate_from_trajectories",
+                "success_rate": round(best_rate, 3),
+                "data_source": "trajectories",
+            }
+
+    # Cold-start heuristics
+    goal_lower = goal.lower()
+    api_keywords = {"api", "endpoint", "route", "handler", "controller", "service"}
+    if any(k in goal_lower for k in api_keywords):
+        return {
+            "strategy": "top_down",
+            "reason": "cold_start_api_first_heuristic",
+            "data_source": "heuristic",
+        }
+    return {
+        "strategy": "bottom_up",
+        "reason": "cold_start_safe_default",
+        "data_source": "heuristic",
+    }

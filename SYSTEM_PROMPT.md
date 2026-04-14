@@ -13,6 +13,23 @@ Trammel does not generate code — you do. Trammel provides the structure, order
 - Complex refactors requiring incremental verification
 - Any task where you want to remember what worked for similar future goals
 
+## Quick Reference: Happy-Path Workflows
+
+Choose the workflow that matches your task type:
+
+| Task Type | Recommended Flow |
+|-----------|------------------|
+| **New feature** | `get_recipe(goal)` → `decompose(goal, root, scaffold=[...])` → `create_plan(goal, strategy)` → execute steps → `complete_plan(plan_id, outcome=true)` |
+| **Refactor / update** | `decompose(goal, root, suppress_creation_hints=true, skip_recipes=true)` → execute steps → `complete_plan(plan_id, outcome=true)` |
+| **Fix failure** | `get_constraints()` → `decompose(goal, root)` → `explore(goal, root)` beams → `verify_step(edits, root)` → `add_constraint(avoid, description)` |
+
+Tools are organized by category (returned in `status`):
+- **planning**: `decompose`, `explore`, `create_plan`, `get_plan`, `complete_plan`, `merge_plans`
+- **execution**: `verify_step`, `record_step`, `claim_step`, `release_step`, `available_steps`
+- **memory**: `get_recipe`, `save_recipe`, `list_recipes`, `validate_recipes`
+- **coordination**: `add_constraint`, `get_constraints`, `list_plans`, `history`
+- **telemetry**: `status`, `list_strategies`, `usage_stats`, `failure_history`
+
 ## Workflow: Plan-Verify-Store Loop
 
 ### 1. Check constraints and recipes

@@ -54,3 +54,7 @@ trammel = ["py.typed"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["trammel*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tests/archetypes", "tests/__pycache__"]

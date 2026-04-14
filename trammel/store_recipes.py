@@ -668,6 +668,7 @@ class RecipeStoreMixin(RecipeIndexMixin):
         min_similarity: float = 0.30,
         context_files: set[str] | None = None,
         scaffold: list[dict[str, Any]] | None = None,
+        debug: bool = False,
     ) -> dict[str, Any] | None:
         term_results = self.search_recipes_by_terms(goal, top_k=50)
         minhash_results = self.search_recipes_by_minhash(goal, threshold=0.3, top_n=50)
@@ -721,6 +722,7 @@ class RecipeStoreMixin(RecipeIndexMixin):
         best: dict[str, Any] | None = None
         best_score = -1.0
         best_meta: dict[str, Any] = {}
+        debug_candidates: list[dict[str, Any]] = []
         now = time.time()
         for row in candidates:
             sig, pattern = row["sig"], row["pattern"]
@@ -748,6 +750,16 @@ class RecipeStoreMixin(RecipeIndexMixin):
             if context_files is not None and score < 0.15:
                 continue
 
+            if debug:
+                debug_candidates.append({
+                    "sig": sig[:12],
+                    "pattern": pattern,
+                    "match_score": round(score, 3),
+                    "match_components": components,
+                    "successes": succ,
+                    "failures": fail,
+                })
+
             if score > best_score:
                 try:
                     candidate = json.loads(strategy_str)
@@ -769,6 +781,8 @@ class RecipeStoreMixin(RecipeIndexMixin):
         if best is not None:
             self.log_event("recipe_hit", goal[:_MAX_LOG_GOAL_LENGTH], best_score)
             best["_match"] = best_meta
+            if debug:
+                best["_debug_candidates"] = sorted(debug_candidates, key=lambda c: c["match_score"], reverse=True)
         else:
             self.log_event("recipe_miss", goal[:_MAX_LOG_GOAL_LENGTH])
         return best
