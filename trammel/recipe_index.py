@@ -9,6 +9,8 @@ import sqlite3
 from collections import Counter
 from typing import Any
 
+from .utils import expand_goal_terms
+
 
 def _tokenize(text: str) -> list[str]:
     """Extract lowercase word tokens (min length 3) from text."""
@@ -55,6 +57,10 @@ class RecipeIndexMixin:
             "recipe_sig TEXT PRIMARY KEY, sig TEXT NOT NULL)"
         )
         self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipe_arch_signatures ("
+            "recipe_sig TEXT PRIMARY KEY, sig TEXT NOT NULL)"
+        )
+        self.conn.execute(
             "CREATE TABLE IF NOT EXISTS recipe_index_meta ("
             "key TEXT PRIMARY KEY, value TEXT NOT NULL)"
         )
@@ -62,7 +68,7 @@ class RecipeIndexMixin:
     def _index_recipe_terms(self, sig: str, goal: str) -> None:
         """Index tokenized goal text for a recipe signature."""
         self.conn.execute("DELETE FROM recipe_terms WHERE recipe_sig = ?", (sig,))
-        words = _tokenize(goal)
+        words = _tokenize(expand_goal_terms(goal))
         for word, count in Counter(words).items():
             self.conn.execute(
                 "INSERT INTO recipe_terms (term, recipe_sig, count) VALUES (?, ?, ?)",
@@ -77,10 +83,19 @@ class RecipeIndexMixin:
             (sig, ",".join(str(x) for x in minhash)),
         )
 
+    def _index_recipe_arch(self, sig: str, arch_text: str) -> None:
+        """Store MinHash signature for recipe architecture shape."""
+        minhash = _minhash_signature(arch_text)
+        self.conn.execute(
+            "INSERT OR REPLACE INTO recipe_arch_signatures (recipe_sig, sig) VALUES (?, ?)",
+            (sig, ",".join(str(x) for x in minhash)),
+        )
+
     def _remove_recipe_index(self, sig: str) -> None:
         """Remove index entries for a recipe signature."""
         self.conn.execute("DELETE FROM recipe_terms WHERE recipe_sig = ?", (sig,))
         self.conn.execute("DELETE FROM recipe_signatures WHERE recipe_sig = ?", (sig,))
+        self.conn.execute("DELETE FROM recipe_arch_signatures WHERE recipe_sig = ?", (sig,))
 
     def search_recipes_by_terms(
         self, goal: str, top_k: int = 20,
@@ -89,7 +104,7 @@ class RecipeIndexMixin:
 
         Returns list of (recipe_sig, score) sorted descending.
         """
-        words = _tokenize(goal)
+        words = _tokenize(expand_goal_terms(goal))
         if not words:
             return []
 
@@ -142,6 +157,28 @@ class RecipeIndexMixin:
         """
         query_sig = _minhash_signature(goal)
         rows = self.conn.execute("SELECT recipe_sig, sig FROM recipe_signatures").fetchall()
+        candidates: list[tuple[str, float]] = []
+        for row in rows:
+            sig = row["recipe_sig"]
+            stored = tuple(int(x) for x in row["sig"].split(","))
+            if len(stored) != len(query_sig):
+                continue
+            matches = sum(1 for a, b in zip(query_sig, stored) if a == b)
+            sim = matches / len(query_sig)
+            if sim >= threshold:
+                candidates.append((sig, sim))
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[:top_n]
+
+    def search_recipes_by_arch(
+        self, arch_text: str, threshold: float = 0.5, top_n: int = 20,
+    ) -> list[tuple[str, float]]:
+        """MinHash Jaccard-approximation search over recipe architecture shapes.
+
+        Returns list of (recipe_sig, estimated_jaccard) sorted descending.
+        """
+        query_sig = _minhash_signature(arch_text)
+        rows = self.conn.execute("SELECT recipe_sig, sig FROM recipe_arch_signatures").fetchall()
         candidates: list[tuple[str, float]] = []
         for row in rows:
             sig = row["recipe_sig"]

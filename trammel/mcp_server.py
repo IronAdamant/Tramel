@@ -285,6 +285,15 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         {"plan_id": _prop("integer", "Plan ID."),
          "agent_id": _prop("string", "Your agent ID (excludes steps claimed by others).")},
         ["plan_id", "agent_id"]),
+    "merge_plans": _schema("merge_plans",
+        "Merge two plans into a unified strategy with conflict detection. "
+        "Supports sequential, interleave, priority, and unified strategies. "
+        "Returns the new plan_id, conflict report, and cycle check.",
+        {"plan_a_id": _prop("integer", "First plan ID."),
+         "plan_b_id": _prop("integer", "Second plan ID."),
+         "strategy": _prop("string", "Merge strategy.",
+                           enum=["sequential", "interleave", "priority", "unified"], default="sequential")},
+        ["plan_a_id", "plan_b_id"]),
     "complete_plan": _schema("complete_plan",
         "Finalize a plan in one call: batch-marks pending steps, sets plan status, "
         "and saves the strategy as a recipe. Designed for single-agent workflows "
@@ -533,8 +542,7 @@ def _handle_resolve_failure(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_claim_step(store: RecipeStore, args: dict[str, Any]) -> Any:
-    ok = store.claim_step(args["plan_id"], args["step_id"], args["agent_id"])
-    return {"claimed": ok}
+    return store.claim_step(args["plan_id"], args["step_id"], args["agent_id"])
 
 
 def _handle_release_step(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -544,6 +552,13 @@ def _handle_release_step(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 def _handle_available_steps(store: RecipeStore, args: dict[str, Any]) -> Any:
     return store.get_available_steps(args["plan_id"], args["agent_id"])
+
+
+def _handle_merge_plans(store: RecipeStore, args: dict[str, Any]) -> Any:
+    return store.merge_plans(
+        args["plan_a_id"], args["plan_b_id"],
+        strategy=args.get("strategy", "sequential"),
+    )
 
 
 def _handle_complete_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -584,6 +599,7 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "claim_step": _handle_claim_step,
     "release_step": _handle_release_step,
     "available_steps": _handle_available_steps,
+    "merge_plans": _handle_merge_plans,
     "complete_plan": _handle_complete_plan,
 }
 

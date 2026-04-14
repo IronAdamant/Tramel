@@ -18,6 +18,131 @@ if TYPE_CHECKING:
     from .analyzers import LanguageAnalyzer
 
 
+def _preflight_python(edits: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fast Python pre-flight: syntax and undefined-name checks."""
+    issues: list[str] = []
+    for ed in edits:
+        rel = ed.get("path") or ed.get("file")
+        content = ed.get("content")
+        if not rel or not isinstance(content, str) or not rel.endswith(".py"):
+            continue
+        try:
+            tree = __import__("ast").parse(content)
+        except SyntaxError as exc:
+            issues.append(f"SyntaxError in {rel}: {exc}")
+            continue
+        # Simple undefined-name check: collect assigned names, then referenced names
+        assigned: set[str] = set()
+        referenced: set[str] = set()
+        for node in __import__("ast").walk(tree):
+            if isinstance(node, __import__("ast").Name):
+                if isinstance(node.ctx, __import__("ast").Store):
+                    assigned.add(node.id)
+                elif isinstance(node.ctx, __import__("ast").Load):
+                    referenced.add(node.id)
+            elif isinstance(node, __import__("ast").FunctionDef):
+                assigned.add(node.name)
+            elif isinstance(node, __import__("ast").ClassDef):
+                assigned.add(node.name)
+            elif isinstance(node, __import__("ast").AsyncFunctionDef):
+                assigned.add(node.name)
+        # Builtin names and common imports are acceptable
+        builtin_names = set(dir(__builtins__))
+        undefined = referenced - assigned - builtin_names
+        for name in sorted(undefined)[:3]:
+            issues.append(f"Possible undefined name '{name}' in {rel}")
+    return {"ok": len(issues) == 0, "issues": issues}
+
+
+def _check_import_integrity(
+    edits: list[dict[str, Any]],
+    project_root: str,
+) -> dict[str, Any]:
+    """Verify that edited files' relative imports resolve to existing files."""
+    issues: list[str] = []
+    for ed in edits:
+        rel = ed.get("path") or ed.get("file")
+        content = ed.get("content")
+        if not rel or not isinstance(content, str):
+            continue
+        parent = os.path.dirname(rel)
+        # Simple regex for Python/JS/TS relative imports
+        for line in content.splitlines():
+            # Match: from './path' or from "../path" or import './path' or import "../path"
+            m = __import__("re").search(r"(?:from|import)\s+['\"](\.+\/[^'\"]+)['\"]", line)
+            if m:
+                imported = m.group(1)
+                resolved = os.path.normpath(os.path.join(parent, imported))
+                full = os.path.join(project_root, resolved)
+                if not os.path.exists(full) and not any(
+                    os.path.exists(full + ext) for ext in (".py", ".js", ".ts", ".jsx", ".tsx", ".mjs")
+                ):
+                    issues.append(f"Unresolved import './{imported}' in {rel}")
+    return {"ok": len(issues) == 0, "issues": issues}
+
+
+def _check_symbol_references(
+    edits: list[dict[str, Any]],
+    project_root: str,
+) -> dict[str, Any]:
+    """Warn if edits delete symbols that dependents reference (best-effort)."""
+    issues: list[str] = []
+    # Map edited files to their exported symbol names (simple regex)
+    file_to_symbols: dict[str, set[str]] = {}
+    for ed in edits:
+        rel = ed.get("path") or ed.get("file")
+        content = ed.get("content")
+        if not rel or not isinstance(content, str):
+            continue
+        # Function/class definitions
+        symbols = set(
+            __import__("re").findall(r"^(?:export\s+)?(?:async\s+)?(?:def|class|function)\s+(\w+)", content, __import__("re").MULTILINE)
+        )
+        file_to_symbols[rel] = symbols
+
+    # Check dependents in project for references to those symbols
+    for rel, symbols in file_to_symbols.items():
+        if not symbols:
+            continue
+        # Walk project for files that import rel (naïve)
+        rel_base = os.path.splitext(os.path.basename(rel))[0]
+        for root, _dirs, files in os.walk(project_root):
+            for fname in files:
+                if not fname.endswith((".py", ".js", ".ts", ".jsx", ".tsx")):
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    if os.path.samefile(fpath, os.path.join(project_root, rel)):
+                        continue
+                except FileNotFoundError:
+                    continue
+                try:
+                    with open(fpath, encoding="utf-8", errors="replace") as fp:
+                        src = fp.read()
+                except OSError:
+                    continue
+                if rel_base in src:
+                    for sym in symbols:
+                        if sym not in src:
+                            # Symbol was removed from edited file but may be used here
+                            issues.append(f"Symbol '{sym}' removed from {rel} but may be used in {os.path.relpath(fpath, project_root)}")
+    return {"ok": len(issues) == 0, "issues": issues}
+
+
+def _dry_run_test_cmd(test_cmd: list[str] | None) -> dict[str, Any]:
+    """Check that the test command executable exists."""
+    if not test_cmd:
+        return {"ok": True}
+    exe = test_cmd[0]
+    if os.path.isabs(exe):
+        exists = os.path.isfile(exe) and os.access(exe, os.X_OK)
+    else:
+        exists = shutil.which(exe) is not None
+    if not exists:
+        return {"ok": False, "issue": f"Test command executable not found: {exe}"}
+    return {"ok": True}
+
+
 def _ignore_copy(_path: str, names: list[str]) -> set[str]:
     return {n for n in names if _is_ignored_dir(n) or n.endswith(".pyc")}
 
@@ -81,6 +206,25 @@ def _static_analysis(
             f"no matching test file found for {len(test_misses)} edited source file(s)"
         )
         score -= 0.1
+
+    # Diff-quality heuristics
+    for rel in edited_paths:
+        content = next((ed.get("content", "") for ed in edits if (ed.get("path") or ed.get("file")) == rel), "")
+        if content == "":
+            warnings.append(f"{rel}: empty file created")
+            score -= 0.05
+        if "\t" in content and "    " in content:
+            warnings.append(f"{rel}: mixed indentation (tabs and spaces)")
+            score -= 0.05
+        todos = [m for m in __import__("re").finditer(r"TODO|FIXME|XXX|HACK", content)]
+        if len(todos) > 2:
+            warnings.append(f"{rel}: contains {len(todos)} TODO/FIXME markers")
+            score -= 0.05
+        # Duplicate top-level names in Python/JS/TS
+        names = __import__("re").findall(r"^(?:export\s+)?(?:async\s+)?(?:def|class|function)\s+(\w+)", content, __import__("re").MULTILINE)
+        if len(names) != len(set(names)):
+            warnings.append(f"{rel}: duplicate symbol names detected")
+            score -= 0.1
 
     score = max(score, 0.0)
     return {
@@ -182,6 +326,32 @@ class ExecutionHarness:
         """
         project_root = os.path.abspath(project_root)
         static = _static_analysis(edits, project_root)
+        preflight = _preflight_python(edits)
+        import_integrity = _check_import_integrity(edits, project_root)
+        symbol_refs = _check_symbol_references(edits, project_root)
+        test_cmd = self._effective_test_cmd(project_root)
+        dry_run = _dry_run_test_cmd(test_cmd)
+
+        # Fast-fail on critical preflight issues
+        if not dry_run["ok"]:
+            return {
+                "success": False,
+                "output": "",
+                "trace": dry_run["issue"],
+                "score": 0.0,
+                "static_analysis": static,
+                "preflight": preflight,
+                "import_integrity": import_integrity,
+                "symbol_references": symbol_refs,
+                "failure_analysis": {
+                    "error_type": "test_failure",
+                    "message": dry_run["issue"],
+                    "file": None,
+                    "line": None,
+                    "suggestion": "Install the test runner or provide a custom test_cmd",
+                },
+            }
+
         with tempfile.TemporaryDirectory() as tmp:
             shutil.copytree(
                 project_root, tmp, dirs_exist_ok=True, ignore=_ignore_copy,
@@ -191,10 +361,13 @@ class ExecutionHarness:
             _apply_edits(tmp, edits)
             result = _run_tests(
                 tmp, self.timeout_s,
-                self._effective_test_cmd(project_root),
+                test_cmd,
                 self._effective_error_patterns(),
             )
         result["static_analysis"] = static
+        result["preflight"] = preflight
+        result["import_integrity"] = import_integrity
+        result["symbol_references"] = symbol_refs
         return result
 
     def run_incremental(

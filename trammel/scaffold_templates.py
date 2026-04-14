@@ -76,6 +76,47 @@ _SCAFFOLD_TEMPLATES: list[dict[str, Any]] = [
             {"file": "tests/{domain}.test.js", "role": "test", "depends_on": ["src/routes/{domain}Routes.js"]},
         ],
     },
+    {
+        "name": "cli_command",
+        "role_keywords": {"cli", "command", "commands", "terminal", "console", "script"},
+        "files": [
+            {"file": "src/commands/{domain}.js", "role": "command"},
+            {"file": "src/services/{domain}Service.js", "role": "service", "depends_on": ["src/commands/{domain}.js"]},
+            {"file": "tests/commands/{domain}.test.js", "role": "test", "depends_on": ["src/commands/{domain}.js"]},
+        ],
+    },
+    {
+        "name": "middleware_pipeline",
+        "role_keywords": {"middleware", "pipeline", "filter", "interceptor", "hook", "chain"},
+        "files": [
+            {"file": "src/middleware/{domain}Middleware.js", "role": "middleware"},
+            {"file": "src/pipelines/{domain}Pipeline.js", "role": "pipeline", "depends_on": ["src/middleware/{domain}Middleware.js"]},
+            {"file": "src/services/{domain}Service.js", "role": "service", "depends_on": ["src/pipelines/{domain}Pipeline.js"]},
+            {"file": "tests/middleware/{domain}Middleware.test.js", "role": "test", "depends_on": ["src/middleware/{domain}Middleware.js"]},
+        ],
+    },
+    {
+        "name": "event_driven",
+        "role_keywords": {"event", "events", "listener", "handler", "publisher", "subscriber", "queue", "bus", "message"},
+        "files": [
+            {"file": "src/events/{domain}Event.js", "role": "event"},
+            {"file": "src/listeners/{domain}Listener.js", "role": "listener", "depends_on": ["src/events/{domain}Event.js"]},
+            {"file": "src/publishers/{domain}Publisher.js", "role": "publisher", "depends_on": ["src/events/{domain}Event.js"]},
+            {"file": "src/services/{domain}Orchestrator.js", "role": "service", "depends_on": ["src/listeners/{domain}Listener.js", "src/publishers/{domain}Publisher.js"]},
+            {"file": "tests/events/{domain}Event.test.js", "role": "test", "depends_on": ["src/events/{domain}Event.js"]},
+        ],
+    },
+    {
+        "name": "auth_system",
+        "role_keywords": {"auth", "authentication", "authorization", "login", "logout", "session", "jwt", "token", "permission"},
+        "files": [
+            {"file": "src/models/{domain}Token.js", "role": "model"},
+            {"file": "src/services/{domain}Service.js", "role": "service", "depends_on": ["src/models/{domain}Token.js"]},
+            {"file": "src/middleware/{domain}Middleware.js", "role": "middleware", "depends_on": ["src/services/{domain}Service.js"]},
+            {"file": "src/routes/{domain}Routes.js", "role": "route", "depends_on": ["src/middleware/{domain}Middleware.js"]},
+            {"file": "tests/{domain}Service.test.js", "role": "test", "depends_on": ["src/services/{domain}Service.js"]},
+        ],
+    },
 ]
 
 

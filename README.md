@@ -204,6 +204,30 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
+### v3.11.2 — Major robustness improvements: scaffold-less decomposition, plan merging, recipe matching, verify_step depth
+
+- **Scaffold-less decomposition improvements**:
+  - Lowered scaffold-recipe lookup threshold (0.15) with auto-inflation for historical scaffold reuse.
+  - Expanded architectural template registry with CLI command, middleware pipeline, event-driven, and auth system patterns.
+  - Added sibling convention cloning in creation hints (e.g., `UserService.js` → `RecipeService.js`).
+  - Capped fallback full-repo expansions to 15 files when no scaffold is provided, preventing the "176 steps" problem.
+- **Plan merging system**:
+  - New `merge_plans` MCP tool with four strategies: `sequential`, `interleave`, `priority`, `unified`.
+  - Conflict detection engine identifies file overlap, action clashes, dependency inversions, and cycle introduction.
+  - `claim_step` now returns proximity warnings when other active plans have pending steps targeting the same file.
+- **Recipe matching enhancements**:
+  - Architecture-shape MinHash index: recipes are indexed by their structural role fingerprint, enabling shape-based retrieval (e.g., model→service→route→test).
+  - Scaffold-derived structural matching: when `decompose` is called with a scaffold, the scaffold fingerprint is used for recipe comparison.
+  - Success-weighted pre-filtering: candidates with zero successes are deprioritized.
+  - Technical thesaurus expansion for retrieval (`auth` → `authentication`, `authorization`, `login`, `token`, etc.).
+- **`verify_step` depth improvements**:
+  - Python AST pre-flight validation catches `SyntaxError` and possible undefined names before running tests.
+  - Import integrity check validates that relative imports resolve to existing files.
+  - Symbol reference validation warns when edits remove symbols that project dependents may reference.
+  - Expanded `static_analysis` heuristics: mixed indentation, TODO/FIXME density, empty files, duplicate symbol names.
+  - Test command dry-run fails fast when the test runner executable is missing.
+- **358 tests passing**.
+
 ### v3.11.1 — Review findings: plan validation, ambiguity detection, verify_step static analysis, MinHash recipe retrieval
 
 - **`create_plan` pre-flight validation**: Added topological cycle detection to `create_plan`. Plans with cyclic step dependencies are rejected with a clear `circular_dependency` error instead of being persisted.

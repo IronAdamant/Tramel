@@ -169,6 +169,35 @@ def _infer_file_name(keyword: str, siblings: list[str]) -> str:
     return keyword.lower() + ext
 
 
+def _sibling_convention_clones(
+    goal_keywords: set[str],
+    dirs: dict[str, list[str]],
+    existing_files: set[str],
+) -> list[dict[str, Any]]:
+    """If a goal keyword matches a sibling convention, suggest clones in the same dirs."""
+    suggestions: list[dict[str, Any]] = []
+    skip_kw = frozenset({"src", "lib", "app", "index", "main", "test", "the", "add", "new", "file", "files", "module"})
+    relevant_kw = [kw for kw in goal_keywords if kw not in skip_kw and len(kw) > 2]
+    if not relevant_kw:
+        return suggestions
+
+    for d, siblings in dirs.items():
+        if not siblings:
+            continue
+        for kw in relevant_kw[:3]:
+            name = _infer_file_name(kw, siblings)
+            path = os.path.join(d, name)
+            if path not in existing_files:
+                suggestions.append({
+                    "path": path,
+                    "keyword": kw,
+                    "directory": d,
+                    "inferred_from": siblings[:2],
+                    "convention_clone": True,
+                })
+    return suggestions[:8]
+
+
 def _fallback_directories(
     goal_keywords: set[str],
     dirs: dict[str, list[str]],
@@ -188,15 +217,13 @@ def _fallback_directories(
         if role_name in blob or singular in blob:
             matching_roles.append(role)
 
+    # Do NOT fall back to all role dirs — if no roles match, return empty
     if not matching_roles:
-        matching_roles = list(_FALLBACK_ROLE_DIRS)
+        return []
 
     skip_kw = frozenset({"src", "lib", "app", "index", "main", "test", "the", "add", "new", "file", "files", "module"})
 
     for role_dir in matching_roles[:5]:
-        role_name = role_dir.split("/")[-1]
-        singular = role_name.rstrip("s")
-
         existing_in_dir = dirs.get(role_dir, [])
         siblings = sorted(existing_in_dir)
 
@@ -389,6 +416,8 @@ def _creation_hints(
                     "inferred_from": siblings[:3],
                 })
 
+    if not suggested:
+        suggested = _sibling_convention_clones(goal_keywords, dirs, existing_files)
     if not suggested:
         suggested = _fallback_directories(goal_keywords, dirs, existing_files)
 

@@ -352,6 +352,32 @@ _ABBREVIATIONS: dict[str, str] = {
     "async": "asynchronous", "sync": "synchronous",
 }
 
+# Lightweight technical thesaurus for recipe retrieval
+_TECH_SYNONYMS: dict[str, list[str]] = {
+    "websocket": ["socket.io", "real-time transport", "event stream", "realtime"],
+    "merge": ["combine", "integrate", "reconcile", "unify"],
+    "conflict resolution": ["ot", "crdt", "consistency", "merge"],
+    "auth": ["authentication", "authorization", "login", "token"],
+    "metric": ["telemetry", "monitoring", "observability", "dashboard"],
+    "optimize": ["improve", "enhance", "tune", "refine"],
+    "validate": ["verify", "check", "assert", "test"],
+    "deploy": ["release", "publish", "ship", "launch"],
+    "cache": ["memoize", "store", "buffer"],
+    "queue": ["buffer", "stream", "pipeline"],
+}
+
+
+def expand_goal_terms(text: str) -> str:
+    """Expand abbreviations, tech synonyms, and normalize verbs for retrieval."""
+    words = text.lower().split()
+    expanded: list[str] = []
+    for w in words:
+        expanded.append(_ABBREVIATIONS.get(w, w))
+        synonyms = _TECH_SYNONYMS.get(w)
+        if synonyms:
+            expanded.extend(synonyms)
+    return " ".join(_VERB_SYNONYMS.get(w, w) for w in expanded)
+
 
 def normalize_goal(text: str) -> str:
     """Lowercase, expand abbreviations, then replace coding verbs with canonical synonyms."""

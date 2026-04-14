@@ -74,7 +74,7 @@ For each step in your chosen beam:
    record_step(step_id, "passed", edits=[...], verification={...})
    ```
 
-The `verify_step` tool runs your edits in an isolated temp copy with test discovery. It returns `static_analysis` with path-convention and test-coverage heuristics, and on failure it returns structured `failure_analysis` with `error_type`, `message`, `file`, `line`, and `suggestion`.
+The `verify_step` tool runs your edits in an isolated temp copy with test discovery. It returns `static_analysis` with path-convention and test-coverage heuristics, `preflight` with Python syntax/undefined-name checks, `import_integrity` with unresolved-import detection, and `symbol_references` with deleted-symbol warnings. On failure it returns structured `failure_analysis` with `error_type`, `message`, `file`, `line`, and `suggestion`.
 
 ### 6. Handle failures
 
@@ -149,7 +149,7 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (29 tools)
+## Tool reference (30 tools)
 
 | Tool | Purpose |
 |------|---------|

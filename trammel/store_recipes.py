@@ -293,7 +293,8 @@ def _goal_fingerprint_from_text(goal: str) -> dict[str, Any]:
 
 def _scaffold_fingerprint(scaffold: list[dict[str, Any]]) -> dict[str, Any]:
     """Extract structural fingerprint from a scaffold including DAG metrics."""
-    from .utils import _declared_scaffold_graph, compute_scaffold_dag_metrics
+    from .scaffold_logic import _declared_scaffold_graph
+    from .utils import compute_scaffold_dag_metrics
 
     graph = _declared_scaffold_graph(scaffold)
     metrics = compute_scaffold_dag_metrics(graph)
@@ -582,6 +583,10 @@ class RecipeStoreMixin(RecipeIndexMixin):
             self._insert_file_entries(sig, self._extract_step_files(strategy))
             self._index_recipe_terms(sig, pattern)
             self._index_recipe_minhash(sig, pattern)
+            # Architecture-shape MinHash for structural matching
+            recipe_fp = _strategy_fingerprint(strategy)
+            arch_text = " ".join(f"{k}:{v}" for k, v in recipe_fp.get("role_counts", {}).items())
+            self._index_recipe_arch(sig, arch_text)
 
     def _ensure_scaffold_create_steps(self, strategy: dict[str, Any]) -> dict[str, Any]:
         """Ensure all scaffold files appear as action=create steps so the recipe
@@ -662,6 +667,7 @@ class RecipeStoreMixin(RecipeIndexMixin):
         goal: str,
         min_similarity: float = 0.30,
         context_files: set[str] | None = None,
+        scaffold: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         term_results = self.search_recipes_by_terms(goal, top_k=50)
         minhash_results = self.search_recipes_by_minhash(goal, threshold=0.3, top_n=50)
@@ -670,6 +676,21 @@ class RecipeStoreMixin(RecipeIndexMixin):
             sig_set.add(sig)
         for sig, _ in minhash_results:
             sig_set.add(sig)
+
+        goal_fp: dict[str, Any] | None = None
+        if context_files is not None:
+            if scaffold:
+                goal_fp = _scaffold_fingerprint(scaffold)
+            else:
+                goal_fp = _goal_fingerprint_from_text(goal)
+
+        # Architecture-shape MinHash boost
+        if goal_fp is not None:
+            arch_text = " ".join(f"{k}:{v}" for k, v in goal_fp.get("role_counts", {}).items())
+            arch_results = self.search_recipes_by_arch(arch_text, threshold=0.3, top_n=50)
+            for sig, _ in arch_results:
+                sig_set.add(sig)
+
         if not sig_set:
             return None
         sig_list = sorted(sig_set)
@@ -680,6 +701,12 @@ class RecipeStoreMixin(RecipeIndexMixin):
             sig_params,
         )
         candidates = cur.fetchall()
+
+        # Success-weighted pre-filtering: prefer recipes with at least 1 success
+        successful = [r for r in candidates if r["successes"] > 0]
+        if successful:
+            candidates = successful
+
         sig_files: dict[str, set[str]] = {}
         if context_files is not None and candidates:
             all_sigs = [row["sig"] for row in candidates]
@@ -690,10 +717,6 @@ class RecipeStoreMixin(RecipeIndexMixin):
             ).fetchall()
             for frow in file_rows:
                 sig_files.setdefault(frow["recipe_sig"], set()).add(frow["file_path"])
-
-        goal_fp: dict[str, Any] | None = None
-        if context_files is not None:
-            goal_fp = _goal_fingerprint_from_text(goal)
 
         best: dict[str, Any] | None = None
         best_score = -1.0
@@ -757,6 +780,7 @@ class RecipeStoreMixin(RecipeIndexMixin):
         min_score: float = 0.15,
         context_files: set[str] | None = None,
         min_composite: float = 0.20,
+        scaffold: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Return top-N near-miss recipe candidates for reference.
 
@@ -777,6 +801,20 @@ class RecipeStoreMixin(RecipeIndexMixin):
             sig_set.add(sig)
         for sig, _ in minhash_results:
             sig_set.add(sig)
+
+        goal_fp: dict[str, Any] | None = None
+        if context_files is not None:
+            if scaffold:
+                goal_fp = _scaffold_fingerprint(scaffold)
+            else:
+                goal_fp = _goal_fingerprint_from_text(goal)
+
+        if goal_fp is not None:
+            arch_text = " ".join(f"{k}:{v}" for k, v in goal_fp.get("role_counts", {}).items())
+            arch_results = self.search_recipes_by_arch(arch_text, threshold=0.3, top_n=50)
+            for sig, _ in arch_results:
+                sig_set.add(sig)
+
         if not sig_set:
             return []
         sig_list = sorted(sig_set)
@@ -795,10 +833,6 @@ class RecipeStoreMixin(RecipeIndexMixin):
             ).fetchall()
             for frow in file_rows:
                 sig_files.setdefault(frow["recipe_sig"], set()).add(frow["file_path"])
-
-        goal_fp: dict[str, Any] | None = None
-        if context_files is not None:
-            goal_fp = _goal_fingerprint_from_text(goal)
 
         now = time.time()
         scored: list[tuple[float, dict[str, Any]]] = []

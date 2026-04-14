@@ -35,8 +35,45 @@ class AgentStoreMixin:
             return False
         return bool(claimed_at and (now - claimed_at) < self._CLAIM_TIMEOUT)
 
-    def claim_step(self, plan_id: int, step_id: int, agent_id: str) -> bool:
-        """Claim a step for an agent. Returns False if not pending or already claimed."""
+    def _find_conflicting_claims(self, plan_id: int, step_id: int, agent_id: str) -> list[dict[str, Any]]:
+        """Find pending steps in other active plans that target the same file path."""
+        import re
+
+        step_row = self.conn.execute(
+            "SELECT description FROM steps WHERE id = ? AND plan_id = ?",
+            (step_id, plan_id),
+        ).fetchone()
+        if not step_row or not step_row["description"]:
+            return []
+        desc = step_row["description"]
+        # Extract file path from common description patterns like "Create src/x.py" or "Update src/x.py"
+        m = re.search(r"(?:Create|Update)\s+([a-zA-Z0-9_./\\~-]+\.[a-zA-Z0-9]+)", desc)
+        if not m:
+            return []
+        target_file = m.group(1).replace("\\", "/")
+        # Search other active plans for steps with the same file in description
+        rows = self.conn.execute(
+            "SELECT s.id, s.plan_id, s.step_index, s.description, p.status "
+            "FROM steps s JOIN plans p ON s.plan_id = p.id "
+            "WHERE s.plan_id != ? AND p.status IN ('pending','running') "
+            "AND s.status = 'pending'",
+            (plan_id,),
+        ).fetchall()
+        conflicts: list[dict[str, Any]] = []
+        for r in rows:
+            other_desc = r["description"] or ""
+            om = re.search(r"(?:Create|Update)\s+([a-zA-Z0-9_./\\~-]+\.[a-zA-Z0-9]+)", other_desc)
+            if om and om.group(1).replace("\\", "/") == target_file:
+                conflicts.append({
+                    "step_id": r["id"],
+                    "plan_id": r["plan_id"],
+                    "step_index": r["step_index"],
+                    "file": target_file,
+                })
+        return conflicts
+
+    def claim_step(self, plan_id: int, step_id: int, agent_id: str) -> dict[str, Any]:
+        """Claim a step for an agent. Returns result dict with claimed bool and optional warning."""
         now = time.time()
         with transaction(self.conn):
             row = self.conn.execute(
@@ -44,16 +81,23 @@ class AgentStoreMixin:
                 (step_id, plan_id),
             ).fetchone()
             if not row:
-                return False
+                return {"claimed": False}
             if row["status"] != "pending":
-                return False
+                return {"claimed": False}
             if self._is_claimed_by_other(row["claimed_by"], row["claimed_at"], agent_id, now):
-                return False
+                return {"claimed": False}
             self.conn.execute(
                 "UPDATE steps SET claimed_by = ?, claimed_at = ? WHERE id = ?",
                 (agent_id, now, step_id),
             )
-        return True
+        result: dict[str, Any] = {"claimed": True}
+        conflicts = self._find_conflicting_claims(plan_id, step_id, agent_id)
+        if conflicts:
+            result["warning"] = (
+                f"Other active plan(s) also have pending steps for {conflicts[0]['file']}: "
+                + ", ".join(f"plan {c['plan_id']} step {c['step_id']}" for c in conflicts[:3])
+            )
+        return result
 
     def release_step(self, step_id: int, agent_id: str) -> None:
         """Release a step claim. Only the owning agent can release."""

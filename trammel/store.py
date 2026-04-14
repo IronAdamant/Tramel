@@ -247,6 +247,36 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
                     cycle_str = " → ".join(str(x) for x in cycle)
                     raise ValueError(f"circular_dependency detected in plan steps: {cycle_str}")
 
+    def merge_plans(
+        self,
+        plan_a_id: int,
+        plan_b_id: int,
+        strategy: str = "sequential",
+    ) -> dict[str, Any]:
+        """Merge two plans into a unified strategy with conflict detection."""
+        from .plan_merge import merge_plans as _merge_plans_impl
+
+        plan_a = self.get_plan(plan_a_id)
+        plan_b = self.get_plan(plan_b_id)
+        if plan_a is None:
+            return {"error": "plan_a not found"}
+        if plan_b is None:
+            return {"error": "plan_b not found"}
+
+        result = _merge_plans_impl(plan_a.get("steps", []), plan_b.get("steps", []), strategy=strategy)
+        merged_strategy = {
+            "steps": result["merged_steps"],
+            "dependency_graph": {},
+        }
+        scaffold = list(plan_a.get("scaffold", [])) + list(plan_b.get("scaffold", []))
+        new_plan_id = self.create_plan(
+            f"Merged plan {plan_a_id} + {plan_b_id}",
+            merged_strategy,
+            scaffold=scaffold,
+        )
+        result["plan_id"] = new_plan_id
+        return result
+
     def create_plan(self, goal: str, strategy: dict[str, Any], scaffold: list[dict[str, Any]] | None = None) -> int:
         now = time.time()
         plan_steps = strategy.get("steps", [])

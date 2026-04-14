@@ -100,11 +100,12 @@ class Planner:
         analysis_root = os.path.join(project_root, scope) if scope else project_root
 
         if not skip_recipes and matched_recipe is None and scaffold is None:
-            scaffold_match = self.store.retrieve_best_scaffold_recipe(goal)
+            scaffold_match = self.store.retrieve_best_scaffold_recipe(goal, min_similarity=0.15)
             if scaffold_match and scaffold_match.get("scaffold"):
                 sr = scaffold_match["scaffold"]
-                if sr:
+                if sr and len(sr) >= 4:
                     scaffold = sr
+                    matched_recipe = {"_source": "scaffold_recipe", "scaffold": scaffold}
 
         if strict_greenfield and _has_creation_intent(goal):
             paths = _extract_paths_from_goal(goal)
@@ -177,6 +178,12 @@ class Planner:
                     "error": validation["error"],
                 }
 
+        # Guard against massive full-repo expansions when no scaffold exists
+        if expand_repo and not _scaffold_has_entries(scaffold) and not scaffold_was_provided:
+            if max_files_effective is None or max_files_effective > 15:
+                max_files_effective = 15
+            plan_fidelity["fallback_file_cap"] = max_files_effective
+
         if not expand_repo:
             out = self._decompose_scaffold_only(
                 goal=goal,
@@ -210,7 +217,7 @@ class Planner:
             }
             all_files = set(symbols) | set(dep_graph)
         if not skip_recipes and matched_recipe is None:
-            recipe = self.store.retrieve_best_recipe(goal, context_files=all_files)
+            recipe = self.store.retrieve_best_recipe(goal, context_files=all_files, scaffold=scaffold)
             if recipe:
                 recipe.setdefault("_source", "recipe_structural")
                 scaffold_from_recipe = strategy_to_scaffold(recipe)
@@ -221,7 +228,7 @@ class Planner:
         near_matches: list[dict[str, Any]] = []
         if not skip_recipes:
             near_matches = self.store.retrieve_near_matches(
-                goal, n=3, context_files=all_files,
+                goal, n=3, context_files=all_files, scaffold=scaffold,
             )
 
         relevant_graph = {
@@ -449,7 +456,7 @@ class Planner:
         if not skip_recipes:
             ctx_files = {e.get("file") for e in effective_scaffold if e.get("file")}
             near_matches = self.store.retrieve_near_matches(
-                goal, n=3, context_files=ctx_files,
+                goal, n=3, context_files=ctx_files, scaffold=effective_scaffold,
             )
 
         t4 = _time.monotonic()

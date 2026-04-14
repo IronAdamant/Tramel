@@ -15,6 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, explore, plan_and_execute, synthesize  # noqa: E402
+from trammel.core import Planner  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.goal_nlp import _compute_ambiguity_score  # noqa: E402
 from trammel.harness import _static_analysis  # noqa: E402
@@ -525,6 +526,126 @@ class TestEnhancedMatching(unittest.TestCase):
         )
         no_substr = 0.3 * tri + 0.4 * wj
         self.assertGreater(sim, no_substr)
+
+
+class TestPlanMerge(unittest.TestCase):
+    def test_conflict_detection_overlap(self) -> None:
+        from trammel.plan_merge import detect_plan_conflicts
+        a = [{"step_index": 0, "file": "x.py", "action": "update"}]
+        b = [{"step_index": 0, "file": "x.py", "action": "update"}]
+        report = detect_plan_conflicts(a, b)
+        self.assertEqual(report["severity"], "low")
+        self.assertEqual(report["conflicts"][0]["type"], "file_overlap")
+
+    def test_merge_sequential(self) -> None:
+        from trammel.plan_merge import merge_plans
+        a = [{"step_index": 0, "file": "a.py", "action": "create", "depends_on": []}]
+        b = [{"step_index": 0, "file": "b.py", "action": "create", "depends_on": []}]
+        result = merge_plans(a, b, strategy="sequential")
+        self.assertFalse(result["cycle_introduced"])
+        self.assertEqual(len(result["merged_steps"]), 2)
+
+    def test_merge_priority_skips_overlap(self) -> None:
+        from trammel.plan_merge import merge_plans
+        a = [{"step_index": 0, "file": "x.py", "action": "create", "depends_on": []}]
+        b = [{"step_index": 0, "file": "x.py", "action": "update", "depends_on": []}]
+        result = merge_plans(a, b, strategy="priority")
+        files = {s["file"] for s in result["merged_steps"]}
+        self.assertEqual(files, {"x.py"})
+        self.assertEqual(result["merged_steps"][0]["action"], "create")
+
+    def test_store_merge_plans_creates_new_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "m.db"))
+            strat_a = {"steps": [{"step_index": 0, "file": "a.py", "depends_on": []}]}
+            strat_b = {"steps": [{"step_index": 0, "file": "b.py", "depends_on": []}]}
+            pa = store.create_plan("plan A", strat_a)
+            pb = store.create_plan("plan B", strat_b)
+            result = store.merge_plans(pa, pb, strategy="sequential")
+            self.assertIn("plan_id", result)
+            merged = store.get_plan(result["plan_id"])
+            self.assertIsNotNone(merged)
+            self.assertEqual(merged["total_steps"], 2)
+
+
+class TestClaimProximityWarning(unittest.TestCase):
+    def test_claim_step_warns_on_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = RecipeStore(os.path.join(d, "c.db"))
+            pa = store.create_plan("A", {"steps": [{"step_index": 0, "file": "src/x.py", "description": "Create src/x.py", "depends_on": []}]})
+            pb = store.create_plan("B", {"steps": [{"step_index": 0, "file": "src/x.py", "description": "Update src/x.py", "depends_on": []}]})
+            # claim step in plan A
+            step_a = store.get_plan(pa)["steps"][0]["id"]
+            result = store.claim_step(pa, step_a, "agent-1")
+            self.assertTrue(result["claimed"])
+            self.assertIn("warning", result)
+            self.assertIn("plan 2", result["warning"].lower())
+
+
+class TestPreflightChecks(unittest.TestCase):
+    def test_python_syntax_error_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            tdir = pathlib.Path(d) / "tests"
+            tdir.mkdir()
+            (tdir / "test_x.py").write_text("import unittest\nclass T(unittest.TestCase): pass\n", encoding="utf-8")
+            h = ExecutionHarness(timeout_s=30)
+            r = h.verify_step([{"path": "bad.py", "content": "def f(\n"}], d)
+            self.assertIn("preflight", r)
+            self.assertFalse(r["preflight"]["ok"])
+            self.assertTrue(any("SyntaxError" in i for i in r["preflight"]["issues"]))
+
+    def test_import_integrity_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            h = ExecutionHarness(timeout_s=30)
+            r = h.verify_step([{"path": "main.js", "content": "import './missing.js';\n"}], d)
+            self.assertIn("import_integrity", r)
+            self.assertFalse(r["import_integrity"]["ok"])
+
+    def test_test_command_dry_run_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            h = ExecutionHarness(timeout_s=30, test_cmd=["nonexistent_test_runner_xyz"])
+            r = h.verify_step([], d)
+            self.assertFalse(r["success"])
+            self.assertIn("nonexistent_test_runner_xyz", r["trace"])
+
+    def test_static_analysis_mixed_indent(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            h = ExecutionHarness(timeout_s=30)
+            r = h.verify_step([{"path": "f.py", "content": "def f():\n\tpass\n    pass\n"}], d)
+            self.assertIn("static_analysis", r)
+            self.assertTrue(any("mixed indentation" in w for w in r["static_analysis"]["warnings"]))
+
+
+class TestScaffoldTemplates(unittest.TestCase):
+    def test_cli_command_template(self) -> None:
+        from trammel.scaffold_templates import match_scaffold_template
+        result = match_scaffold_template("add recipe CLI command", {"cli", "command", "recipe"}, set(), {})
+        self.assertIsNotNone(result)
+        files = [e["file"] for e in result]
+        self.assertTrue(any("commands" in f for f in files))
+
+    def test_event_driven_template(self) -> None:
+        from trammel.scaffold_templates import match_scaffold_template
+        result = match_scaffold_template("add recipe event listener", {"event", "listener", "recipe"}, set(), {})
+        self.assertIsNotNone(result)
+        files = [e["file"] for e in result]
+        self.assertTrue(any("events" in f for f in files))
+
+
+class TestFallbackFileCap(unittest.TestCase):
+    def test_no_scaffold_caps_at_15(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "cap.db")
+            # Create 30 files to analyze
+            for i in range(30):
+                pathlib.Path(d, f"mod{i}.py").write_text("x = 1\n", encoding="utf-8")
+            store = RecipeStore(db)
+            try:
+                result = Planner(store=store).decompose("make small change", d)
+                self.assertLessEqual(len(result["steps"]), 15)
+                self.assertIn("fallback_file_cap", result.get("plan_fidelity", {}))
+            finally:
+                store.close()
 
 
 if __name__ == "__main__":
