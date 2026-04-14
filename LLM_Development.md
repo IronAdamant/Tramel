@@ -8,10 +8,32 @@
 
 ## Active context
 
-- **Version:** 3.10.4
-- **Focus:** Adversarial scaffold hardening + structural recipe matching fix (Review Nineteen closure).
+- **Version:** 3.11.0
+- **Focus:** Core modularization, recipe word index + MinHash LSH, analyzer farm collapse into declarative specs.
 
 ## Session log
+
+---
+
+## v3.11.0 — Core modularization, recipe word index + MinHash, analyzer farm collapse
+
+**Date:** 2026-04-14
+
+### Summary
+Major structural refactoring: extracted `core.py` into focused modules, built a zero-dep word-level recipe index with MinHash LSH, and collapsed 15 regex analyzers into a single declarative spec engine.
+
+### Changes
+- **`trammel/core.py` extraction**: Moved step generation/scoring into `scoring.py`, scaffold logic into `scaffold_logic.py`, goal NLP into `goal_nlp.py`, constraint propagation into `constraints.py`, and scaffold templates into `scaffold_templates.py`. `core.py` is now a thin orchestrator (~570 LOC).
+- **`trammel/recipe_index.py`**: New `RecipeIndex` class managing `recipe_terms` (inverted word index for TF-IDF) and `recipe_signatures` (MinHash LSH signatures using stdlib `hashlib.md5`). No third-party dependencies.
+- **`trammel/store.py` + `store_recipes.py`**: Schema expanded with `recipe_terms` and `recipe_signatures` tables. `save_recipe()` indexes into `RecipeIndex`; `retrieve_best_recipe()` uses `RecipeIndex.search()` as candidate source. Legacy `recipe_trigrams` retained for transition safety.
+- **`trammel/analyzer_specs.py`**: Declarative `AnalyzerSpec` dataclass for all 13 regex-based analyzers (Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig). Each spec defines `symbol_patterns`, `typed_patterns`, `strip_comments`, `test_cmd`, `error_patterns`, and an optional `ImportSpec`.
+- **`trammel/analyzer_engine.py`**: Single `RegexAnalyzerEngine` backed by `AnalyzerSpec`. Strategy-specific import resolvers (`go_mod`, `rust_crate`, `cpp_include`, `java_namespace`, `csharp_namespace`, `ruby_require`, `php_namespace`, `swift_module`, `dart_package`, `zig_import`). Backward-compatible class shims (`GoAnalyzer`, `RustAnalyzer`, etc.) so existing imports keep working.
+- **`trammel/analyzers_ext.py` / `analyzers_ext2.py`**: Now thin backward-compat shims re-exporting from `analyzer_engine.py`.
+- **Documentation**: Updated `README.md`, `COMPLETE_PROJECT_DOCUMENTATION.md`, `LLM_Development.md`, `wiki-local/index.md`, `wiki-local/spec-project.md`.
+- **Version**: `pyproject.toml` bumped to 3.11.0.
+
+### Tests
+337 passing.
 
 ---
 

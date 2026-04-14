@@ -1,6 +1,6 @@
 # Trammel — technical specification
 
-**Version:** 3.9.4
+**Version:** 3.11.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
 
 ## 1. Purpose
@@ -46,31 +46,24 @@ The **authoritative artifacts** are **not** MCP-specific. They are:
 | CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language`, `--scope` (monorepo support) |
 | MCP `trammel-mcp` | Many tools over stdio transport; use MCP `status` for current count and names |
 
-## 4. Language Analyzers (`analyzers.py` + `analyzers_ext.py`)
+## 4. Language Analyzers (`analyzers.py` + `analyzer_engine.py`)
 
-Module split: `analyzers.py` (~460 LOC) holds the protocol, Python, TypeScript, registry, and detection. `analyzers_ext.py` (~440 LOC) holds Go, Rust, C/C++, and Java/Kotlin. `analyzers_ext2.py` (~445 LOC) holds C#, Ruby, PHP, Swift, Dart, and Zig. Shared `_collect_symbols_regex` and `_collect_typed_symbols_regex` helpers live in `utils.py`. Where possible, `_*_SYMBOL_PATTERNS` are derived from `_*_TYPED_PATTERNS` to avoid regex duplication. All existing imports preserved via re-export from `analyzers.py`.
+Architecture: `analyzers.py` (~460 LOC) holds the `LanguageAnalyzer` protocol, `PythonAnalyzer` (AST-based), `TypeScriptAnalyzer` (regex-based), registry, and detection. All 13 other regex-based analyzers are now driven by a single declarative engine.
 
-- **`LanguageAnalyzer` protocol**: Defines `collect_symbols(root) -> dict[str, list[str]]`, `analyze_imports(root) -> dict[str, list[str]]`, `test_command() -> list[str]`, `error_patterns() -> list[str]`.
-- **`PythonAnalyzer`**: AST-based symbol collection and import analysis (moved from `core.py` and `utils.py`).
-- **`TypeScriptAnalyzer`**: Regex-based, stdlib-only analysis for `.ts`/`.tsx`/`.js`/`.jsx`/`.mts`/`.mjs` files. Symbol detection via `_TS_SYMBOL_PATTERNS` list (interface, enum, const enum, type alias, abstract class, decorated class, function expression, namespace). `_strip_c_comments` (shared from `utils.py`) strips comments before symbol/import detection. Import detection via expanded `_TS_IMPORT_RE` (standard imports, re-exports `export { } from`, barrel exports `export * from`, type re-exports `export type { } from`, dynamic imports `import()`). `_TS_ALIAS_IMPORT_RE` detects non-relative alias imports. `_read_ts_path_aliases(root)` reads `compilerOptions.paths` + `baseUrl` from `tsconfig.json`. `_resolve_alias()` resolves alias-based import paths.
-- **`GoAnalyzer`**: Regex-based analysis for `.go` files. Reads `go.mod` for module path. Resolves internal imports (imports matching the module path) to project-relative file paths.
-- **`RustAnalyzer`**: Regex-based analysis for `.rs` files. Resolves `use crate::` imports and `mod` declarations to project-relative file paths.
-- **`CppAnalyzer`**: Regex-based analysis for `.c/.cpp/.cc/.cxx/.h/.hpp/.hxx` files. 5-pattern symbol detection: template functions, qualified functions (static/inline/constexpr), operator overloading, constructor/destructor, macro-prefixed functions (EXPORT_API etc). `#include "..."` import resolution with comment stripping. Registered as "cpp" and "c".
-- **`JavaAnalyzer`**: Regex-based analysis for `.java/.kt/.kts` files. Symbol detection for class, interface, enum, fun, object, and @interface declarations. `_detect_source_roots(project_root)` reads `build.gradle`/`build.gradle.kts`/`pom.xml` for standard source directories (`src/main/java`, `src/main/kotlin`, etc); falls back to project root. `analyze_imports` walks detected source roots instead of project root. Registered as "java" and "kotlin".
-- **`CSharpAnalyzer`**: Regex-based analysis for `.cs` files in `analyzers_ext2.py`. Symbol detection for class, interface, struct, enum, record, and delegate declarations. `using` import resolution. Registered as "csharp".
-- **`RubyAnalyzer`**: Regex-based analysis for `.rb` files in `analyzers_ext2.py`. Symbol detection for class, module, and def declarations. `require`/`require_relative` import resolution. Registered as "ruby".
-- **`PhpAnalyzer`**: Regex-based analysis for `.php` files in `analyzers_ext2.py`. Symbol detection for class, interface, trait, enum, and function declarations. `use`/`require`/`include` import resolution. Registered as "php".
-- **`SwiftAnalyzer`**: Regex-based analysis for `.swift` files in `analyzers_ext2.py`. Symbol detection for class, struct, enum, protocol, func, and actor declarations. `import` resolution. Registered as "swift".
-- **`DartAnalyzer`**: Regex-based analysis for `.dart` files in `analyzers_ext2.py`. Symbol detection for class, mixin, extension, enum, and typedef declarations. `import`/`part` resolution. Registered as "dart".
-- **`ZigAnalyzer`**: Regex-based analysis for `.zig` files in `analyzers_ext2.py`. Symbol detection for pub fn, const, struct, enum, and union declarations. `@import` resolution. Registered as "zig".
-- **Shared `_collect_symbols_regex` and `_collect_typed_symbols_regex` helpers** (in `utils.py`): Common symbol collection logic used by all regex-based analyzers. Eliminates circular dependency workarounds (previously used `functools.cache` lazy imports).
+- **`LanguageAnalyzer` protocol**: Defines `collect_symbols(root) -> dict[str, list[str]]`, `collect_typed_symbols(root) -> dict[str, list[tuple[str, str]]]`, `analyze_imports(root) -> dict[str, list[str]]`, `pick_test_cmd(root) -> list[str]`, `error_patterns() -> list[tuple[str, str, str]]`.
+- **`PythonAnalyzer`**: AST-based symbol collection and import analysis.
+- **`TypeScriptAnalyzer`**: Regex-based, stdlib-only analysis for `.ts`/`.tsx`/`.js`/`.jsx`/`.mts`/`.mjs` files. Symbol detection via `_TS_SYMBOL_PATTERNS` list (interface, enum, const enum, type alias, abstract class, decorated class, function expression, namespace). `_strip_c_comments` strips comments before symbol/import detection. Import detection via expanded `_TS_IMPORT_RE` (standard imports, re-exports, barrel exports, type re-exports, dynamic imports). `_TS_ALIAS_IMPORT_RE` detects non-relative alias imports. `_read_ts_path_aliases(root)` reads `compilerOptions.paths` + `baseUrl` from `tsconfig.json`. `_resolve_alias()` resolves alias-based import paths.
+- **`analyzer_specs.py`**: Declarative specs for 13 regex-based analyzers (Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig). Each `AnalyzerSpec` bundles `symbol_patterns`, `typed_patterns`, a `strip_comments` key (`c`/`hash`/`php`), `test_cmd`, `error_patterns`, and an optional `ImportSpec` (strategy name + regex patterns).
+- **`analyzer_engine.py`**: `RegexAnalyzerEngine` backed by `AnalyzerSpec`. Implements generic `collect_symbols`, `collect_typed_symbols`, `analyze_imports`, `pick_test_cmd`, and `error_patterns`. Import resolution is dispatched by strategy name to dedicated resolvers: `go_mod`, `rust_crate`, `cpp_include`, `java_namespace`, `csharp_namespace`, `ruby_require`, `php_namespace`, `swift_module`, `dart_package`, `zig_import`. Backward-compatible class shims (`GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, `JavaAnalyzer`, `CSharpAnalyzer`, `RubyAnalyzer`, `PhpAnalyzer`, `SwiftAnalyzer`, `DartAnalyzer`, `ZigAnalyzer`) preserve all existing imports.
+- **`analyzers_ext.py` / `analyzers_ext2.py`**: Backward-compatibility shims that re-export the engine-backed analyzer classes. Previously held standalone analyzer implementations; now deprecated stubs.
+- **Shared helpers in `utils.py`**: `_collect_symbols_regex`, `_collect_typed_symbols_regex`, `_walk_project_sources`, `_collect_project_files`, `_walk_and_map_namespaces`, `_resolve_namespace_import`, `_strip_c_comments`, `_strip_hash_comments`, `_strip_php_comments`.
 - **`_detect_from_config(root)`**: Config-file detection (Cargo.toml → rust, go.mod → go, tsconfig.json/package.json → typescript, build.gradle/pom.xml → java, CMakeLists.txt → cpp, pyproject.toml/setup.py → python, Package.swift → swift, build.zig → zig, pubspec.yaml → dart, .csproj/.sln → csharp, Gemfile → ruby, composer.json → php). Takes priority over extension counting.
-- **`detect_language(root)`**: Config-file detection first, falling back to extension counting. Counts `.py`, `.ts`/`.tsx`/`.js`/`.jsx`, `.go`, `.rs`, `.c`/`.cpp`, `.java`/`.kt`, `.cs`, `.rb`, `.php`, `.swift`, `.dart`, and `.zig` files.
+- **`detect_language(root)`**: Config-file detection first, falling back to extension counting.
 - **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 15 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin, csharp, ruby, php, swift, dart, zig.
 
 ## 5. Planner (`core.py`) and Strategies (`strategies.py`)
 
-`core.py` (~325 LOC) holds the `Planner`, step generation, and constraint enforcement. `strategies.py` (~280 LOC) holds the strategy registry and 9 built-in orderings (extracted from `core.py` in v3.3.1).
+`core.py` (~570 LOC) is the thin orchestrator: `Planner.decompose()` and `explore_trajectories()`. Step generation, scoring, scaffold logic, goal NLP, and constraint propagation were extracted into `scoring.py`, `scaffold_logic.py`, `goal_nlp.py`, and `constraints.py` in v3.11.0. `strategies.py` (~280 LOC) holds the strategy registry and 9 built-in orderings.
 
 - **Recipe hit**: If `retrieve_best_recipe(goal, context_files)` returns a strategy (composite score >= 0.3), use it. Two-phase: text-only fast path, then structural scoring with file overlap.
 - **Scope support**: `decompose(goal, project_root, scope=None)` accepts an optional `scope` subdirectory. When provided, analysis is scoped to `os.path.join(project_root, scope)` while the full project remains available for test execution. Enables monorepo workflows.
@@ -95,19 +88,21 @@ Module split: `analyzers.py` (~460 LOC) holds the protocol, Python, TypeScript, 
 
 ## 7. Store (`store.py` + `store_recipes.py`)
 
-Module split: `store.py` (~342 LOC) holds schema init, plans, steps, constraints, trajectories, and `RecipeStore` (inherits `RecipeStoreMixin`). `store_recipes.py` (~210 LOC) holds `RecipeStoreMixin` with recipe methods: `save_recipe`, `retrieve_best_recipe`, `list_recipes`, `prune_recipes`, `_rebuild_trigram_index`, `_backfill_files`.
+Module split: `store.py` (~342 LOC) holds schema init, plans, steps, constraints, trajectories, and `RecipeStore` (inherits `RecipeStoreMixin`). `store_recipes.py` (~210 LOC) holds `RecipeStoreMixin` with recipe methods. `recipe_index.py` provides the zero-dep word index + MinHash LSH used by recipe retrieval.
 
 **SQLite tables (7)**
 
 - `recipes(sig PK, pattern, strategy, constraints, successes, failures, created, updated)` — sig = SHA-256 of canonical JSON strategy.
-- `recipe_trigrams(trigram, recipe_sig FK)` — inverted index for fast recipe retrieval. Indexed on `trigram`. Populated on `save_recipe`, auto-backfilled on schema init.
+- `recipe_trigrams(trigram, recipe_sig FK)` — inverted trigram index (legacy; retained for transition safety)
+- `recipe_terms(term, recipe_sig, count)` — inverted word index for TF-IDF candidate lookup
+- `recipe_signatures(recipe_sig PK, signature)` — MinHash LSH signature for deduplication / ANN
 - `recipe_files(file_path, recipe_sig FK)` — file paths from strategy steps for structural matching. Indexed on both `file_path` and `recipe_sig`. Populated on `save_recipe`, auto-backfilled via `_backfill_files()`.
 - `plans(id, goal, strategy, scaffold, status, current_step, total_steps, created, updated)`.
 - `steps(id, plan_id FK, step_index, description, rationale, depends_on, status, edits_json, verification, constraints_found)`.
 - `constraints(id, plan_id FK, step_id FK, constraint_type, description, context, active)` — types: dependency, incompatible, requires, avoid.
 - `trajectories(id, plan_id FK, beam_id, strategy_variant, steps_completed, outcome, failure_reason)`.
 
-**Recipe retrieval**: Two-phase indexed lookup — query `recipe_trigrams` for candidates sharing trigrams with normalized goal, then score via `goal_similarity` (0.3 trigram cosine + 0.4 word Jaccard + 0.3 substring on normalized text). When `context_files` provided, composite scoring with recency weighting: text similarity (0.4) + file overlap via Jaccard (0.25) + success ratio (0.15) + recency (0.2, 30-day half-life). Without `context_files`, backward-compatible text-only scoring. Minimum threshold 0.3; tie-break on `successes`. `save_recipe` uses single parameterized query (merged duplicated SQL branches). `_rebuild_trigram_index` rebuilds all trigrams with normalized text on init (renamed from `_backfill_trigrams`).
+**Recipe retrieval**: Two-phase indexed lookup — query `recipe_terms` (inverted word index, TF-IDF) for candidates sharing vocabulary with the goal, then score via `goal_similarity` (0.3 trigram cosine + 0.4 word Jaccard + 0.3 substring on normalized text). `recipe_signatures` stores MinHash LSH signatures for deduplication / approximate nearest neighbors. When `context_files` provided, composite scoring with recency weighting: text similarity (0.4) + file overlap via Jaccard (0.25) + success ratio (0.15) + recency (0.2, 30-day half-life). Without `context_files`, backward-compatible text-only scoring. Minimum threshold 0.3; tie-break on `successes`. Legacy `recipe_trigrams` table retained for transition safety.
 
 **`list_recipes(limit=20)`**: Returns recent recipes ordered by update time.
 

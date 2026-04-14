@@ -152,9 +152,11 @@ trammel/              Importable package
   store_recipes.py    Recipe methods: save, retrieve, list, prune
   strategies.py       9 built-in beam strategies
   harness.py          Execution harness: temp copies, test runner
+  analyzer_specs.py   Declarative regex specs for 13 regex-based analyzers
+  analyzer_engine.py  RegexAnalyzerEngine + import resolvers + backward-compat shims
   analyzers.py        Python + TypeScript analyzers, language detection
-  analyzers_ext.py    Go, Rust, C/C++, Java/Kotlin analyzers
-  analyzers_ext2.py   C#, Ruby, PHP, Swift, Dart, Zig analyzers
+  analyzers_ext.py    Backward-compat shim (re-exports from analyzer_engine)
+  analyzers_ext2.py   Backward-compat shim (re-exports from analyzer_engine)
   project_config.py   Config merging (pyproject.toml + .trammel.json)
   utils.py            Trigrams, cosine, failure extraction, shared helpers
   cli.py              CLI entry point
@@ -201,6 +203,13 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 
 <details>
 <summary><strong>Full Changelog</strong></summary>
+
+### v3.11.0 — Core modularization, recipe word index + MinHash, analyzer farm collapse
+
+- **core.py modularization**: Extracted monolith into `scoring.py`, `scaffold_logic.py`, `goal_nlp.py`, `constraints.py`, `scaffold_templates.py`. Orchestrator reduced from ~1,700 LOC to ~570 LOC.
+- **Recipe index migration**: New `recipe_index.py` with zero-dep inverted word index (TF-IDF) and MinHash LSH for deduplication / approximate nearest neighbors. Schema extended with `recipe_terms` and `recipe_signatures`; integrated into `store_recipes.py` (trigram tables kept for transition safety).
+- **Analyzer farm collapse**: 15 regex analyzers collapsed into declarative `analyzer_specs.py` + single `RegexAnalyzerEngine` in `analyzer_engine.py`. `analyzers_ext.py` / `analyzers_ext2.py` now backward-compat shims. All class names remain unchanged.
+- **337 tests passing**.
 
 ### v3.10.3 — Documentation: scaffold DAG metrics for multi-agent dispatch
 
