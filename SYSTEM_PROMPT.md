@@ -180,6 +180,7 @@ Analysis (symbol collection, import resolution) runs only within the scope. Test
 | `claim_step` | Claim a step for an agent (multi-agent coordination) |
 | `release_step` | Release a step claim |
 | `available_steps` | Get steps ready for work (deps satisfied, unclaimed) |
+| `merge_plans` | Merge two plans with conflict detection and resolution strategies |
 | `complete_plan` | Finalize plan in one call: batch-update steps + set status + save recipe |
 
 ## Multi-language support

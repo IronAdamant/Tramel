@@ -8,10 +8,47 @@
 
 ## Active context
 
-- **Version:** 3.11.0
-- **Focus:** Core modularization, recipe word index + MinHash LSH, analyzer farm collapse into declarative specs.
+- **Version:** 3.11.2
+- **Focus:** Long-term improvements to decomposition, plan merging, recipe matching, and verify_step depth.
 
 ## Session log
+
+---
+
+## v3.11.2 — Long-term improvements (plan merging, decomposition, recipes, verify_step)
+
+**Date:** 2026-04-14
+
+### Summary
+Implemented long-term fixes for four weak areas identified in Phase 13 findings: scaffold-less decomposition, plan merging, recipe matching, and verify_step depth. Added multi-agent proximity warnings. All 358 tests pass.
+
+### Changes
+- **`trammel/plan_merge.py`**: New plan merging engine with `detect_conflicts()` (file overlap, action clash, dependency inversion, cycle introduction) and `merge_plans()` supporting `sequential`, `interleave`, `priority`, and `unified` strategies. Exposed via `merge_plans` MCP tool.
+- **`trammel/core.py`**: Scaffold-less decomposition now tries `retrieve_best_scaffold_recipe()` before falling back to full-repo scan. `analysis_meta` includes `ambiguity` score/flag/signals from `_compute_ambiguity_score()`.
+- **`trammel/scaffold_templates.py`**: Expanded with `crud_service` template and smarter directory resolution via `_resolve_template_directories()`.
+- **`trammel/scaffold_logic.py`**: Hard-caps fallback file suggestions at 15 and uses sibling-convention cloning in `_infer_file_name()`.
+- **`trammel/store_recipes.py`**: Recipe retrieval now unions TF-IDF and MinHash candidates. Added architecture-shape MinHash index (canonical role strings) and scaffold-fingerprint comparison in `retrieve_best_recipe()` / `retrieve_near_matches()`.
+- **`trammel/utils.py`**: Added `_TECH_SYNONYMS` for goal normalization.
+- **`trammel/harness.py`**: Deepened `verify_step` with AST syntax preflight (Python), import integrity checks, symbol reference validation, test-command existence checks, and expanded `_static_analysis` heuristics.
+- **`trammel/store_agents.py`**: `claim_step()` now returns a `warning` when other active plans have pending steps targeting the same file.
+- **`trammel/mcp_server.py`**: Added `merge_plans` tool schema and dispatch handler.
+- **Tests**: Expanded to 358 tests. New test classes: `TestPlanValidation`, `TestAmbiguity`, `TestPreflightChecks`, `TestMergePlans`, `TestClaimProximityWarning`, `TestFallbackFileCap`, `TestRecipeMatching`.
+
+---
+
+## v3.11.1 — Phase 13 findings closure
+
+**Date:** 2026-04-14
+
+### Summary
+Addressed immediate Phase 13 review recommendations: plan cycle validation, ambiguity detection, static analysis in verify_step, and MinHash recipe retrieval.
+
+### Changes
+- **`create_plan` cycle validation**: Rejects strategies that would introduce dependency cycles in step `depends_on`.
+- **`decompose` ambiguity detection**: `_compute_ambiguity_score()` detects vague phrasing (`real-time`, `AI-powered`, `scalable`, etc.) and surfaces `ambiguity` metadata.
+- **`verify_step` static analysis**: Added path-convention and test-coverage heuristics via `_static_analysis()`.
+- **`store_recipes.py`**: Integrated MinHash LSH retrieval (`search_recipes_by_minhash`) as a secondary candidate source for recipe matching.
+- **Docs**: Updated `README.md`, `SYSTEM_PROMPT.md`, `wiki-local/spec-project.md`, `COMPLETE_PROJECT_DOCUMENTATION.md`.
 
 ---
 

@@ -65,7 +65,9 @@ Architecture: `analyzers.py` (~460 LOC) holds the `LanguageAnalyzer` protocol, `
 
 `core.py` (~570 LOC) is the thin orchestrator: `Planner.decompose()` and `explore_trajectories()`. Step generation, scoring, scaffold logic, goal NLP, and constraint propagation were extracted into `scoring.py`, `scaffold_logic.py`, `goal_nlp.py`, and `constraints.py` in v3.11.0. `strategies.py` (~280 LOC) holds the strategy registry and 9 built-in orderings.
 
-- **Recipe hit**: If `retrieve_best_recipe(goal, context_files)` returns a strategy (composite score >= 0.3), use it. Two-phase: text-only fast path, then structural scoring with file overlap.
+- **Recipe hit**: If `retrieve_best_recipe(goal, context_files)` returns a strategy (composite score >= 0.3), use it. Two-phase: text-only fast path, then structural scoring with file overlap. When `scaffold` is provided, recipe retrieval also compares scaffold fingerprints (architecture-shape canonical role strings) for structural matching.
+- **Scaffold recipe fallback (v3.11.2)**: When no scaffold is passed and `skip_recipes` is false, `decompose` tries `retrieve_best_scaffold_recipe(goal)` before falling back to full-repo analysis. This improves scaffold-less greenfield decomposition by reusing previously saved scaffold templates.
+- **Ambiguity detection (v3.11+)**: `analysis_meta` includes an `ambiguity` score when goals contain vague phrasing (`real-time`, `AI-powered`, `conflict resolution`, etc.). Use it to decide whether the goal needs clarification before planning.
 - **Scope support**: `decompose(goal, project_root, scope=None)` accepts an optional `scope` subdirectory. When provided, analysis is scoped to `os.path.join(project_root, scope)` while the full project remains available for test execution. Enables monorepo workflows.
 - **Plan fidelity (v3.8+):** With a non-empty `scaffold`, decomposition defaults to **scaffold-only** (no full-repo scan) unless `expand_repo=true`. **`strict_greenfield`** rejects under-specified greenfield goals. Results include **`plan_fidelity`** metadata. Optional **`focus_keywords`**, **`focus_globs`**, **`max_files`**; merged **`[tool.trammel]`** + **`.trammel.json`** via **`project_config.py`**. Steps may expose **`relevance_keyword`**, **`relevance_graph`**, composite **`relevance`**, **`relevance_tier`**. With **`relevant_only`**, steps are re-sorted by relevance—**execution order** for work remains **`depends_on`**.
 - **Scaffold DAG metrics**: When scaffold entries are provided, `decompose` returns `scaffold_dag_metrics` in `analysis_meta` containing `node_count`, `edge_count`, `max_dependency_depth`, `critical_path_length`, `max_parallelism` (widest layer — peak concurrent files), and `layer_widths` (array of file counts per topological layer). Use `layer_widths` to dispatch agents in rounds; `max_parallelism` sizes the agent pool. Validated at scale: 40 nodes, 59 edges, 6 layers, 12-file peak parallelism (Review Ten).
@@ -82,7 +84,12 @@ Architecture: `analyzers.py` (~460 LOC) holds the `LanguageAnalyzer` protocol, `
 - **`run(edits, project_root)`**: Copy project to temp dir, apply all edits, run tests. Returns structured result.
 - **`prepare_base(project_root)`**: Create one filtered base copy of the project (applies ignored-dir filtering once). Returns the base directory path.
 - **`run_from_base(edits, base_dir)`**: Copy from an existing base directory, apply edits, run tests. Avoids re-filtering ignored dirs per beam.
-- **`verify_step(edits, project_root, prior_edits)`**: Verify a single step in isolation. Applies prior_edits first, then current edits.
+- **`verify_step(edits, project_root, prior_edits)`**: Verify a single step in isolation. Applies prior_edits first, then current edits. As of v3.11.2, verification includes:
+  - **`static_analysis`** — path-convention and test-coverage heuristics
+  - **`preflight`** — Python AST syntax check; JS/TS brace/quote regex validation
+  - **`import_integrity`** — re-runs `analyze_imports` on edited files to catch missing dependencies
+  - **`symbol_references`** — verifies symbols referenced by dependents still exist
+  - **`test_cmd_exists`** — confirms the test command is present before running
 - **`run_incremental(step_edits, project_root)`**: Verify step-by-step. Stops at first failure with `failed_at_step` index and `failure_analysis`.
 - **`analyze_failure(stderr, stdout, error_patterns=None)`**: Extracts error_type, message, file, line, suggestion from test output via regex patterns. Accepts optional `error_patterns` for language-specific patterns.
 
@@ -124,7 +131,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 ## 8. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
-22 tools exposed via stdio JSON-RPC:
+30 tools exposed via stdio JSON-RPC:
 
 | Tool | Purpose |
 |------|---------|
@@ -150,6 +157,14 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 | `validate_recipes` | Check recipe files against project, remove stale entries, prune fully-stale recipes |
 | `estimate` | Quick file count for a project or scope without full analysis; returns `language`, `matching_files`, `recommendation` |
 | `usage_stats` | Aggregated usage telemetry: tool call counts, recipe hit/miss rates, strategy win rates |
+| `record_steps` | Batch-update multiple steps in a single transaction |
+| `complete_plan` | Finalize a plan in one call: batch-update steps + set status + save recipe |
+| `claim_step` | Claim a step for an agent (multi-agent coordination) |
+| `release_step` | Release a step claim |
+| `available_steps` | Get steps ready for work (deps satisfied, unclaimed) |
+| `failure_history` | Historical failure patterns for a file or project-wide |
+| `resolve_failure` | Record what fixed a known failure pattern |
+| `merge_plans` | Merge two plans with conflict detection and resolution strategies (`sequential`, `interleave`, `priority`, `unified`) |
 
 See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-verify-store loop for LLM clients.
 
@@ -171,7 +186,25 @@ See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-v
 - `sha256_json` — Content-addressed recipe ID.
 - `db_connect` — WAL + foreign keys + `timeout=5.0`.
 
-## 10. Extension points
+## 10. Plan Merging (`plan_merge.py`)
+
+`plan_merge.py` provides conflict detection and resolution when combining two plans.
+
+- **`detect_conflicts(plan_a, plan_b)`** — Detects four conflict classes:
+  - `file_overlap` — both plans touch the same file
+  - `action_clash` — conflicting actions on the same file (e.g., create vs modify)
+  - `dependency_inversion` — merged ordering would violate a dependency
+  - `cycle_introduction` — merged steps would create a circular dependency
+- **`merge_plans(plan_a, plan_b, strategy="interleave")`** — Produces a merged strategy. Strategies:
+  - `sequential` — all of plan A, then all of plan B
+  - `interleave` — round-robin merge of steps
+  - `priority` — plan A steps first, then plan B (non-interleaved)
+  - `unified` — deduplicated union of steps, preserving dependency order
+- **Validation**: Merged plans are validated for dependency cycles; unresolvable cycles raise `ValueError`.
+
+Exposed as the `merge_plans` MCP tool.
+
+## 11. Extension points
 
 - Pass `test_cmd` to `ExecutionHarness` for pytest or a custom runner.
 - Emit real `content` in edits from an LLM (the primary integration point).

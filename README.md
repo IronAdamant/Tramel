@@ -162,7 +162,9 @@ trammel/              Importable package
   cli.py              CLI entry point
   mcp_server.py       MCP tool schemas and dispatch
   mcp_stdio.py        MCP stdio server entry point
-tests/                337 tests across 6 modules (stdlib unittest)
+  plan_merge.py       Plan merging engine: conflict detection + 4 resolution strategies
+  store_agents.py     Multi-agent coordination: step claiming, availability, proximity warnings
+tests/                358 tests across 6 modules (stdlib unittest)
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 ```
 
@@ -241,7 +243,7 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 - **core.py modularization**: Extracted monolith into `scoring.py`, `scaffold_logic.py`, `goal_nlp.py`, `constraints.py`, `scaffold_templates.py`. Orchestrator reduced from ~1,700 LOC to ~570 LOC.
 - **Recipe index migration**: New `recipe_index.py` with zero-dep inverted word index (TF-IDF) and MinHash LSH for deduplication / approximate nearest neighbors. Schema extended with `recipe_terms` and `recipe_signatures`; integrated into `store_recipes.py` (trigram tables kept for transition safety).
 - **Analyzer farm collapse**: 15 regex analyzers collapsed into declarative `analyzer_specs.py` + single `RegexAnalyzerEngine` in `analyzer_engine.py`. `analyzers_ext.py` / `analyzers_ext2.py` now backward-compat shims. All class names remain unchanged.
-- **337 tests passing**.
+- **358 tests passing**.
 
 ### v3.10.3 — Documentation: scaffold DAG metrics for multi-agent dispatch
 
