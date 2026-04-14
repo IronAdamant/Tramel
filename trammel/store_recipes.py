@@ -9,6 +9,7 @@ import sqlite3
 import time
 from typing import TYPE_CHECKING, Any
 
+from .recipe_index import RecipeIndexMixin
 from .utils import (
     dumps_json, goal_similarity, normalize_goal,
     sha256_json, transaction, unique_trigrams,
@@ -465,7 +466,7 @@ def _sql_in(items: list[str] | tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
     return f"IN ({ph})", tuple(items)
 
 
-class RecipeStoreMixin:
+class RecipeStoreMixin(RecipeIndexMixin):
     """Recipe-related methods mixed into RecipeStore.
 
     Expects the composing class to provide:
@@ -579,6 +580,8 @@ class RecipeStoreMixin:
                 "DELETE FROM recipe_files WHERE recipe_sig = ?", (sig,),
             )
             self._insert_file_entries(sig, self._extract_step_files(strategy))
+            self._index_recipe_terms(sig, pattern)
+            self._index_recipe_minhash(sig, pattern)
 
     def _ensure_scaffold_create_steps(self, strategy: dict[str, Any]) -> dict[str, Any]:
         """Ensure all scaffold files appear as action=create steps so the recipe
@@ -660,24 +663,16 @@ class RecipeStoreMixin:
         min_similarity: float = 0.30,
         context_files: set[str] | None = None,
     ) -> dict[str, Any] | None:
-        goal_tris = unique_trigrams(normalize_goal(goal))
-        if not goal_tris:
+        term_results = self.search_recipes_by_terms(goal, top_k=50)
+        if not term_results:
             return None
-        tri_in, tri_params = _sql_in(sorted(goal_tris))
-        candidate_sigs = self.conn.execute(
-            f"SELECT DISTINCT recipe_sig FROM recipe_trigrams WHERE trigram {tri_in}",
-            tri_params,
-        ).fetchall()
-        if not candidate_sigs:
-            return None
-        sig_list = [row["recipe_sig"] for row in candidate_sigs]
+        sig_list = [sig for sig, _ in term_results]
         sig_in, sig_params = _sql_in(sig_list)
         cur = self.conn.execute(
             f"SELECT sig, pattern, strategy, successes, failures, updated FROM recipes "
             f"WHERE sig {sig_in}",
             sig_params,
         )
-        # Batch-fetch file paths for all candidates to avoid N+1 queries
         candidates = cur.fetchall()
         sig_files: dict[str, set[str]] = {}
         if context_files is not None and candidates:
@@ -690,7 +685,6 @@ class RecipeStoreMixin:
             for frow in file_rows:
                 sig_files.setdefault(frow["recipe_sig"], set()).add(frow["file_path"])
 
-        # Fix 2: compute goal structural fingerprint once when context_files is available
         goal_fp: dict[str, Any] | None = None
         if context_files is not None:
             goal_fp = _goal_fingerprint_from_text(goal)
@@ -704,7 +698,6 @@ class RecipeStoreMixin:
             strategy_str, succ, fail, updated = row["strategy"], row["successes"], row["failures"], row["updated"]
             recipe_files = sig_files.get(sig, set()) if context_files is not None else set()
 
-            # Parse strategy once for structural fingerprinting
             recipe_strategy: dict[str, Any] | None = None
             if goal_fp is not None:
                 try:
@@ -723,11 +716,6 @@ class RecipeStoreMixin:
             )
             if text_sim < min_similarity:
                 continue
-
-            # Floor: reject only very weak composite matches.
-            # With structural similarity as the dominant weight (0.40), lower the floor
-            # from 0.35 to 0.20 so good structural matches aren't rejected when file
-            # overlap is zero (common for greenfield goals with no context files).
             if context_files is not None and score < 0.15:
                 continue
 
@@ -776,17 +764,10 @@ class RecipeStoreMixin:
         ``match_score`` (composite when ``context_files`` is set), and
         ``match_components`` when structural scoring applies.
         """
-        goal_tris = unique_trigrams(normalize_goal(goal))
-        if not goal_tris:
+        term_results = self.search_recipes_by_terms(goal, top_k=50)
+        if not term_results:
             return []
-        tri_in, tri_params = _sql_in(sorted(goal_tris))
-        candidate_sigs = self.conn.execute(
-            f"SELECT DISTINCT recipe_sig FROM recipe_trigrams WHERE trigram {tri_in}",
-            tri_params,
-        ).fetchall()
-        if not candidate_sigs:
-            return []
-        sig_list = [row["recipe_sig"] for row in candidate_sigs]
+        sig_list = [sig for sig, _ in term_results]
         sig_in, sig_params = _sql_in(sig_list)
         rows = self.conn.execute(
             f"SELECT sig, pattern, strategy, successes, failures, updated FROM recipes WHERE sig {sig_in}",
@@ -803,7 +784,6 @@ class RecipeStoreMixin:
             for frow in file_rows:
                 sig_files.setdefault(frow["recipe_sig"], set()).add(frow["file_path"])
 
-        # Fix 2: compute goal structural fingerprint once when context_files is available
         goal_fp: dict[str, Any] | None = None
         if context_files is not None:
             goal_fp = _goal_fingerprint_from_text(goal)
@@ -817,7 +797,6 @@ class RecipeStoreMixin:
             succ, fail, updated = row["successes"], row["failures"], row["updated"]
             recipe_files = sig_files.get(sig, set()) if context_files is not None else set()
 
-            # Parse strategy for structural fingerprinting
             recipe_strategy: dict[str, Any] | None = None
             if goal_fp is not None and strategy_str:
                 try:
@@ -901,6 +880,8 @@ class RecipeStoreMixin:
         with transaction(self.conn):
             self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig {prune_in}", prune_params)
             self.conn.execute(f"DELETE FROM recipe_files WHERE recipe_sig {prune_in}", prune_params)
+            self.conn.execute(f"DELETE FROM recipe_terms WHERE recipe_sig {prune_in}", prune_params)
+            self.conn.execute(f"DELETE FROM recipe_signatures WHERE recipe_sig {prune_in}", prune_params)
             self.conn.execute(f"DELETE FROM recipes WHERE sig {prune_in}", prune_params)
         return len(pruned)
 
@@ -945,6 +926,8 @@ class RecipeStoreMixin:
                 if invalidated:
                     inv_in, inv_params = _sql_in(invalidated)
                     self.conn.execute(f"DELETE FROM recipe_trigrams WHERE recipe_sig {inv_in}", inv_params)
+                    self.conn.execute(f"DELETE FROM recipe_terms WHERE recipe_sig {inv_in}", inv_params)
+                    self.conn.execute(f"DELETE FROM recipe_signatures WHERE recipe_sig {inv_in}", inv_params)
                     self.conn.execute(f"DELETE FROM recipes WHERE sig {inv_in}", inv_params)
         return {
             "recipes_checked": len(rows),

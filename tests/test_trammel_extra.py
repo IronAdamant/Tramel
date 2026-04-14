@@ -17,13 +17,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from trammel import ExecutionHarness, plan_and_execute  # noqa: E402
-from trammel.core import (  # noqa: E402
-    Planner,
-    _apply_constraints,
-    _extract_paths_from_goal,
-    _generate_steps,
-    strategy_to_scaffold,
-)
+from trammel.constraints import _apply_constraints  # noqa: E402
+from trammel.core import Planner  # noqa: E402
+from trammel.goal_nlp import _extract_paths_from_goal  # noqa: E402
+from trammel.scaffold_logic import strategy_to_scaffold  # noqa: E402
+from trammel.scoring import _generate_steps  # noqa: E402
 from trammel.mcp_server import _TOOL_SCHEMAS, dispatch_tool  # noqa: E402
 from trammel.store import RecipeStore  # noqa: E402
 from trammel.analyzers import detect_language  # noqa: E402

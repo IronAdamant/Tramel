@@ -15,9 +15,10 @@ from .utils import (
     _read_workspace_packages, _resolve_workspace_import,
     _strip_c_comments,
 )
-from .analyzers_ext import CppAnalyzer, GoAnalyzer, JavaAnalyzer, RustAnalyzer
-from .analyzers_ext2 import (
-    CSharpAnalyzer, DartAnalyzer, PhpAnalyzer, RubyAnalyzer, SwiftAnalyzer, ZigAnalyzer,
+from .analyzer_engine import (
+    CppAnalyzer, CSharpAnalyzer, DartAnalyzer, GoAnalyzer,
+    JavaAnalyzer, PhpAnalyzer, RubyAnalyzer, RustAnalyzer,
+    SwiftAnalyzer, ZigAnalyzer,
 )
 
 

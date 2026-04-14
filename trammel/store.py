@@ -203,6 +203,8 @@ class RecipeStore(RecipeStoreMixin, AgentStoreMixin):
         self._rebuild_trigram_index()
         self._backfill_files()
         self._init_scaffold_schema()
+        self._init_recipe_index_schema()
+        self.backfill_recipe_index()
 
     # ── Plans ────────────────────────────────────────────────────────────────
 
