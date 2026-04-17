@@ -16,7 +16,7 @@ Instead of letting your AI assistant wing it on complex changes, Trammel breaks 
 
 - **Breaks down goals into steps** — Analyzes your project's code structure, figures out what depends on what, and creates an ordered plan
 - **Tries multiple approaches** — Explores different strategies in parallel (bottom-up, top-down, risk-first, and more) to find what works best
-- **Verifies as it goes** — Runs your tests after each step in an isolated copy, so bad changes don't pile up
+- **Verifies as it goes** — In the Python harness, runs your tests after each step in an isolated copy so bad changes don't pile up. In MCP mode, `verify_step` is a static/heuristic check — run your test suite yourself between steps, or call `plan_and_execute` from Python for real isolated test execution.
 - **Learns from mistakes** — Records what failed and why, then blocks the same mistake from happening again
 - **Remembers what worked** — Saves successful strategies as reusable recipes, so similar tasks get solved faster next time
 - **Coordinates multiple agents** — Provides step claiming, dependency tracking, and DAG metrics for multi-agent workflows
@@ -205,6 +205,26 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 
 <details>
 <summary><strong>Full Changelog</strong></summary>
+
+### v3.12.0 — Module split (every file under 500 LOC), externalized pattern config, MCP dispatch tests
+
+Structural refactor with no public API changes. All existing `from trammel...` imports keep working; re-exports preserve legacy paths.
+
+- **Every module now under 500 LOC.** 9 files were over the project-convention target before this release (worst at 1223); zero after. New modules created in the split:
+  - `recipe_fingerprints.py`, `store_retrieval.py`, `store_scaffolds.py` (extracted from `store_recipes.py`, which drops from 1223 → 373).
+  - `store_plans.py`, `store_telemetry.py` (extracted from `store.py`).
+  - `tool_schemas.py` (extracted from `mcp_server.py`).
+  - `implicit_deps_engines.py`, `pattern_learner.py` (extracted from `implicit_deps.py`).
+  - `analyzer_resolvers.py` (extracted from `analyzer_engine.py`).
+  - `text_similarity.py`, `scaffold_validation.py` (extracted from `utils.py`).
+  - `language_detection.py` (extracted from `analyzers.py`).
+  - `scaffold_creation.py` (extracted from `scaffold_logic.py`).
+  - `planner_helpers.py` (extracted from `core.py`).
+- **Pattern tables externalized.** `NAMING_CONVENTION_RULES`, `INFRASTRUCTURE_PATTERNS`, file-role patterns, and goal-role patterns now live in `trammel/data/patterns.json` and are loaded via a new `pattern_config.py`. Edit the JSON to tune inference without code changes.
+- **MCP dispatch integration tests.** New `tests/test_mcp_dispatch.py` with 11 tests covering schema↔dispatch parity, category-registry sync, unknown-tool error shape, previously-uncovered handlers (`record_steps`, `claim/release/available_steps`, `merge_plans`, `usage_stats`, `list_strategies`, `resolve_failure`), and schema-driven int coercion.
+- **Public-API docstrings.** Added to `Planner` (class + every method), `ExecutionHarness` (class + `__init__`), `RecipeStore` (class + context-manager lifecycle), every MCP `_handle_*`, the constraint/trajectory methods on the store, and all 11 language-analyzer subclasses.
+- **Docs parity.** "Verifies as it goes" clarified in README (Python harness runs tests; MCP `verify_step` is static/heuristic). `SYSTEM_PROMPT.md` gains an explicit "`decompose` vs `explore` vs `create_plan` — which do I call?" decision block. `pyproject.toml` version bumped to 3.12.0 (closes the drift where README already documented a v3.11.3 entry but the package version still said 3.11.2).
+- **406 tests passing** (395 pre-refactor + 11 new dispatch tests).
 
 ### v3.11.3 — Robustness improvements for test-heavy projects, explore fallback, and strategy trajectory data
 

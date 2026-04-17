@@ -1,7 +1,9 @@
 # Trammel — technical specification
 
-**Version:** 3.11.2
+**Version:** 3.12.0
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
+
+> **v3.12.0 — module layout change.** Every module is now under 500 LOC. All public imports are preserved via re-exports from legacy module paths, so the API surface described here is unchanged — but several section-titles below now list additional sibling modules. See `COMPLETE_PROJECT_DOCUMENTATION.md` for the full new file table.
 
 ## 1. Purpose
 
@@ -46,24 +48,26 @@ The **authoritative artifacts** are **not** MCP-specific. They are:
 | CLI `python -m trammel` | Argparse; optional JSON stdin; `--version`, `--root`, `--beams`, `--db`, `--test-cmd`, `--dry-run` (runs `explore()` instead of `plan_and_execute()`), `--language`, `--scope` (monorepo support) |
 | MCP `trammel-mcp` | Many tools over stdio transport; use MCP `status` for current count and names |
 
-## 4. Language Analyzers (`analyzers.py` + `analyzer_engine.py`)
+## 4. Language Analyzers (`analyzers.py` + `analyzer_engine.py` + `analyzer_resolvers.py` + `language_detection.py`)
 
-Architecture: `analyzers.py` (~460 LOC) holds the `LanguageAnalyzer` protocol, `PythonAnalyzer` (AST-based), `TypeScriptAnalyzer` (regex-based), registry, and detection. All 13 other regex-based analyzers are now driven by a single declarative engine.
+Architecture: `analyzers.py` (~420 LOC) holds the `LanguageAnalyzer` protocol, `PythonAnalyzer` (AST-based), `TypeScriptAnalyzer` / `JavaScriptAnalyzer` (regex-based), and the `get_analyzer()` registry. Language detection was extracted to `language_detection.py` in v3.12.0; per-language import resolvers to `analyzer_resolvers.py`. All 11 other regex-based analyzers are driven by a single declarative engine.
 
 - **`LanguageAnalyzer` protocol**: Defines `collect_symbols(root) -> dict[str, list[str]]`, `collect_typed_symbols(root) -> dict[str, list[tuple[str, str]]]`, `analyze_imports(root) -> dict[str, list[str]]`, `pick_test_cmd(root) -> list[str]`, `error_patterns() -> list[tuple[str, str, str]]`.
 - **`PythonAnalyzer`**: AST-based symbol collection and import analysis.
 - **`TypeScriptAnalyzer`**: Regex-based, stdlib-only analysis for `.ts`/`.tsx`/`.js`/`.jsx`/`.mts`/`.mjs` files. Symbol detection via `_TS_SYMBOL_PATTERNS` list (interface, enum, const enum, type alias, abstract class, decorated class, function expression, namespace). `_strip_c_comments` strips comments before symbol/import detection. Import detection via expanded `_TS_IMPORT_RE` (standard imports, re-exports, barrel exports, type re-exports, dynamic imports). `_TS_ALIAS_IMPORT_RE` detects non-relative alias imports. `_read_ts_path_aliases(root)` reads `compilerOptions.paths` + `baseUrl` from `tsconfig.json`. `_resolve_alias()` resolves alias-based import paths.
 - **`analyzer_specs.py`**: Declarative specs for 13 regex-based analyzers (Go, Rust, C/C++, Java/Kotlin, C#, Ruby, PHP, Swift, Dart, Zig). Each `AnalyzerSpec` bundles `symbol_patterns`, `typed_patterns`, a `strip_comments` key (`c`/`hash`/`php`), `test_cmd`, `error_patterns`, and an optional `ImportSpec` (strategy name + regex patterns).
-- **`analyzer_engine.py`**: `RegexAnalyzerEngine` backed by `AnalyzerSpec`. Implements generic `collect_symbols`, `collect_typed_symbols`, `analyze_imports`, `pick_test_cmd`, and `error_patterns`. Import resolution is dispatched by strategy name to dedicated resolvers: `go_mod`, `rust_crate`, `cpp_include`, `java_namespace`, `csharp_namespace`, `ruby_require`, `php_namespace`, `swift_module`, `dart_package`, `zig_import`. Backward-compatible class shims (`GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, `JavaAnalyzer`, `CSharpAnalyzer`, `RubyAnalyzer`, `PhpAnalyzer`, `SwiftAnalyzer`, `DartAnalyzer`, `ZigAnalyzer`) preserve all existing imports.
-- **`analyzers_ext.py` / `analyzers_ext2.py`**: Backward-compatibility shims that re-export the engine-backed analyzer classes. Previously held standalone analyzer implementations; now deprecated stubs.
+- **`analyzer_engine.py`** (~195 LOC after 3.12.0 split): `RegexAnalyzerEngine` backed by `AnalyzerSpec`. Implements generic `collect_symbols`, `collect_typed_symbols`, `analyze_imports`, `pick_test_cmd`, `error_patterns`. Holds the `_IMPORT_RESOLVERS` dispatch table and backward-compat class shims (`GoAnalyzer`, `RustAnalyzer`, `CppAnalyzer`, `JavaAnalyzer`, `CSharpAnalyzer`, `RubyAnalyzer`, `PhpAnalyzer`, `SwiftAnalyzer`, `DartAnalyzer`, `ZigAnalyzer`).
+- **`analyzer_resolvers.py`** (new in 3.12.0): Per-language import resolvers extracted from `analyzer_engine.py`: `_resolve_go_imports` (reads `go.mod`), `_resolve_rust_imports` (workspace + crate, reads `Cargo.toml`), `_resolve_cpp_imports` (include graph), `_resolve_java_imports` + `_detect_java_source_roots` (Maven/Gradle source dirs), `_resolve_csharp_imports`, `_resolve_ruby_imports`, `_resolve_php_imports`, `_resolve_swift_imports` (+ `_build_swift_module_map`), `_resolve_dart_imports`, `_resolve_zig_imports`. Regex constants `_GO_IMPORT_LINE_RE`, `_CARGO_MEMBERS_RE`, `_CARGO_QUOTED_RE`, `_CARGO_NAME_RE`, `_MAVEN_SRC_DIR_RE` live here.
+- **`language_detection.py`** (new in 3.12.0): `detect_language(root)` + `_detect_from_config(root)` + `_detect_from_trammel_config(root)` + `_LANG_EXTENSIONS` table. Re-exported from `analyzers.py` for backward compatibility.
+- **`analyzers_ext.py` / `analyzers_ext2.py`**: Backward-compatibility shims that re-export the engine-backed analyzer classes.
 - **Shared helpers in `utils.py`**: `_collect_symbols_regex`, `_collect_typed_symbols_regex`, `_walk_project_sources`, `_collect_project_files`, `_walk_and_map_namespaces`, `_resolve_namespace_import`, `_strip_c_comments`, `_strip_hash_comments`, `_strip_php_comments`.
 - **`_detect_from_config(root)`**: Config-file detection (Cargo.toml → rust, go.mod → go, tsconfig.json/package.json → typescript, build.gradle/pom.xml → java, CMakeLists.txt → cpp, pyproject.toml/setup.py → python, Package.swift → swift, build.zig → zig, pubspec.yaml → dart, .csproj/.sln → csharp, Gemfile → ruby, composer.json → php). Takes priority over extension counting.
-- **`detect_language(root)`**: Config-file detection first, falling back to extension counting.
+- **`detect_language(root)`**: Explicit `.trammel.json` override first, then config-file detection, falling back to extension counting.
 - **`get_analyzer(language)`**: Factory returning the appropriate analyzer instance. Registry supports 15 languages: python, typescript, javascript, go, rust, cpp, c, java, kotlin, csharp, ruby, php, swift, dart, zig.
 
 ## 5. Planner (`core.py`) and Strategies (`strategies.py`)
 
-`core.py` (~570 LOC) is the thin orchestrator: `Planner.decompose()` and `explore_trajectories()`. Step generation, scoring, scaffold logic, goal NLP, and constraint propagation were extracted into `scoring.py`, `scaffold_logic.py`, `goal_nlp.py`, and `constraints.py` in v3.11.0. `strategies.py` (~280 LOC) holds the strategy registry and 9 built-in orderings.
+`core.py` (~477 LOC after 3.12.0) is the thin orchestrator: `Planner.decompose()` and `explore_trajectories()`. Step generation, scoring, scaffold logic, goal NLP, and constraint propagation were extracted into `scoring.py`, `scaffold_logic.py`, `goal_nlp.py`, and `constraints.py` in v3.11.0. `planner_helpers.py` (new in 3.12.0) holds the scaffold-only decomposition path, the beam-variant generator, and `suggest_strategy()` — all as free functions taking a `Planner` instance, so `core.py` can stay under the 500-LOC target. `strategies.py` (~275 LOC) holds the strategy registry and 9 built-in orderings.
 
 - **Recipe hit**: If `retrieve_best_recipe(goal, context_files)` returns a strategy (composite score >= 0.3), use it. Two-phase: text-only fast path, then structural scoring with file overlap. When `scaffold` is provided, recipe retrieval also compares scaffold fingerprints (architecture-shape canonical role strings) for structural matching.
 - **Scaffold recipe fallback (v3.11.2)**: When no scaffold is passed and `skip_recipes` is false, `decompose` tries `retrieve_best_scaffold_recipe(goal)` before falling back to full-repo analysis. This improves scaffold-less greenfield decomposition by reusing previously saved scaffold templates.
@@ -93,9 +97,19 @@ Architecture: `analyzers.py` (~460 LOC) holds the `LanguageAnalyzer` protocol, `
 - **`run_incremental(step_edits, project_root)`**: Verify step-by-step. Stops at first failure with `failed_at_step` index and `failure_analysis`.
 - **`analyze_failure(stderr, stdout, error_patterns=None)`**: Extracts error_type, message, file, line, suggestion from test output via regex patterns. Accepts optional `error_patterns` for language-specific patterns.
 
-## 7. Store (`store.py` + `store_recipes.py`)
+## 7. Store (`store.py` + mixins)
 
-Module split: `store.py` (~342 LOC) holds schema init, plans, steps, constraints, trajectories, and `RecipeStore` (inherits `RecipeStoreMixin`). `store_recipes.py` (~210 LOC) holds `RecipeStoreMixin` with recipe methods. `recipe_index.py` provides the zero-dep word index + MinHash LSH used by recipe retrieval.
+**Module split (v3.12.0).** `RecipeStore` composes six mixins, each in its own file — all well under 500 LOC:
+
+- **`store.py`** (~313 LOC): Class composition, schema init (`_init_schema`), context-manager lifecycle, constraint methods (`add_constraint`, `get_active_constraints`, `deactivate_constraint`), and trajectory methods (`log_trajectory`, `get_strategy_stats`, `get_trajectories`).
+- **`store_recipes.py`** (~373 LOC — down from 1223): `RecipeStoreMixin` — recipe CRUD (`save_recipe`, `search_recipes_by_trigrams`, `list_recipes`, `prune_recipes`, `validate_recipes`, `_ensure_scaffold_create_steps`) plus composite-scoring weight constants `_W_TEXT/_W_FILES/_W_SUCCESS/_W_RECENCY/_W_STRUCTURAL/_RECENCY_HALF_LIFE`.
+- **`store_retrieval.py`** (~286 LOC, new in 3.12.0): `RecipeRetrievalMixin` — `retrieve_best_recipe()` and `retrieve_near_matches()` unioning term/trigram/MinHash/arch-MinHash candidates and applying composite scoring with optional scaffold penalty.
+- **`store_scaffolds.py`** (~217 LOC, new in 3.12.0): `ScaffoldRecipeMixin` — separate `scaffold_recipes` / `scaffold_trigrams` tables + CRUD (`save_scaffold_recipe`, `retrieve_best_scaffold_recipe`).
+- **`store_plans.py`** (~372 LOC, new in 3.12.0): `PlanStoreMixin` — plan/step CRUD (`create_plan` with cycle detection, `get_plan`, `update_plan_status`, `list_plans`, `merge_plans`, `update_step`, `update_steps_batch`, `get_step`, `get_plan_progress`) and the `complete_plan` compound operation.
+- **`store_telemetry.py`** (~139 LOC, new in 3.12.0): `TelemetryMixin` — failure patterns (`record_failure_pattern`, `resolve_failure_pattern`, `get_failure_history`), `get_status_summary`, `log_event` (fire-and-forget), `get_usage_stats` (Laplace-smoothed strategy win rates).
+- **`store_agents.py`**: `AgentStoreMixin` — multi-agent step coordination (`claim_step`, `release_step`, `available_steps`).
+- **`recipe_index.py`**: Zero-dep word index (TF-IDF) + MinHash LSH + arch-MinHash used by retrieval.
+- **`recipe_fingerprints.py`** (new in 3.12.0): Structural fingerprinting helpers used by scoring (`strategy_fingerprint`, `scaffold_fingerprint`, `recipe_match_components`, etc.). `_FILE_ROLE_RE` / `_GOAL_ROLE_RE` regex tables compile from `data/patterns.json` at module load.
 
 **SQLite tables (7)**
 
@@ -168,23 +182,40 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 
 See `SYSTEM_PROMPT.md` for a reference orchestration guide describing the plan-verify-store loop for LLM clients.
 
-## 9. Utilities (`utils.py`, ~370 LOC)
+## 9. Utilities (`utils.py` + `text_similarity.py` + `scaffold_validation.py` + `pattern_config.py`)
+
+Utilities were split in v3.12.0 to keep every module under 500 LOC. Legacy imports from `utils` keep working via re-exports.
+
+**`utils.py`** (~434 LOC): file walking and source collection, comment stripping, symbol-collection helpers for regex analyzers, JSON/hashing, DB/transaction helpers, `topological_sort`, `analyze_failure`.
 
 - `_is_ignored_dir` — Check if a directory should be skipped (frozenset + `.egg-info` suffix). Expanded set includes `.next`, `.nuxt`, `coverage`, `.turbo`, `.parcel-cache`.
+- `_walk_project_sources`, `_collect_project_files` — Shared project-walk helpers.
+- `_walk_and_map_namespaces`, `_resolve_namespace_import` — Namespace-import resolution shared by C#/PHP/Java.
+- `_read_workspace_packages`, `_resolve_workspace_import` — TypeScript/JS workspace package resolution.
+- `_collect_symbols_regex`, `_collect_typed_symbols_regex` — Shared symbol collection for regex analyzers.
+- `_strip_c_comments`, `_strip_hash_comments`, `_strip_php_comments` — Comment strippers.
 - `topological_sort` — Kahn's algorithm with cycle handling (uses `deque` for O(1) queue ops).
 - `analyze_failure` — Structured error extraction from test output. Accepts optional `error_patterns` for language-specific patterns.
-- `unique_trigrams` — Distinct trigram set for index population and lookup.
-- `trigram_bag_cosine` — Shared-vocabulary trigram cosine similarity.
-- `_VERB_SYNONYMS` — Dict comprehension mapping 40+ verb variants to 9 canonical forms (e.g., "refactor"/"rewrite"/"reorganize" all map to "restructure").
-- `_ABBREVIATIONS` — Dict of ~40 common coding abbreviations (gc→garbage collector, db→database, auth→authentication, api→application programming interface, etc.).
-- `normalize_goal(text)` — Lowercase + abbreviation expansion + verb synonym replacement for goal text normalization. Abbreviation expansion enables recipe matching across abbreviated goals (e.g., "optimize GC" matches "optimize garbage collector" at 0.86+ similarity).
-- `word_jaccard(a, b)` — Word-level Jaccard similarity between two strings.
-- `word_substring_score(a, b)` — Partial word matching: checks for substring overlap between the word sets of two strings. Rewards partial matches that pure Jaccard misses.
-- `goal_similarity(a, b)` — Blended similarity: 0.3 trigram cosine + 0.4 word Jaccard + 0.3 substring on normalized text.
 - `transaction` — Context manager for explicit SQLite transactions with BUSY retry.
 - `dumps_json` — Stable `sort_keys=True` JSON for hashing and persistence.
 - `sha256_json` — Content-addressed recipe ID.
 - `db_connect` — WAL + foreign keys + `timeout=5.0`.
+
+**`text_similarity.py`** (~156 LOC, new in 3.12.0): trigram/cosine + goal-normalization APIs.
+
+- `_trigram_list`, `trigram_signature`, `unique_trigrams`, `trigram_bag_cosine`, `_cosine` — Trigram similarity.
+- `_VERB_SYNONYMS` — Dict mapping 40+ verb variants to 9 canonical forms (e.g., "refactor"/"rewrite"/"reorganize" all map to "restructure").
+- `_ABBREVIATIONS` — Dict of ~40 common coding abbreviations (gc→garbage collector, db→database, auth→authentication, api→application programming interface, etc.).
+- `_TECH_SYNONYMS` — Lightweight technical thesaurus (websocket↔socket.io, auth↔login, etc.).
+- `expand_goal_terms(text)` — Abbreviation + synonym expansion.
+- `normalize_goal(text)` — Lowercase + abbreviation expansion + verb synonym replacement. Enables recipe matching across abbreviated goals (e.g., "optimize GC" matches "optimize garbage collector" at 0.86+ similarity).
+- `word_jaccard(a, b)` — Word-level Jaccard similarity between two strings.
+- `word_substring_score(a, b)` — Partial word matching: checks for substring overlap between the word sets.
+- `goal_similarity(a, b)` — Blended similarity: 0.3 trigram cosine + 0.4 word Jaccard + 0.3 substring on normalized text.
+
+**`scaffold_validation.py`** (new in 3.12.0): `compute_scaffold_dag_metrics(graph)` (node/edge counts, critical-path length, layer widths, max parallelism; cycle-safe) and `validate_scaffold(entries, existing_files)` (cycles, duplicates, self-reference, over-constrained, missing deps).
+
+**`pattern_config.py`** (new in 3.12.0): Loads `trammel/data/patterns.json` with schema validation. `get_config()` returns a cached dict with `naming_convention_rules`, `infrastructure_patterns`, `file_role_patterns`, `goal_role_patterns`, `default_convention_confidence`. Consumed by `implicit_deps_engines.py` and `recipe_fingerprints.py` at module load; edit the JSON file to tune inference without touching code.
 
 ## 10. Plan Merging (`plan_merge.py`)
 

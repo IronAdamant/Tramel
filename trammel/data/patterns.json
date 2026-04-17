@@ -1,0 +1,76 @@
+{
+  "_comment": "Externalized pattern configuration used by trammel.implicit_deps_engines and trammel.recipe_fingerprints. Edit in place to tune inference without code changes; schema is validated on load (see trammel/pattern_config.py).",
+
+  "naming_convention_rules": {
+    "Service":     [["Model", 0.9], ["Route", 0.85], ["Utils", 0.7]],
+    "Route":       [["Service", 0.9], ["Model", 0.7]],
+    "Controller":  [["Service", 0.85], ["Model", 0.8], ["Route", 0.6]],
+    "Handler":     [["Service", 0.8], ["Model", 0.75]],
+    "Engine":      [["Model", 0.85], ["Service", 0.7], ["Utils", 0.6]],
+    "Collector":   [["Model", 0.8], ["Service", 0.7]],
+    "Aggregator":  [["Collector", 0.85], ["Model", 0.7]],
+    "Plugin":      [["Registry", 0.8], ["Service", 0.6]],
+    "Registry":    [["Plugin", 0.7]],
+    "Manager":     [["Service", 0.75], ["Model", 0.6]]
+  },
+
+  "default_convention_confidence": 0.5,
+
+  "infrastructure_patterns": [
+    ["fileStore", 0.7],
+    ["store", 0.65],
+    ["cache", 0.6],
+    ["logger", 0.5],
+    ["config", 0.5],
+    ["utils", 0.5],
+    ["helpers", 0.5]
+  ],
+
+  "file_role_patterns": [
+    ["[/\\\\]services?[/\\\\]", "service"],
+    ["[/\\\\]routes?[/\\\\]", "route"],
+    ["[/\\\\]controllers?[/\\\\]", "controller"],
+    ["[/\\\\]handlers?[/\\\\]", "handler"],
+    ["[/\\\\]engines?[/\\\\]", "engine"],
+    ["[/\\\\]algorithms?[/\\\\]", "algorithm"],
+    ["[/\\\\]models?[/\\\\]", "model"],
+    ["[/\\\\]repositories?[/\\\\]", "repository"],
+    ["[/\\\\]middleware[/\\\\]", "middleware"],
+    ["[/\\\\]plugins?[/\\\\]", "plugin"],
+    ["[/\\\\]registries?[/\\\\]", "registry"],
+    ["[/\\\\]collectors?[/\\\\]", "collector"],
+    ["[/\\\\]aggregators?[/\\\\]", "aggregator"],
+    ["[/\\\\]generators?[/\\\\]", "generator"],
+    ["[/\\\\]utils?[/\\\\]", "util"],
+    ["[/\\\\]lib[/\\\\]", "lib"],
+    ["[/\\\\]schemas?[/\\\\]", "schema"],
+    ["[/\\.]test\\.", "test"],
+    ["[/\\.]spec\\.", "spec"],
+    ["[/\\\\]tests?[/\\\\]", "test"],
+    ["[/\\.]config\\.", "config"],
+    ["[/\\.]index\\.", "entry"]
+  ],
+
+  "goal_role_patterns": [
+    ["\\bservice(s)?\\b", "service"],
+    ["\\broute(s)?\\b", "route"],
+    ["\\bcontroller(s)?\\b", "controller"],
+    ["\\bhandler(s)?\\b", "handler"],
+    ["\\bengine(s)?\\b", "engine"],
+    ["\\balgorithm(s)?\\b", "algorithm"],
+    ["\\bmodel(s)?\\b", "model"],
+    ["\\brepository|repositories\\b", "repository"],
+    ["\\bmiddleware\\b", "middleware"],
+    ["\\bplugin(s)?\\b", "plugin"],
+    ["\\bregistry|registries\\b", "registry"],
+    ["\\bcollector(s)?\\b", "collector"],
+    ["\\baggregator(s)?\\b", "aggregator"],
+    ["\\bgenerator(s)?\\b", "generator"],
+    ["\\butil(s)?\\b", "util"],
+    ["\\btest(s)?\\b", "test"],
+    ["\\bspec(s)?\\b", "test"],
+    ["\\bconfig(s)?\\b", "config"],
+    ["\\bindex\\b", "entry"],
+    ["\\bschema(s)?\\b", "schema"]
+  ]
+}

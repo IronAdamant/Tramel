@@ -1,6 +1,6 @@
 # Trammel wiki (local)
 
-**Version:** 3.11.2 · **Last updated:** 2026-04-14
+**Version:** 3.12.0 · **Last updated:** 2026-04-17
 
 This folder holds deeper project documentation for humans and agents. Root-level files stay the canonical quick references; this wiki expands terminology, behavior, and contracts.
 

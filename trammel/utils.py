@@ -1,4 +1,9 @@
-"""Pure stdlib helpers: trigrams, cosine, topological sort, import analysis, DB, JSON."""
+"""Pure stdlib helpers: topological sort, import analysis, DB, JSON, DAG metrics.
+
+Text- and goal-similarity helpers moved to :mod:`text_similarity`; they are
+re-exported below so existing ``from .utils import goal_similarity`` (etc.)
+imports continue to work.
+"""
 
 from __future__ import annotations
 
@@ -10,9 +15,31 @@ import random
 import re
 import sqlite3
 import time
-from collections import Counter, deque
+from collections import deque
 from collections.abc import Callable, Generator
 from typing import Any
+
+# Re-exports for backward compatibility. New code should import directly
+# from :mod:`text_similarity` / :mod:`scaffold_validation` when it only
+# needs those helpers.
+from .text_similarity import (  # noqa: F401
+    _cosine,
+    _trigram_list,
+    expand_goal_terms,
+    goal_similarity,
+    normalize_goal,
+    trigram_bag_cosine,
+    trigram_signature,
+    unique_trigrams,
+    word_jaccard,
+    word_substring_score,
+)
+# NOTE: scaffold_validation imports from this module, so it must be
+# imported lazily to avoid a circular import at module load.
+from .scaffold_validation import (  # noqa: F401,E402
+    compute_scaffold_dag_metrics,
+    validate_scaffold,
+)
 
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules",
@@ -272,150 +299,6 @@ def sha256_json(obj: object) -> str:
     return hashlib.sha256(dumps_json(obj).encode("utf-8")).hexdigest()
 
 
-# ── Trigram similarity ───────────────────────────────────────────────────────
-
-def _trigram_list(text: str) -> list[str]:
-    if len(text) < 3:
-        return []
-    return [text[i : i + 3].lower() for i in range(len(text) - 2)]
-
-
-def trigram_signature(text: str) -> list[float]:
-    """L2-normalized trigram count vector (sorted keys). Used for fingerprints."""
-    if len(text) < 3:
-        return [1.0]
-    counts = Counter(_trigram_list(text))
-    vec = [counts[t] for t in sorted(counts)]
-    norm = (sum(x * x for x in vec) ** 0.5) or 1.0
-    return [x / norm for x in vec]
-
-
-def unique_trigrams(text: str) -> set[str]:
-    """Return the set of distinct trigrams in text (lowercased)."""
-    return set(_trigram_list(text))
-
-
-def trigram_bag_cosine(a: str, b: str) -> float:
-    """Cosine similarity over bag-of-trigrams with a shared vocabulary."""
-    ca = Counter(_trigram_list(a))
-    cb = Counter(_trigram_list(b))
-    keys = sorted(set(ca) | set(cb))
-    if not keys:
-        return 1.0
-    va = [float(ca[k]) for k in keys]
-    vb = [float(cb[k]) for k in keys]
-    return _cosine(va, vb)
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    if not a or not b:
-        return 0.0
-    na, nb = sum(x * x for x in a) ** 0.5, sum(y * y for y in b) ** 0.5
-    return sum(x * y for x, y in zip(a, b)) / (na * nb) if na and nb else 0.0
-
-
-# ── Goal normalization and similarity ────────────────────────────────────────
-
-_VERB_SYNONYMS: dict[str, str] = {
-    v: canonical
-    for canonical, variants in {
-        "restructure": ["refactor", "rewrite", "rework", "reorganize", "restructure"],
-        "fix": ["fix", "repair", "patch", "debug", "resolve"],
-        "add": ["add", "create", "implement", "introduce", "build"],
-        "remove": ["remove", "delete", "drop", "eliminate"],
-        "update": ["update", "modify", "change", "adjust"],
-        "move": ["move", "migrate", "relocate", "transfer"],
-        "rename": ["rename"],
-        "test": ["test", "verify", "validate", "check"],
-        "optimize": ["optimize", "improve", "enhance"],
-        "extract": ["extract", "split", "separate", "decouple"],
-    }.items()
-    for v in variants
-}
-
-_ABBREVIATIONS: dict[str, str] = {
-    "gc": "garbage collector", "db": "database", "auth": "authentication",
-    "config": "configuration", "impl": "implementation", "init": "initialization",
-    "env": "environment", "deps": "dependencies", "dep": "dependency",
-    "repo": "repository", "fn": "function", "func": "function",
-    "param": "parameter", "params": "parameters", "args": "arguments",
-    "err": "error", "msg": "message", "req": "request", "resp": "response",
-    "res": "response", "cmd": "command", "ctx": "context", "util": "utility",
-    "utils": "utilities", "lib": "library", "pkg": "package", "dir": "directory",
-    "perf": "performance", "opt": "optimize", "mem": "memory",
-    "alloc": "allocation", "io": "input output", "ui": "user interface",
-    "api": "application programming interface", "cli": "command line interface",
-    "orm": "object relational mapping", "sdk": "software development kit",
-    "jwt": "json web token", "url": "uniform resource locator",
-    "http": "hypertext transfer protocol", "src": "source", "dst": "destination",
-    "ref": "reference", "refs": "references", "idx": "index", "tmp": "temporary",
-    "async": "asynchronous", "sync": "synchronous",
-}
-
-# Lightweight technical thesaurus for recipe retrieval
-_TECH_SYNONYMS: dict[str, list[str]] = {
-    "websocket": ["socket.io", "real-time transport", "event stream", "realtime"],
-    "merge": ["combine", "integrate", "reconcile", "unify"],
-    "conflict resolution": ["ot", "crdt", "consistency", "merge"],
-    "auth": ["authentication", "authorization", "login", "token"],
-    "metric": ["telemetry", "monitoring", "observability", "dashboard"],
-    "optimize": ["improve", "enhance", "tune", "refine"],
-    "validate": ["verify", "check", "assert", "test"],
-    "deploy": ["release", "publish", "ship", "launch"],
-    "cache": ["memoize", "store", "buffer"],
-    "queue": ["buffer", "stream", "pipeline"],
-}
-
-
-def expand_goal_terms(text: str) -> str:
-    """Expand abbreviations, tech synonyms, and normalize verbs for retrieval."""
-    words = text.lower().split()
-    expanded: list[str] = []
-    for w in words:
-        expanded.append(_ABBREVIATIONS.get(w, w))
-        synonyms = _TECH_SYNONYMS.get(w)
-        if synonyms:
-            expanded.extend(synonyms)
-    return " ".join(_VERB_SYNONYMS.get(w, w) for w in expanded)
-
-
-def normalize_goal(text: str) -> str:
-    """Lowercase, expand abbreviations, then replace coding verbs with canonical synonyms."""
-    words = text.lower().split()
-    expanded = " ".join(_ABBREVIATIONS.get(w, w) for w in words)
-    return " ".join(_VERB_SYNONYMS.get(w, w) for w in expanded.split())
-
-
-def word_jaccard(a: str, b: str) -> float:
-    """Word-level Jaccard similarity between two strings."""
-    wa, wb = set(a.split()), set(b.split())
-    union = wa | wb
-    return len(wa & wb) / len(union) if union else 1.0
-
-
-def word_substring_score(a: str, b: str) -> float:
-    """Partial credit when words are substrings of each other."""
-    wa = a.lower().split()
-    wb = b.lower().split()
-    if not wa or not wb:
-        return 0.0
-    matches = sum(
-        1 for w_a in wa
-        if any(w_a in w_b or w_b in w_a for w_b in wb)
-    )
-    return matches / len(wa)
-
-
-def goal_similarity(a: str, b: str) -> float:
-    """Blended similarity: trigram cosine + word Jaccard + substring on normalized text."""
-    tri = trigram_bag_cosine(a, b)
-    norm_a = normalize_goal(a)
-    norm_b = normalize_goal(b)
-    wj = word_jaccard(norm_a, norm_b)
-    ws = word_substring_score(norm_a, norm_b)
-    return 0.3 * tri + 0.4 * wj + 0.3 * ws
-
-
 # ── Database ─────────────────────────────────────────────────────────────────
 
 DEFAULT_DB_PATH = "trammel.db"
@@ -491,154 +374,6 @@ def topological_sort(deps: dict[str, list[str]]) -> list[str]:
     return result
 
 
-def compute_scaffold_dag_metrics(graph: dict[str, list[str]]) -> dict[str, Any]:
-    """Metrics for a scaffold DAG (node = file id; edges = depends_on).
-
-    Aligns with common plan-graph summaries: longest chain length (nodes),
-    per-level widths, and max width (parallelism). Uses the same dependency
-    convention as ``topological_sort``: each node lists the files it depends on.
-    Handles cycles gracefully by using longest-path DP with safe fallbacks.
-    """
-    g: dict[str, list[str]] = {k: list(v) for k, v in graph.items()}
-    all_nodes: set[str] = set(g.keys())
-    for targets in g.values():
-        all_nodes.update(targets)
-    for n in all_nodes:
-        g.setdefault(n, [])
-    if not all_nodes:
-        return {
-            "node_count": 0,
-            "edge_count": 0,
-            "max_dependency_depth": 0,
-            "critical_path_length": 0,
-            "max_parallelism": 0,
-            "layer_widths": [],
-        }
-    order = topological_sort(g)
-    longest_path: dict[str, int] = {}
-    for n in order:
-        deps = g.get(n, [])
-        # Use .get(d, 0) so cycles (where a dependency hasn't been processed yet)
-        # don't crash with KeyError.
-        longest_path[n] = 1 + max((longest_path.get(d, 0) for d in deps), default=0)
-    critical_path_length = max(longest_path.values()) if longest_path else 0
-    level: dict[str, int] = {}
-    for n in order:
-        deps = g.get(n, [])
-        level[n] = max((level.get(d, -1) for d in deps), default=-1) + 1
-    max_level = max(level.values()) if level else -1
-    layer_widths = [0] * (max_level + 1) if max_level >= 0 else []
-    for n in all_nodes:
-        layer_widths[level[n]] += 1
-    max_parallelism = max(layer_widths) if layer_widths else 0
-    edge_count = sum(len(v) for v in g.values())
-    return {
-        "node_count": len(all_nodes),
-        "edge_count": edge_count,
-        "max_dependency_depth": max_level + 1 if max_level >= 0 else 0,
-        "critical_path_length": critical_path_length,
-        "max_parallelism": max_parallelism,
-        "layer_widths": layer_widths,
-    }
-
-
-def validate_scaffold(
-    entries: list[dict[str, Any]],
-    existing_files: set[str] | None = None,
-) -> dict[str, Any]:
-    """Pre-flight validation for scaffold entries.
-
-    Detects cycles, duplicate files, self-referential entries,
-    over-constrained nodes (>4 deps), and missing dependencies.
-    ``over_constrained`` is surfaced as a warning and does not invalidate
-    the scaffold, because test files and facades commonly have 5+ deps.
-    Returns a dict with ``valid`` bool and diagnostic details.
-    """
-    result: dict[str, Any] = {
-        "valid": True,
-        "error": None,
-        "cycle": None,
-        "duplicates": [],
-        "missing_deps": [],
-        "over_constrained": [],
-        "self_referential": [],
-    }
-
-    files = [e.get("file") for e in entries if e.get("file")]
-    file_set = set(files)
-
-    # Duplicate files
-    seen: set[str] = set()
-    for f in files:
-        if f in seen:
-            result["duplicates"].append(f)
-        seen.add(f)
-    if result["duplicates"]:
-        result["valid"] = False
-        result["error"] = "duplicate_files"
-
-    # Build declared graph
-    graph: dict[str, list[str]] = {}
-    for e in entries:
-        f = e.get("file")
-        if f:
-            graph[f] = [d for d in (e.get("depends_on") or []) if d]
-
-    # Self-referential
-    for f, deps in graph.items():
-        if f in deps:
-            result["self_referential"].append(f)
-    if result["self_referential"] and result["valid"]:
-        result["valid"] = False
-        result["error"] = "self_referential"
-
-    # Over-constrained (>4 deps) — warn only, do not fail
-    for f, deps in graph.items():
-        if len(deps) > 4:
-            result["over_constrained"].append({"file": f, "deps": deps})
-
-    # Missing dependencies
-    if existing_files is not None:
-        all_known = file_set | existing_files
-        for f, deps in graph.items():
-            for d in deps:
-                if d not in all_known:
-                    result["missing_deps"].append({"file": f, "missing": d})
-        if result["missing_deps"] and result["valid"]:
-            result["valid"] = False
-            result["error"] = "missing_dependencies"
-
-    # Cycle detection via DFS
-    WHITE, GRAY, BLACK = 0, 1, 2
-    color = {f: WHITE for f in graph}
-
-    def dfs(node: str, path: list[str]) -> list[str] | None:
-        color[node] = GRAY
-        for neighbor in graph.get(node, []):
-            if neighbor not in graph:
-                continue
-            ncolor = color.get(neighbor, WHITE)
-            if ncolor == GRAY:
-                cycle_start = path.index(neighbor)
-                return path[cycle_start:] + [neighbor]
-            if ncolor == WHITE:
-                cycle = dfs(neighbor, path + [neighbor])
-                if cycle:
-                    return cycle
-        color[node] = BLACK
-        return None
-
-    if result["valid"]:
-        for f in graph:
-            if color[f] == WHITE:
-                cycle = dfs(f, [f])
-                if cycle:
-                    result["cycle"] = cycle
-                    result["valid"] = False
-                    result["error"] = "circular_dependency"
-                    break
-
-    return result
 
 
 # ── Failure analysis ─────────────────────────────────────────────────────────

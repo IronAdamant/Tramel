@@ -274,12 +274,22 @@ def _run_tests(
 
 
 class ExecutionHarness:
+    """Run edits and tests inside an isolated, filtered copy of a project.
+
+    The harness makes a temp-directory copy of the project, applies edits,
+    and runs a test command — so failed attempts never touch the working
+    tree. Use :meth:`verify_step` for one-off validation, or
+    :meth:`prepare_base` + :meth:`run_from_base` when running many beams
+    against the same project (skips the initial copy cost).
+    """
+
     def __init__(
         self,
         timeout_s: int = 60,
         test_cmd: list[str] | None = None,
         analyzer: LanguageAnalyzer | None = None,
     ) -> None:
+        """Initialize with a test-command timeout, optional command override, and analyzer."""
         self.timeout_s = timeout_s
         self.test_cmd = test_cmd
         self._analyzer = analyzer

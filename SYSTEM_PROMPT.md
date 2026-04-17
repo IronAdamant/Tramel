@@ -30,6 +30,15 @@ Tools are organized by category (returned in `status`):
 - **coordination**: `add_constraint`, `get_constraints`, `list_plans`, `history`
 - **telemetry**: `status`, `list_strategies`, `usage_stats`, `failure_history`
 
+### `decompose` vs `explore` vs `create_plan` — which do I call?
+
+- **`decompose`** is the canonical entry point. It produces one dependency-aware strategy. Call it first. Use this for almost every task.
+- **`explore`** calls `decompose` internally, then fans out into multiple beam variants (bottom-up, top-down, risk-first). Only call it when you want to compare ordering strategies — e.g., after a prior attempt failed, or on high-risk refactors.
+- **`create_plan`** persists a strategy to the SQLite store and returns a `plan_id` for tracking. Call it *after* `decompose` (or after picking a beam from `explore`) when you want multi-step tracking, step claiming, or recipe storage on success.
+
+**Minimal workflow:** `decompose` → `create_plan` → execute → `complete_plan`.
+**When to add `explore`:** only if you want alternative orderings. Don't call both `decompose` and `explore` — `explore` already includes a fresh decompose.
+
 ## Workflow: Plan-Verify-Store Loop
 
 ### 1. Check constraints and recipes

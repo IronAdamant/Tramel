@@ -8,10 +8,55 @@
 
 ## Active context
 
-- **Version:** 3.11.2
-- **Focus:** Long-term improvements to decomposition, plan merging, recipe matching, and verify_step depth.
+- **Version:** 3.12.0
+- **Focus:** Module-scale refactor — every file under 500 LOC, externalized pattern config, expanded MCP dispatch test coverage, docstrings on public APIs.
 
 ## Session log
+
+---
+
+## v3.12.0 — Module split (every file under 500 LOC)
+
+**Date:** 2026-04-17
+
+> Version number rationale: README already documented a "v3.11.3" set of runtime features (over_constrained warning, `explore` fallback, auto-persisting trajectories) that had shipped in the repo without a pyproject bump. This refactor is substantial enough to warrant a minor-version bump, so pyproject goes directly from the drifted 3.11.2 to **3.12.0**, keeping the existing 3.11.3 changelog entry intact.
+
+### Summary
+Took the codebase from 9 files over the 500-LOC project-convention target (worst at 1223) down to **zero**. Extracted 14 new modules, externalized hardcoded pattern tables to `trammel/data/patterns.json`, added MCP dispatch integration tests, and documented every Planner / ExecutionHarness / RecipeStore / MCP-handler public API. All public imports preserved via re-exports from legacy modules; **406 tests pass** (395 prior + 11 new).
+
+### Splits (by file)
+
+- **`store_recipes.py`** (1223 → 373): extracted
+  - `recipe_fingerprints.py` — structural fingerprinting + composite-match scoring (`strategy_fingerprint`, `structural_similarity`, `goal_fingerprint_from_text`, `scaffold_fingerprint`, `scaffold_structural_similarity`, `goal_scaffold_fingerprint_from_text`, `is_scaffold_pattern`, `recipe_match_components`, `sql_in`, `_FILE_ROLE_RE`, `_GOAL_ROLE_RE`).
+  - `store_retrieval.py` — `RecipeRetrievalMixin` with `retrieve_best_recipe` + `retrieve_near_matches`.
+  - `store_scaffolds.py` — `ScaffoldRecipeMixin` with the `scaffold_recipes` / `scaffold_trigrams` schema and related CRUD.
+- **`store.py`** (745 → 313): extracted `store_plans.py` (plan/step CRUD, `complete_plan`, merge wrapper, `_STEP_COLUMNS`, `_step_to_dict`) and `store_telemetry.py` (failure patterns, status summary, usage stats, `log_event`). Also fixed an MRO bug where `RecipeStoreMixin` had a `log_event` stub that shadowed `TelemetryMixin`.
+- **`mcp_server.py`** (717 → 400): extracted `tool_schemas.py` — the 30 JSON Schema definitions plus `TOOL_CATEGORIES`, `LANGUAGES`, and `coerce_int_params()`. `mcp_server.py` now holds only the `_handle_*` functions, the `_DISPATCH` table, `_validate_registries()`, and `dispatch_tool()`.
+- **`implicit_deps.py`** (807 → 268): extracted `implicit_deps_engines.py` (`NamingConventionEngine`, `SharedStateDetector`, `_extract_base_name`, `_extract_suffix`, `INFRASTRUCTURE_PATTERNS`) and `pattern_learner.py` (`PatternLearner`).
+- **`analyzer_engine.py`** (588 → ~195): extracted `analyzer_resolvers.py` — all per-language import-graph resolvers (`_resolve_go_imports`, `_resolve_rust_imports`, `_resolve_cpp_imports`, `_resolve_java_imports`, `_detect_java_source_roots`, `_resolve_csharp_imports`, `_resolve_ruby_imports`, `_resolve_php_imports`, `_resolve_swift_imports`, `_build_swift_module_map`, `_resolve_dart_imports`, `_resolve_zig_imports`) and their regex constants (`_GO_IMPORT_LINE_RE`, `_CARGO_*_RE`, `_MAVEN_SRC_DIR_RE`).
+- **`utils.py`** (699 → 434): extracted `text_similarity.py` (trigrams, cosine, goal normalization, `_VERB_SYNONYMS`, `_ABBREVIATIONS`, `_TECH_SYNONYMS`, `expand_goal_terms`, `goal_similarity`) and `scaffold_validation.py` (`compute_scaffold_dag_metrics`, `validate_scaffold`). Lazy import in `scaffold_validation` breaks a circular with `utils.topological_sort`.
+- **`scaffold_logic.py`** (649 → 179): extracted `scaffold_creation.py` — the goal→scaffold heuristic pipeline (`_creation_hints`, `_generate_creation_steps`, `_detect_layered_architecture`, `_directories_for_role_hints`, `_fallback_directories`, `_sibling_convention_clones`, `_infer_file_name`, plus `_ROLE_DIR_SUBSTRINGS`, `_FALLBACK_ROLE_DIRS`, `_LAYER_DIRS`, `_LAYER_PATTERNS` constants). `scaffold_logic.py` now re-exports them so existing `from .scaffold_logic import _creation_hints` imports continue to work.
+- **`core.py`** (667 → 477): extracted `planner_helpers.py` (`decompose_scaffold_only(planner, …)`, `explore_trajectories(planner, …)`, `suggest_strategy(store, goal, language)`). `Planner._decompose_scaffold_only`, `Planner.explore_trajectories`, and the legacy `_suggest_strategy` name are thin delegations.
+- **`analyzers.py`** (525 → 420): extracted `language_detection.py` (`detect_language`, `_detect_from_config`, `_detect_from_trammel_config`, `_LANG_EXTENSIONS`). Re-exported from `analyzers` for backward compatibility.
+
+### Configuration extraction
+- **`trammel/data/patterns.json`**: new JSON configuration with `naming_convention_rules` (for `NamingConventionEngine`), `infrastructure_patterns`, `file_role_patterns`, `goal_role_patterns`, and `default_convention_confidence`. Previously these were inline Python tables in `implicit_deps.py` / `store_recipes.py`.
+- **`trammel/pattern_config.py`**: loader with schema validation and a cached `get_config()` accessor. `implicit_deps_engines.py` and `recipe_fingerprints.py` consume it at module load so compiled regex tables and convention rules stay identical to pre-refactor.
+- **`pyproject.toml`**: `[tool.setuptools.package-data]` now includes `data/*.json` so the config ships in the wheel.
+
+### Documentation / discoverability
+- Version bumped to **3.12.0** in `pyproject.toml` (README `v3.11.3` changelog entry is retained — it describes prior shipped features; the drifted 3.11.2 → 3.12.0 bump closes the gap and marks this refactor as its own release).
+- `README.md`: "Verifies as it goes" clarified — Python harness runs tests; MCP `verify_step` is static/heuristic (run your test suite yourself between steps, or call `plan_and_execute` from Python for real isolated execution).
+- `SYSTEM_PROMPT.md`: new "`decompose` vs `explore` vs `create_plan` — which do I call?" decision block. `decompose` is the canonical entry point; `explore` fans out into beam variants (calls `decompose` internally — don't call both); `create_plan` persists a strategy.
+- Docstrings added to `Planner` (class + every public method), `ExecutionHarness` (class + `__init__`), `RecipeStore` (class + lifecycle), every MCP `_handle_*` in `mcp_server.py`, constraint methods (`add_constraint`, `get_active_constraints`, `deactivate_constraint`, `log_trajectory`), and all 11 language analyzer subclasses.
+
+### Testing
+- **New file:** `tests/test_mcp_dispatch.py` with 11 tests covering schema↔dispatch parity, `TOOL_CATEGORIES` sync with `_DISPATCH`, unknown-tool error shape, schema field shape, previously-uncovered handlers (`record_steps`, `claim_step` / `release_step` / `available_steps`, `merge_plans`, `usage_stats`, `list_strategies`, `resolve_failure`), and schema-driven int coercion (string `plan_id` values accepted).
+- Baseline 395 tests pass before every split. After final split: **406 tests pass** (395 + 11 new).
+
+### Minor
+- `analyzers_ext.py` / `analyzers_ext2.py` kept as backward-compat shims (intentional re-exports; the earlier critique mis-flagged them as dead).
+- `COMPLETE_PROJECT_DOCUMENTATION.md`, `wiki-local/spec-project.md`, `wiki-local/glossary.md`, and this log updated to reflect the new module layout.
 
 ---
 
