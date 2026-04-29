@@ -24,16 +24,26 @@ _STEP_COLUMNS = (
 )
 
 
+def _safe_json(raw: str | None, default: Any) -> Any:
+    """json.loads with fallback so a corrupt cell doesn't crash the whole row."""
+    if raw is None or raw == "":
+        return default
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return default
+
+
 def _step_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     """Convert a step row to a dictionary with parsed JSON fields."""
     return {
         "id": row["id"], "plan_id": row["plan_id"],
         "step_index": row["step_index"],
         "description": row["description"], "rationale": row["rationale"],
-        "depends_on": json.loads(row["depends_on"]),
-        "status": row["status"], "edits": json.loads(row["edits_json"]),
-        "verification": json.loads(row["verification"]) if row["verification"] else None,
-        "constraints_found": json.loads(row["constraints_found"]),
+        "depends_on": _safe_json(row["depends_on"], []),
+        "status": row["status"], "edits": _safe_json(row["edits_json"], []),
+        "verification": _safe_json(row["verification"], None) if row["verification"] else None,
+        "constraints_found": _safe_json(row["constraints_found"], []),
         "claimed_by": row["claimed_by"], "claimed_at": row["claimed_at"],
         "created": row["created"],
     }
@@ -148,15 +158,31 @@ class PlanStoreMixin:
             f"SELECT {_STEP_COLUMNS} FROM steps WHERE plan_id = ? ORDER BY step_index",
             (plan_id,),
         ).fetchall()
-        return {
+        # Fall back to a sentinel + corruption flag rather than raising.
+        # Stored plans can have malformed JSON (column written before a
+        # crash, or by an older version); callers like resume/available_steps
+        # need to be able to inspect the row without us 500-erroring.
+        strategy = _safe_json(row["strategy"], None)
+        scaffold = _safe_json(row["scaffold"], []) if row["scaffold"] else []
+        corrupted_fields: list[str] = []
+        if strategy is None:
+            strategy = {}
+            corrupted_fields.append("strategy")
+        if row["scaffold"] and not isinstance(scaffold, list):
+            corrupted_fields.append("scaffold")
+            scaffold = []
+        result: dict[str, Any] = {
             "id": row["id"], "goal": row["goal"],
-            "strategy": json.loads(row["strategy"]),
-            "scaffold": json.loads(row["scaffold"]) if row["scaffold"] else [],
+            "strategy": strategy,
+            "scaffold": scaffold,
             "status": row["status"], "current_step": row["current_step"],
             "total_steps": row["total_steps"],
             "created": row["created"], "updated": row["updated"],
             "steps": [_step_to_dict(s) for s in steps],
         }
+        if corrupted_fields:
+            result["_corrupted_fields"] = corrupted_fields
+        return result
 
     def update_plan_status(self, plan_id: int, status: str) -> None:
         with transaction(self.conn):
@@ -172,6 +198,44 @@ class PlanStoreMixin:
                 scaffold = plan.get("scaffold", [])
                 if scaffold:
                     self.save_scaffold_recipe(plan["goal"], scaffold, outcome)
+
+    def prune_plans(
+        self,
+        max_age_days: int = 7,
+        status: str | None = "pending",
+    ) -> int:
+        """Delete plans (plus their steps/trajectories) matching age/status.
+
+        Symmetric to ``prune_recipes``: removes stuck or stale plans so the
+        DB doesn't accumulate noise.  Default targets ``pending`` plans
+        older than 7 days, which is the shape of pollution observed in
+        long-running databases.  Returns the number of plans deleted.
+        """
+        cutoff = time.time() - (max_age_days * 86400)
+        params: list[Any] = [cutoff]
+        query = "SELECT id FROM plans WHERE updated < ?"
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status)
+        rows = self.conn.execute(query, tuple(params)).fetchall()
+        if not rows:
+            return 0
+        plan_ids = [r["id"] for r in rows]
+        placeholders = ",".join("?" for _ in plan_ids)
+        with transaction(self.conn):
+            self.conn.execute(
+                f"DELETE FROM steps WHERE plan_id IN ({placeholders})", tuple(plan_ids),
+            )
+            self.conn.execute(
+                f"DELETE FROM trajectories WHERE plan_id IN ({placeholders})", tuple(plan_ids),
+            )
+            self.conn.execute(
+                f"DELETE FROM constraints WHERE plan_id IN ({placeholders})", tuple(plan_ids),
+            )
+            self.conn.execute(
+                f"DELETE FROM plans WHERE id IN ({placeholders})", tuple(plan_ids),
+            )
+        return len(plan_ids)
 
     def list_plans(self, status: str | None = None) -> list[dict[str, Any]]:
         query = ("SELECT id, goal, status, current_step, total_steps, created, updated "

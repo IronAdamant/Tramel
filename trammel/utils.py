@@ -308,7 +308,12 @@ _BUSY_BASE_DELAY = 0.05
 
 
 def db_connect(path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, timeout=5.0)
+    # isolation_level=None puts the driver in manual mode: no implicit BEGIN
+    # before DML statements.  All writes go through transaction() below, so
+    # we own the BEGIN/COMMIT lifecycle and can never get bitten by Python
+    # auto-starting a transaction we don't know about (which produced
+    # "cannot start a transaction within a transaction" on Python 3.14).
+    conn = sqlite3.connect(path, timeout=5.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -319,7 +324,28 @@ def db_connect(path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
 def transaction(
     conn: sqlite3.Connection, immediate: bool = True,
 ) -> Generator[sqlite3.Connection, None, None]:
-    """Execute a block inside an explicit transaction with SQLITE_BUSY retry."""
+    """Execute a block inside an explicit transaction with SQLITE_BUSY retry.
+
+    If the connection already has a transaction open (caller wrapped us, or
+    a stray implicit transaction is still active), use a SAVEPOINT so the
+    inner block stays atomic without colliding with the outer BEGIN.
+    """
+    if conn.in_transaction:
+        sp = f"trammel_sp_{int(time.time() * 1_000_000)}_{random.randrange(1 << 30)}"
+        conn.execute(f"SAVEPOINT {sp}")
+        try:
+            yield conn
+        except Exception:
+            try:
+                conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                conn.execute(f"RELEASE SAVEPOINT {sp}")
+            except sqlite3.Error:
+                pass
+            raise
+        else:
+            conn.execute(f"RELEASE SAVEPOINT {sp}")
+        return
+
     mode = "BEGIN IMMEDIATE" if immediate else "BEGIN"
     for attempt in range(_BUSY_RETRIES):
         try:
@@ -334,10 +360,14 @@ def transaction(
             time.sleep(delay)
     try:
         yield conn
-        conn.commit()
     except Exception:
-        conn.rollback()
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
         raise
+    else:
+        conn.execute("COMMIT")
 
 
 # ── Topological sort ─────────────────────────────────────────────────────────

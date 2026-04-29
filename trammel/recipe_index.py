@@ -9,7 +9,7 @@ import sqlite3
 from collections import Counter
 from typing import Any
 
-from .utils import expand_goal_terms
+from .utils import expand_goal_terms, transaction
 
 
 def _tokenize(text: str) -> list[str]:
@@ -199,13 +199,11 @@ class RecipeIndexMixin:
             for r in self.conn.execute("SELECT DISTINCT recipe_sig FROM recipe_terms").fetchall()
         }
         rows = self.conn.execute("SELECT sig, pattern FROM recipes").fetchall()
-        added = 0
-        for row in rows:
-            sig = row["sig"]
-            if sig in indexed:
-                continue
-            goal = row["pattern"]
-            self._index_recipe_terms(sig, goal)
-            self._index_recipe_minhash(sig, goal)
-            added += 1
-        return {"recipes_checked": len(rows), "indexed": added}
+        pending = [(r["sig"], r["pattern"]) for r in rows if r["sig"] not in indexed]
+        if not pending:
+            return {"recipes_checked": len(rows), "indexed": 0}
+        with transaction(self.conn):
+            for sig, goal in pending:
+                self._index_recipe_terms(sig, goal)
+                self._index_recipe_minhash(sig, goal)
+        return {"recipes_checked": len(rows), "indexed": len(pending)}

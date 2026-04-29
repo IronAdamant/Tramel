@@ -1819,5 +1819,153 @@ class TestTrammelConfig(unittest.TestCase):
             self.assertEqual(a.name, "rust")
 
 
+class TestFindingsRegressions(unittest.TestCase):
+    """Regressions for the v3.12.0 review findings (trammel_open.md)."""
+
+    def _store(self) -> tuple[RecipeStore, str]:
+        path = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+        return RecipeStore(path), path
+
+    def test_writes_succeed_after_init_with_recipe_backfill(self) -> None:
+        # Reproduces the "cannot start a transaction within a transaction"
+        # bug: backfill_recipe_index ran DML outside a transaction, leaving
+        # an implicit Python transaction open and breaking later writes.
+        store, path = self._store()
+        try:
+            store.save_recipe("seed", {"steps": [{"file": "a.py"}]}, True)
+            store.close()
+
+            reopened = RecipeStore(path)
+            try:
+                self.assertEqual(
+                    reopened.create_plan("g", {"steps": []}),
+                    1,
+                )
+                self.assertEqual(
+                    reopened.add_constraint("avoid", "test"),
+                    1,
+                )
+                reopened.save_recipe("g2", {"steps": [{"file": "b.py"}]}, True)
+            finally:
+                reopened.close()
+        finally:
+            os.unlink(path)
+
+    def test_get_plan_survives_corrupt_strategy_json(self) -> None:
+        store, path = self._store()
+        try:
+            pid = store.create_plan("g", {"steps": []})
+            store.conn.execute(
+                "UPDATE plans SET strategy = ? WHERE id = ?",
+                ("{not valid json", pid),
+            )
+            plan = store.get_plan(pid)
+            self.assertIsNotNone(plan)
+            self.assertIn("strategy", plan["_corrupted_fields"])
+            self.assertIsNotNone(store.get_plan_progress(pid))
+            self.assertEqual(store.get_available_steps(pid, "agent"), [])
+        finally:
+            store.close()
+            os.unlink(path)
+
+    def test_prune_plans_removes_stuck_pending_plans(self) -> None:
+        store, path = self._store()
+        try:
+            old1 = store.create_plan("old1", {"steps": []})
+            old2 = store.create_plan("old2", {"steps": []})
+            done = store.create_plan("done", {"steps": []})
+            store.update_plan_status(done, "completed")
+            store.conn.execute(
+                "UPDATE plans SET updated = ? WHERE id IN (?, ?)",
+                (_time.time() - 30 * 86400, old1, old2),
+            )
+            self.assertEqual(store.prune_plans(), 2)
+            remaining = {p["id"] for p in store.list_plans()}
+            self.assertEqual(remaining, {done})
+        finally:
+            store.close()
+            os.unlink(path)
+
+    def test_prune_plans_dispatch_handler_registered(self) -> None:
+        store, path = self._store()
+        try:
+            out = dispatch_tool(store, "prune_plans", {})
+            self.assertEqual(out, {"pruned": 0})
+            self.assertIn("prune_plans", _TOOL_SCHEMAS)
+        finally:
+            store.close()
+            os.unlink(path)
+
+    def test_recipe_files_dedup_on_init(self) -> None:
+        store, path = self._store()
+        try:
+            store.save_recipe("g", {"steps": [{"file": "a.py"}, {"file": "b.py"}]}, True)
+            sig = store.conn.execute("SELECT sig FROM recipes").fetchone()[0]
+            store.close()
+            # Drop the unique index to simulate the pre-fix schema, then
+            # stage duplicates an older save_recipe would have left behind.
+            import sqlite3 as _sqlite3
+            raw = _sqlite3.connect(path)
+            raw.execute("DROP INDEX IF EXISTS idx_recipe_files_unique")
+            for _ in range(5):
+                raw.execute(
+                    "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
+                    (sig, "a.py"),
+                )
+            raw.commit()
+            raw.close()
+
+            store = RecipeStore(path)
+            files = store.list_recipes()[0]["files"]
+            self.assertEqual(sorted(files), ["a.py", "b.py"])
+            # And the index should now be present so duplicates are blocked.
+            store.close()
+            raw = _sqlite3.connect(path)
+            try:
+                raw.execute(
+                    "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
+                    (sig, "a.py"),
+                )
+                self.fail("expected unique constraint to block re-insert")
+            except _sqlite3.IntegrityError:
+                pass
+            finally:
+                raw.close()
+        finally:
+            os.unlink(path)
+
+    def test_explore_scaffold_match_respects_scope(self) -> None:
+        from trammel.core import _scaffold_matches_scope
+
+        out_of_scope = [{"file": "src/data/x.js"}, {"file": "src/utils/y.js"}]
+        self.assertFalse(
+            _scaffold_matches_scope(out_of_scope, "src/services/regionLockOrchestrator"),
+        )
+        in_scope = [{"file": "src/services/regionLockOrchestrator/ttl.js"}]
+        self.assertTrue(
+            _scaffold_matches_scope(in_scope, "src/services/regionLockOrchestrator"),
+        )
+        self.assertTrue(_scaffold_matches_scope(out_of_scope, None))
+
+    def test_get_recipe_returns_near_matches_when_no_match(self) -> None:
+        store, path = self._store()
+        try:
+            store.save_recipe(
+                "Refactor 6 RecipeLab features to extract shared helpers",
+                {"steps": [{"file": "src/utils/helper.js"}]},
+                True,
+            )
+            out = dispatch_tool(store, "get_recipe", {
+                "goal": "extract ttlGuard helper",
+            })
+            self.assertIsNone(out["match"])
+            # Same retrieval path now informs the caller of nearby misses
+            # so get_recipe agrees with explore.near_match_recipes.
+            self.assertIn("near_match_recipes", out)
+        finally:
+            store.close()
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main()

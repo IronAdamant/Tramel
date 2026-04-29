@@ -54,7 +54,7 @@ Add to your `.claude/.mcp.json` (Claude Code) or equivalent MCP config:
 }
 ```
 
-Your AI assistant now has access to 30+ planning tools — decompose goals, create plans, claim steps, verify work, and save recipes. See `SYSTEM_PROMPT.md` for the full orchestration guide.
+Your AI assistant now has access to 31 planning tools — decompose goals, create plans, claim steps, verify work, save recipes, and prune stale plans. See `SYSTEM_PROMPT.md` for the full orchestration guide.
 
 ### From the Command Line
 
@@ -205,6 +205,19 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 
 <details>
 <summary><strong>Full Changelog</strong></summary>
+
+### v3.12.1 — Findings review fixes (transaction nesting + write-path hardening)
+
+Bug-fix follow-up to v3.12.0. No public API changes.
+
+- **SQLite transaction nesting fixed** (Python 3.14). `db_connect` now uses `isolation_level=None` and `transaction()` is SAVEPOINT-aware, so `create_plan`, `add_constraint`, `save_recipe`, `validate_recipes`, and `log_event` no longer hit *"cannot start a transaction within a transaction"*. The same root cause silently broke `usage_stats` / `list_strategies` telemetry — both now report real numbers.
+- **`get_plan` survives corrupt strategy_json**. Wrapped JSON parsing in `store_plans.py` so `resume` and `available_steps` no longer 500 on a single bad row; instead the plan is returned with a `_corrupted_fields` marker.
+- **`explore` honors scope**. New `_scaffold_matches_scope` rejects scaffold-recipe matches whose files all live outside the queried scope — fixes the case where a low-threshold scaffold match overrode `scope=X` with a stored scaffold from elsewhere.
+- **`recipe_files` deduplication**. One-shot cleanup on init plus a unique index on `(recipe_sig, file_path)` and `INSERT OR IGNORE` in `_insert_file_entries` prevent the 320+ duplicate rows seen on legacy DBs.
+- **New `prune_plans` MCP tool**, symmetric to `prune_recipes`. Default targets `pending` plans older than 7 days; cascade-deletes their steps, trajectories, and constraints. Total MCP tools: 31.
+- **`get_recipe` ↔ `near_match_recipes` parity**. When `get_recipe` finds nothing above threshold, it now also returns `near_match_recipes` so it agrees with `explore`.
+- **`trammel_blind_spots` lifted** to a top-level `decompose` field instead of being buried inside `analysis_meta.implicit_dependency_analysis`.
+- **413 tests passing** (406 prior + 7 new in `TestFindingsRegressions`).
 
 ### v3.12.0 — Module split (every file under 500 LOC), externalized pattern config, MCP dispatch tests
 

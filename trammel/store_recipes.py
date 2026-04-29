@@ -79,11 +79,11 @@ class RecipeStoreMixin(RecipeIndexMixin):
         return {f for s in strategy.get("steps", []) if (f := s.get("file"))}
 
     def _insert_file_entries(self, sig: str, files: set[str]) -> None:
-        """Insert file entries for a recipe."""
+        """Insert file entries for a recipe (idempotent with unique index)."""
         if files:
             self.conn.executemany(
-                "INSERT INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
-                [(sig, f) for f in files],
+                "INSERT OR IGNORE INTO recipe_files (recipe_sig, file_path) VALUES (?, ?)",
+                [(sig, f) for f in set(files)],
             )
 
     def search_recipes_by_trigrams(
@@ -288,7 +288,9 @@ class RecipeStoreMixin(RecipeIndexMixin):
         ).fetchall()
         sig_files: dict[str, list[str]] = {}
         for frow in file_rows:
-            sig_files.setdefault(frow["recipe_sig"], []).append(frow["file_path"])
+            bucket = sig_files.setdefault(frow["recipe_sig"], [])
+            if frow["file_path"] not in bucket:
+                bucket.append(frow["file_path"])
         return [
             {
                 "sig": r["sig"][:12],

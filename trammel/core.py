@@ -43,6 +43,32 @@ def _get_analyzer_registry() -> dict[str, type]:
     return _ANALYZER_REGISTRY
 
 
+def _scaffold_matches_scope(
+    scaffold: list[dict[str, Any]], scope: str | None,
+) -> bool:
+    """Return True if any scaffold file path starts with the scope dir.
+
+    When ``scope`` is None the caller wants the whole project, so any
+    scaffold is acceptable.  When set, a recipe-derived scaffold whose
+    files all live outside the scope is irrelevant — accepting it would
+    override the user's intent (the bug logged in the v3.12 review).
+    """
+    if not scope:
+        return True
+    norm_scope = scope.replace("\\", "/").strip("/")
+    if not norm_scope:
+        return True
+    prefix = norm_scope + "/"
+    for entry in scaffold:
+        f = entry.get("file", "")
+        if not f:
+            continue
+        norm = f.replace("\\", "/")
+        if norm == norm_scope or norm.startswith(prefix):
+            return True
+    return False
+
+
 class Planner:
     """Analyze a project and turn a goal into a dependency-aware plan.
 
@@ -127,7 +153,11 @@ class Planner:
             scaffold_match = self.store.retrieve_best_scaffold_recipe(goal, min_similarity=0.15)
             if scaffold_match and scaffold_match.get("scaffold"):
                 sr = scaffold_match["scaffold"]
-                if sr and len(sr) >= 4:
+                # Reject scaffold matches whose files don't intersect the
+                # queried scope.  Without this, low-threshold scaffold
+                # matching would override scope=X with a stored scaffold
+                # whose 7 files all live elsewhere in the project.
+                if sr and len(sr) >= 4 and _scaffold_matches_scope(sr, scope):
                     scaffold = sr
                     matched_recipe = {"_source": "scaffold_recipe", "scaffold": scaffold}
 
@@ -399,11 +429,13 @@ class Planner:
         if suggested:
             analysis_meta["suggested_strategy"] = suggested
 
+        blind_spots: int | None = None
         if expand_repo and dep_graph:
             gap_analysis = implicit_engine.get_gap_analysis(dep_graph)
+            blind_spots = gap_analysis["summary"]["trammelBlindSpots"]
             analysis_meta["implicit_dependency_analysis"] = {
                 "inferred_edges": gap_analysis["summary"]["totalImplicit"],
-                "trammel_blind_spots": gap_analysis["summary"]["trammelBlindSpots"],
+                "trammel_blind_spots": blind_spots,
                 "naming_convention_inferences": sum(
                     1 for d in gap_analysis.get("invisibleToStatic", [])
                     if d.get("type") == "naming_convention"
@@ -429,6 +461,11 @@ class Planner:
             "expand_repo": True,
             "plan_fidelity": plan_fidelity,
         }
+        # Lift the self-aware blind-spot count out of analysis_meta so callers
+        # don't have to dig — it materially affects how much to trust the
+        # returned dependency graph.
+        if blind_spots is not None:
+            result["trammel_blind_spots"] = blind_spots
         if near_matches:
             result["near_match_recipes"] = near_matches
         if matched_recipe is not None:

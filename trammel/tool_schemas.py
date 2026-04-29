@@ -46,6 +46,7 @@ TOOL_CATEGORIES: dict[str, str] = {
     "get_constraints": "coordination",
     "deactivate_constraint": "coordination",
     "list_plans": "coordination",
+    "prune_plans": "coordination",
     "history": "coordination",
     "status": "telemetry",
     "list_strategies": "telemetry",
@@ -231,6 +232,14 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_plans": _schema("list_plans",
         "List all plans, optionally filtered by status.",
         {"status": _prop("string", "Filter by plan status.", enum=["pending", "running", "completed", "failed"])}),
+    "prune_plans": _schema("prune_plans",
+        "Delete stale or stuck plans (with their steps, trajectories, and constraints). "
+        "Symmetric to prune_recipes — useful for cleaning up databases that have "
+        "accumulated long-running pending plans. Returns the number of plans deleted.",
+        {"max_age_days": _prop("integer", "Plans last updated longer ago than this are eligible (default: 7)."),
+         "status": _prop("string", "Restrict to plans of this status (default: 'pending'). "
+                          "Pass null/omit to prune across all statuses matching the age cutoff.",
+                          enum=["pending", "running", "completed", "failed"])}),
     "history": _schema("history",
         "Retrieve trajectory history for a plan: which beams were tried, "
         "how many steps completed, outcomes, and failure reasons.",

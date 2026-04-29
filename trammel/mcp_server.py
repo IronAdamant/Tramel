@@ -167,13 +167,19 @@ def _handle_save_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 def _handle_get_recipe(store: RecipeStore, args: dict[str, Any]) -> Any:
     """Retrieve best-matching recipe; surface match metadata at top level."""
+    context_files = set(files) if (files := args.get("context_files")) else None
     recipe = store.retrieve_best_recipe(
         args["goal"],
-        context_files=set(files) if (files := args.get("context_files")) else None,
+        context_files=context_files,
         debug=args.get("debug", False),
     )
     if recipe is None:
-        return {"match": None}
+        # Fall back to near matches so callers see what *almost* matched —
+        # otherwise get_recipe and explore.near_match_recipes report a
+        # different verdict for the same goal.  Same retrieval path, same
+        # ranking; only the auto-pick threshold gates the "match" verdict.
+        near = store.retrieve_near_matches(args["goal"], n=3, context_files=context_files)
+        return {"match": None, "near_match_recipes": near}
     meta = recipe.pop("_match", {})
     debug_candidates = recipe.pop("_debug_candidates", None)
     out: dict[str, Any] = {**meta, "strategy": recipe}
@@ -334,6 +340,16 @@ def _handle_complete_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
     )
 
 
+def _handle_prune_plans(store: RecipeStore, args: dict[str, Any]) -> Any:
+    """Delete stale or stuck plans; return count pruned."""
+    return {
+        "pruned": store.prune_plans(
+            max_age_days=args.get("max_age_days", 7),
+            status=args.get("status", "pending"),
+        )
+    }
+
+
 # ── Dispatch table ───────────────────────────────────────────────────────────
 
 _DISPATCH: dict[str, Callable[..., Any]] = {
@@ -367,6 +383,7 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "available_steps": _handle_available_steps,
     "merge_plans": _handle_merge_plans,
     "complete_plan": _handle_complete_plan,
+    "prune_plans": _handle_prune_plans,
 }
 
 

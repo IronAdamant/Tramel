@@ -1,7 +1,9 @@
 # Trammel — technical specification
 
-**Version:** 3.12.0
+**Version:** 3.12.1
 **Language:** Python 3.10+ (stdlib only for core; `mcp` optional for MCP server)
+
+> **v3.12.1 — write-path hardening.** Fixes the Python 3.14 SQLite transaction-nesting regression that broke `create_plan` / `add_constraint` / `save_recipe` / `validate_recipes` / telemetry; hardens `get_plan` against corrupt strategy_json; makes `explore` reject scaffold matches whose files lie outside the queried scope; deduplicates `recipe_files`; adds the `prune_plans` MCP tool (now 31 total). Public API unchanged.
 
 > **v3.12.0 — module layout change.** Every module is now under 500 LOC. All public imports are preserved via re-exports from legacy module paths, so the API surface described here is unchanged — but several section-titles below now list additional sibling modules. See `COMPLETE_PROJECT_DOCUMENTATION.md` for the full new file table.
 
@@ -105,7 +107,7 @@ Architecture: `analyzers.py` (~420 LOC) holds the `LanguageAnalyzer` protocol, `
 - **`store_recipes.py`** (~373 LOC — down from 1223): `RecipeStoreMixin` — recipe CRUD (`save_recipe`, `search_recipes_by_trigrams`, `list_recipes`, `prune_recipes`, `validate_recipes`, `_ensure_scaffold_create_steps`) plus composite-scoring weight constants `_W_TEXT/_W_FILES/_W_SUCCESS/_W_RECENCY/_W_STRUCTURAL/_RECENCY_HALF_LIFE`.
 - **`store_retrieval.py`** (~286 LOC, new in 3.12.0): `RecipeRetrievalMixin` — `retrieve_best_recipe()` and `retrieve_near_matches()` unioning term/trigram/MinHash/arch-MinHash candidates and applying composite scoring with optional scaffold penalty.
 - **`store_scaffolds.py`** (~217 LOC, new in 3.12.0): `ScaffoldRecipeMixin` — separate `scaffold_recipes` / `scaffold_trigrams` tables + CRUD (`save_scaffold_recipe`, `retrieve_best_scaffold_recipe`).
-- **`store_plans.py`** (~372 LOC, new in 3.12.0): `PlanStoreMixin` — plan/step CRUD (`create_plan` with cycle detection, `get_plan`, `update_plan_status`, `list_plans`, `merge_plans`, `update_step`, `update_steps_batch`, `get_step`, `get_plan_progress`) and the `complete_plan` compound operation.
+- **`store_plans.py`** (~410 LOC, new in 3.12.0; `prune_plans` + corruption-safe JSON parsing added in 3.12.1): `PlanStoreMixin` — plan/step CRUD (`create_plan` with cycle detection, `get_plan` (returns `_corrupted_fields` on bad JSON instead of raising), `update_plan_status`, `list_plans`, `prune_plans`, `merge_plans`, `update_step`, `update_steps_batch`, `get_step`, `get_plan_progress`) and the `complete_plan` compound operation.
 - **`store_telemetry.py`** (~139 LOC, new in 3.12.0): `TelemetryMixin` — failure patterns (`record_failure_pattern`, `resolve_failure_pattern`, `get_failure_history`), `get_status_summary`, `log_event` (fire-and-forget), `get_usage_stats` (Laplace-smoothed strategy win rates).
 - **`store_agents.py`**: `AgentStoreMixin` — multi-agent step coordination (`claim_step`, `release_step`, `available_steps`).
 - **`recipe_index.py`**: Zero-dep word index (TF-IDF) + MinHash LSH + arch-MinHash used by retrieval.
@@ -141,11 +143,11 @@ Architecture: `analyzers.py` (~420 LOC) holds the `LanguageAnalyzer` protocol, `
 
 Strategy output includes both `constraints` (all active) and `constraints_applied` (those that matched).
 
-**Concurrency**: All mutating store methods wrapped in `BEGIN IMMEDIATE` transactions with exponential backoff retry on `SQLITE_BUSY`. `RecipeStore` implements context manager protocol (`with` blocks). `db_connect` sets `timeout=5.0`.
+**Concurrency**: All mutating store methods wrapped in `BEGIN IMMEDIATE` transactions with exponential backoff retry on `SQLITE_BUSY`. `RecipeStore` implements context manager protocol (`with` blocks). `db_connect` sets `timeout=5.0`. **As of 3.12.1**, `db_connect` also passes `isolation_level=None` so Python's sqlite3 driver no longer auto-begins transactions before DML; `transaction()` falls back to a SAVEPOINT when entered while another transaction is already open, and explicit `COMMIT`/`ROLLBACK` close the block. Together these eliminate the "cannot start a transaction within a transaction" failure mode reported on Python 3.14.
 
 ## 8. MCP Server (`mcp_server.py`, `mcp_stdio.py`)
 
-30 tools exposed via stdio JSON-RPC:
+31 tools exposed via stdio JSON-RPC:
 
 | Tool | Purpose |
 |------|---------|
@@ -167,6 +169,7 @@ Strategy output includes both `constraints` (all active) and `constraints_applie
 | `update_plan_status` | Update plan status (exposes existing store method) |
 | `deactivate_constraint` | Deactivate a constraint (exposes existing store method) |
 | `prune_recipes` | Remove stale/low-quality recipes (`max_age_days`, `min_success_ratio` parameters) |
+| `prune_plans` | Remove stale/stuck plans + their steps/trajectories/constraints (`max_age_days`, `status`; new in 3.12.1) |
 | `resume` | Get plan progress with prior_edits from passed steps for resumption |
 | `validate_recipes` | Check recipe files against project, remove stale entries, prune fully-stale recipes |
 | `estimate` | Quick file count for a project or scope without full analysis; returns `language`, `matching_files`, `recommendation` |

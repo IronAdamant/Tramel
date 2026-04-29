@@ -200,12 +200,33 @@ class RecipeStore(
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e):
                 raise
-        self.conn.commit()
+        self._dedupe_recipe_files()
         self._rebuild_trigram_index()
         self._backfill_files()
         self._init_scaffold_schema()
         self._init_recipe_index_schema()
         self.backfill_recipe_index()
+
+    def _dedupe_recipe_files(self) -> None:
+        """One-shot cleanup: collapse duplicate (recipe_sig, file_path) rows.
+
+        Older save_recipe code paths could append the same file path many
+        times; one observed recipe carried 320+ duplicate rows.  We dedupe
+        on init and add a unique index so future inserts (via INSERT OR
+        IGNORE in :meth:`_insert_file_entries`) cannot recreate them.
+        """
+        try:
+            self.conn.execute(
+                "DELETE FROM recipe_files WHERE rowid NOT IN ("
+                "SELECT MIN(rowid) FROM recipe_files GROUP BY recipe_sig, file_path)"
+            )
+            self.conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_recipe_files_unique "
+                "ON recipe_files(recipe_sig, file_path)"
+            )
+        except sqlite3.OperationalError:
+            # If migration fails (e.g. concurrent writers), defer to next start.
+            pass
 
 
     # ── Constraints ──────────────────────────────────────────────────────────

@@ -8,10 +8,30 @@
 
 ## Active context
 
-- **Version:** 3.12.0
-- **Focus:** Module-scale refactor — every file under 500 LOC, externalized pattern config, expanded MCP dispatch test coverage, docstrings on public APIs.
+- **Version:** 3.12.1
+- **Focus:** Bug fixes from RecipeLab v3.12.0 review (`MCP_Findings/trammel_open.md`): SQLite transaction nesting on Python 3.14, corrupt-strategy-json hardening, scope-aware scaffold matching, recipe_files dedup, prune_plans tool.
 
 ## Session log
+
+---
+
+## v3.12.1 — Findings review fixes (transaction nesting + write-path hardening)
+
+**Date:** 2026-04-29
+
+### Fixes
+
+- **Transaction nesting** (`trammel/utils.py`, `trammel/recipe_index.py`): Python 3.14's default `sqlite3.isolation_level=""` auto-began an implicit transaction before DML, so `backfill_recipe_index` (which ran DML outside a `transaction()` context) left an open implicit transaction; the next `BEGIN IMMEDIATE` failed with *"cannot start a transaction within a transaction"*. Switched `db_connect` to `isolation_level=None` (manual mode), made `transaction()` defensive with SAVEPOINT for nested cases, and wrapped `backfill_recipe_index` in an explicit transaction. Unblocks `create_plan`, `add_constraint`, `save_recipe`, `validate_recipes`, `log_event` (telemetry) — all four were silently or visibly failing.
+- **`get_plan` JSON corruption** (`trammel/store_plans.py`): wrapped `json.loads` for the `strategy`, `scaffold`, and step JSON columns; corrupt rows now return a synthetic empty payload plus `_corrupted_fields: [...]` instead of erroring out and breaking `resume`/`available_steps`.
+- **`explore` ignores scope** (`trammel/core.py`): added `_scaffold_matches_scope` so a scaffold-recipe match whose files don't intersect the queried scope is rejected. The 0.15-min-similarity scaffold match no longer overrides scope=X with a stored scaffold from elsewhere in the project.
+- **`recipe_files` dedup** (`trammel/store.py`, `trammel/store_recipes.py`): one-shot cleanup on init collapses duplicate `(recipe_sig, file_path)` rows, then a unique index plus `INSERT OR IGNORE` prevent regressions. Caps the 320+ duplicate rows seen on `c54a62b9a7e6`.
+- **`prune_plans` tool** (`trammel/store_plans.py`, `trammel/tool_schemas.py`, `trammel/mcp_server.py`): new MCP tool symmetric to `prune_recipes`. Default targets `pending` plans older than 7 days; cascade-deletes their steps, trajectories, and constraints. Addresses the 65 stuck pending plans observed in the review.
+- **`get_recipe` ↔ `near_match_recipes` parity** (`trammel/mcp_server.py`): when `get_recipe` finds nothing above its 0.55 threshold, it now also returns `near_match_recipes` (same retrieval path as `explore`) so the two tools can no longer disagree about whether a goal is matchable.
+- **`trammel_blind_spots` lifted** (`trammel/core.py`): the implicit-dependency blind-spot count now appears at the top level of `decompose` output instead of being buried in `analysis_meta.implicit_dependency_analysis`.
+- **Regression tests** (`tests/test_trammel_extra.py`): added `TestFindingsRegressions` (7 tests) covering each fix above.
+
+### Tests
+- 413 passing (was 406; +7 new regression tests).
 
 ---
 
