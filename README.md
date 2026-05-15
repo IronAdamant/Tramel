@@ -206,6 +206,18 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
+### v3.12.2 — Phase 15 findings closure: structural recipe matching, plan deduplication, failure recovery, goal-text scaffold inference
+
+Patch release closing the four critical gaps exposed by exhaustive 31/31-tool testing against the TrammelConstraintFailureRecoveryEngine corpus (26 adversarial near-identical structural scaffolds, 12 duplicate "phase15" plans, 13 constraints, 8 injected failures). The `trammel_open.md` findings document (RecipeLab_alt/MCP_Findings) has been renamed `trammel_open_closed.md`.
+
+- **Recipe matching now discriminates structural patterns.** Full `has_util` + "util"/"utils" role support added to `goal_fingerprint_from_text`, `strategy_fingerprint`, `structural_similarity` (cosine + bonus), role vectors, and `goal_scaffold_fingerprint_from_text`. `model+service+route+test` vs `model+service+util+test` (and 1–2 token variants) now produce meaningfully different scores instead of max ~0.19. Near-identical goals saved via `save_recipe`/`validate_recipes` are now correctly preferred by `decompose` and the scaffold-recipe fallback path (0.15 threshold). `_W_STRUCTURAL` weighting and arch MinHash benefit.
+- **Duplicate plan creation prevented.** `create_plan` now performs an exact (goal + strategy JSON) match against existing pending plans and returns the prior ID instead of inserting duplicates. Eliminates the 12 identical + 49 total pending plan pollution observed with repeated `create_plan` calls on identical goals. `prune_plans`, `merge_plans`, `list_plans`, and `usage_stats` stay clean.
+- **`resolve_failure` cleans "running" step/plan states.** Extended `resolve_failure_pattern`, the MCP handler, and `tool_schemas.py` with optional `plan_id`/`step_id` parameters. When provided, the targeted step is moved from "running"/"pending" → "failed", any claim is released, and the resolution note is stored in the step's `verification` JSON. Fixes the 2/8 cases where injected failures left steps stuck after `resolve_failure` + `failure_history`.
+- **Goal-text → scaffold NLP inference for new files.** Added dedicated "util" entry to `_LAYER_PATTERNS` (with test layers), `src/utils` + `src/helpers` to `_FALLBACK_ROLE_DIRS`, and "util"/"utils" to `_ROLE_DIR_SUBSTRINGS`. `_creation_hints`, `_detect_layered_architecture`, and `_fallback_directories` now emit ready-to-use scaffold entries (with depends_on DAGs and paired test files) for greenfield goals mentioning "util", "importer/exporter/registry", "model+service+util+test", etc. — even when `existing_files` is empty and no explicit paths are in the goal. `explore` and scaffold-less `decompose` produce useful new-file plans instead of full-repo or empty results.
+- **Tooling & docs.** Updated descriptions in `tool_schemas.py` for the new optional resolve params. `scripts/release.sh` helper and Trusted Publishing flow unchanged. All 413 tests (and subtests) continue to pass with no regressions.
+
+These changes deliver the "40-70 step dependency-aware plan" capability and reliable recipe reuse for large refactors (Phase 16 campaign) that the original Phase 15 adversarial corpus was designed to validate.
+
 ### v3.12.1 — Findings review fixes (transaction nesting + write-path hardening)
 
 Bug-fix follow-up to v3.12.0. No public API changes.
@@ -215,7 +227,7 @@ Bug-fix follow-up to v3.12.0. No public API changes.
 - **`explore` honors scope**. New `_scaffold_matches_scope` rejects scaffold-recipe matches whose files all live outside the queried scope — fixes the case where a low-threshold scaffold match overrode `scope=X` with a stored scaffold from elsewhere.
 - **`recipe_files` deduplication**. One-shot cleanup on init plus a unique index on `(recipe_sig, file_path)` and `INSERT OR IGNORE` in `_insert_file_entries` prevent the 320+ duplicate rows seen on legacy DBs.
 - **New `prune_plans` MCP tool**, symmetric to `prune_recipes`. Default targets `pending` plans older than 7 days; cascade-deletes their steps, trajectories, and constraints. Total MCP tools: 31.
-- **`get_recipe` ↔ `near_match_recipes` parity**. When `get_recipe` finds nothing above threshold, it now also returns `near_match_recipes` so it agrees with `explore`.
+- **`get_recipe` ↔ `near_match_recipes` parity`. When `get_recipe` finds nothing above threshold, it now also returns `near_match_recipes` so it agrees with `explore`.
 - **`trammel_blind_spots` lifted** to a top-level `decompose` field instead of being buried inside `analysis_meta.implicit_dependency_analysis`.
 - **413 tests passing** (406 prior + 7 new in `TestFindingsRegressions`).
 
