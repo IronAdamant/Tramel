@@ -302,10 +302,13 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
          "limit": _prop("integer", "Max patterns to return (default: 20).")}),
     "resolve_failure": _schema("resolve_failure",
         "Record what fixed a known failure pattern. Call after successfully "
-        "fixing a file that had a recorded failure pattern.",
+        "fixing a file that had a recorded failure pattern. Pass plan_id/step_id "
+        "to also transition the step out of 'running' state (addresses Phase 15 gaps).",
         {"file_path": _prop("string", "File that was fixed."),
          "error_type": _prop("string", "Error type that was resolved."),
-         "resolution": _prop("string", "What fixed it (brief description).")},
+         "resolution": _prop("string", "What fixed it (brief description)."),
+         "plan_id": _prop("integer", "Optional plan ID to resolve running step in."),
+         "step_id": _prop("integer", "Optional step ID to mark failed + release claim.")},
         ["file_path", "error_type", "resolution"]),
     "claim_step": _schema("claim_step",
         "Claim a plan step for an agent. Prevents other agents from working on it. "

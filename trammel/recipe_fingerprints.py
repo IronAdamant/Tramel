@@ -63,12 +63,12 @@ def strategy_fingerprint(strategy: dict[str, Any]) -> dict[str, Any]:
             "role_counts": {}, "total_files": 0, "create_count": 0,
             "modify_count": 0, "avg_symbols": 0.0,
             "has_test": False, "has_service": False, "has_route": False,
-            "has_algorithm": False, "role_vector": (),
+            "has_algorithm": False, "has_util": False, "role_vector": (),
         }
 
     role_counts: dict[str, int] = {}
     total_syms = 0
-    has_test = has_service = has_route = has_algorithm = False
+    has_test = has_service = has_route = has_algorithm = has_util = False
     create_count = modify_count = 0
 
     for s in steps:
@@ -95,6 +95,8 @@ def strategy_fingerprint(strategy: dict[str, Any]) -> dict[str, Any]:
                     has_route = True
                 elif role in ("algorithm", "engine"):
                     has_algorithm = True
+                elif role == "util":
+                    has_util = True
                 break
 
     avg_syms = total_syms / len(steps) if steps else 0.0
@@ -110,6 +112,7 @@ def strategy_fingerprint(strategy: dict[str, Any]) -> dict[str, Any]:
         "has_service": has_service,
         "has_route": has_route,
         "has_algorithm": has_algorithm,
+        "has_util": has_util,
         "role_vector": role_vec,
     }
 
@@ -128,7 +131,7 @@ def structural_similarity(fp_a: dict[str, Any], fp_b: dict[str, Any]) -> float:
 
     bonus = 0.0
     structural_keys = (
-        "has_test", "has_service", "has_route", "has_algorithm",
+        "has_test", "has_service", "has_route", "has_algorithm", "has_util",
         "has_collector", "has_aggregator", "has_generator",
     )
     for k in structural_keys:
@@ -143,7 +146,7 @@ def goal_fingerprint_from_text(goal: str) -> dict[str, Any]:
     """Derive a structural fingerprint from goal text alone (no strategy needed)."""
     goal_lower = goal.lower()
     role_counts: dict[str, int] = {}
-    has_test = has_service = has_route = has_algorithm = False
+    has_test = has_service = has_route = has_algorithm = has_util = False
     has_collector = has_aggregator = has_generator = has_registry = has_manager = False
 
     for pat_re, role in _GOAL_ROLE_RE:
@@ -158,6 +161,8 @@ def goal_fingerprint_from_text(goal: str) -> dict[str, Any]:
                 has_route = True
             elif role in ("algorithm", "engine"):
                 has_algorithm = True
+            elif role == "util":
+                has_util = True
 
     layered_kw = {
         "similarity": [("algorithm", 1), ("engine", 1), ("service", 1), ("route", 1)],
@@ -214,6 +219,7 @@ def goal_fingerprint_from_text(goal: str) -> dict[str, Any]:
         "has_service": has_service,
         "has_route": has_route,
         "has_algorithm": has_algorithm,
+        "has_util": has_util,
         "has_collector": has_collector,
         "has_aggregator": has_aggregator,
         "has_generator": has_generator,

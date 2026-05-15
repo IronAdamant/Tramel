@@ -129,12 +129,24 @@ class PlanStoreMixin:
         now = time.time()
         plan_steps = strategy.get("steps", [])
         self._validate_plan_steps(plan_steps)
+        strat_json = dumps_json(strategy)
         scaffold_json = dumps_json(scaffold or [])
+
+        # Dedup: if an identical pending plan (same goal + strategy) already exists, reuse it.
+        # Prevents the 12+ duplicate "phase15 duplicate plan" inflation observed in Phase 15 tests.
+        existing = self.conn.execute(
+            "SELECT id, strategy FROM plans WHERE goal = ? AND status = 'pending' ORDER BY id DESC",
+            (goal,),
+        ).fetchall()
+        for row in existing:
+            if row["strategy"] == strat_json:
+                return int(row["id"])
+
         with transaction(self.conn):
             cur = self.conn.execute(
                 "INSERT INTO plans (goal, strategy, scaffold, status, current_step, total_steps, created, updated) "
                 "VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)",
-                (goal, dumps_json(strategy), scaffold_json, len(plan_steps), now, now),
+                (goal, strat_json, scaffold_json, len(plan_steps), now, now),
             )
             plan_id = int(cur.lastrowid)
             for i, step in enumerate(plan_steps):

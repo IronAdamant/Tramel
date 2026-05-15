@@ -24,7 +24,7 @@ from .scaffold_templates import match_scaffold_template
 
 _ROLE_DIR_SUBSTRINGS = (
     "service", "route", "controller", "model", "test", "schema", "api",
-    "handler", "view", "repository", "repo",
+    "handler", "view", "repository", "repo", "util", "utils",
 )
 
 _FALLBACK_ROLE_DIRS = (
@@ -35,6 +35,8 @@ _FALLBACK_ROLE_DIRS = (
     "src/api",
     "src/handlers",
     "src/lib",
+    "src/utils",
+    "src/helpers",
     "src/components",
     "src/features",
 )
@@ -91,6 +93,18 @@ _LAYER_PATTERNS: tuple[dict[str, Any], ...] = (
         ],
         "test_layers": [
             ("algorithm", "{domain}Optimizer.test.js"),
+            ("service", "{domain}Service.test.js"),
+        ],
+    },
+    {
+        "keywords": {"util", "utility", "utils", "helper", "helpers", "common"},
+        "role": "util",
+        "layers": [
+            ("util", "{domain}Utils.js"),
+            ("service", "{domain}Service.js"),
+        ],
+        "test_layers": [
+            ("util", "{domain}Utils.test.js"),
             ("service", "{domain}Service.test.js"),
         ],
     },

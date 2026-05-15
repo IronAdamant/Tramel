@@ -12,7 +12,7 @@ import sqlite3
 import time
 from typing import TYPE_CHECKING, Any
 
-from .utils import transaction
+from .utils import dumps_json, transaction
 
 if TYPE_CHECKING:
     from .store import RecipeStore  # noqa: F401 — documents mixin host
@@ -50,14 +50,31 @@ class TelemetryMixin:
                     (file_path, error_type, error_message[:200], test_file, now, now),
                 )
 
-    def resolve_failure_pattern(self, file_path: str, error_type: str, resolution: str) -> None:
-        """Attach a resolution note to an existing failure pattern."""
+    def resolve_failure_pattern(self, file_path: str, error_type: str, resolution: str,
+                                  plan_id: int | None = None, step_id: int | None = None) -> None:
+        """Attach a resolution note to an existing failure pattern.
+        If plan_id and/or step_id provided, also transition the step out of 'running'/'pending'
+        to 'failed' (with resolution note) and release any claim. Addresses Phase 15 cases
+        where 2/8 injected failures left steps in running state.
+        """
         with transaction(self.conn):
             self.conn.execute(
                 "UPDATE failure_patterns SET last_resolution = ? "
                 "WHERE file_path = ? AND error_type = ?",
                 (resolution[:200], file_path, error_type),
             )
+            if step_id is not None:
+                self.conn.execute(
+                    "UPDATE steps SET status = 'failed', verification = ?, claimed_by = NULL, claimed_at = NULL "
+                    "WHERE id = ?",
+                    (dumps_json({"resolution": resolution[:200], "error_type": error_type}), step_id),
+                )
+            if plan_id is not None and step_id is None:
+                # If only plan, mark plan failed if it was running
+                self.conn.execute(
+                    "UPDATE plans SET status = 'failed', updated = ? WHERE id = ? AND status IN ('running', 'pending')",
+                    (time.time(), plan_id),
+                )
 
     def get_failure_history(
         self, file_path: str | None = None, limit: int = 20,

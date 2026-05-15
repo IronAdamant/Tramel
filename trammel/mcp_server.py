@@ -301,9 +301,12 @@ def _handle_failure_history(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_resolve_failure(store: RecipeStore, args: dict[str, Any]) -> Any:
-    """Record the resolution of a known failure pattern."""
+    """Record the resolution of a known failure pattern. Optionally pass plan_id/step_id
+    to also clear 'running' states on the affected plan step (Phase 15 recovery fix).
+    """
     store.resolve_failure_pattern(
         args["file_path"], args["error_type"], args["resolution"],
+        plan_id=args.get("plan_id"), step_id=args.get("step_id"),
     )
     return {"ok": True}
 
