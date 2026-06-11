@@ -8,10 +8,25 @@
 
 ## Active context
 
-- **Version:** 3.12.3
-- **Focus:** Released list_plans `db_path` + doc-parity work as v3.12.3. Wikifier doc-health system active (`docs/wiki/` baseline, 45 entries Green).
+- **Version:** 3.13.0
+- **Focus:** Released v3.12.3 (list_plans `db_path` + doc parity) and v3.13.0 (CI hardening: Node 24 artifact actions, dispatch-verifiable publish pipeline). Wikifier doc-health system active (`docs/wiki/` baseline, 45 entries Green).
 
 ## Session log
+
+---
+
+## v3.13.0 — CI hardening (Node 24 artifact actions + verifiable publish)
+
+**Date:** 2026-06-11
+
+### Changes
+
+- **`.github/workflows/publish.yml`**: `actions/upload-artifact` v5 → v7, `actions/download-artifact` v5 → v8 (v5 of both still ran Node 20, force-switched by GitHub on 2026-06-16; the new majors are the Node 24 releases — release notes checked, `name`/`path` inputs unchanged). Added `workflow_dispatch` trigger with a dispatch-only `verify-artifacts` job (download + sdist/wheel presence check) so the artifact round-trip can be exercised without publishing; `publish` job guarded to `github.event_name == 'release'`.
+- **Verification**: manual dispatch run — build/test/verify-artifacts all green, publish correctly skipped, zero Node 20 deprecation annotations (previous release run had two).
+- No package-code changes.
+
+### Tests
+- 414 passing (unchanged).
 
 ---
 

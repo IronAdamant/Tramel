@@ -206,6 +206,14 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
+### v3.13.0 — CI hardening: Node 24 artifact actions + verifiable publish pipeline
+
+No package-code changes — this release hardens the delivery pipeline ahead of GitHub's 2026-06-16 forced Node 24 switch and exercises it end-to-end.
+
+- **Artifact actions bumped to Node 24 majors:** `actions/upload-artifact@v7` and `actions/download-artifact@v8` (were `@v5`, which still ran on Node 20). Inputs unchanged across the majors.
+- **Publish workflow is now manually verifiable:** a `workflow_dispatch` trigger plus a dispatch-only `verify-artifacts` job exercise the build → upload → download round-trip without touching PyPI; the `publish` job is guarded to release events.
+- All 414 tests pass; package contents identical to v3.12.3.
+
 ### v3.12.3 — list_plans cross-database reads + documentation parity
 
 Patch release: one small MCP feature plus a documentation-accuracy pass verified against source.
