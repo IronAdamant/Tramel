@@ -230,8 +230,10 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "Retrieve all active failure constraints, optionally filtered by type.",
         {"constraint_type": _prop("string", "Filter by constraint type.", enum=["dependency", "incompatible", "requires", "avoid"])}),
     "list_plans": _schema("list_plans",
-        "List all plans, optionally filtered by status.",
-        {"status": _prop("string", "Filter by plan status.", enum=["pending", "running", "completed", "failed"])}),
+        "List all plans, optionally filtered by status. Pass db_path to read plans "
+        "from a different project's trammel.db than the server default.",
+        {"status": _prop("string", "Filter by plan status.", enum=["pending", "running", "completed", "failed"]),
+         "db_path": _prop("string", "Optional absolute path to a target trammel.db. Defaults to the server's own database.")}),
     "prune_plans": _schema("prune_plans",
         "Delete stale or stuck plans (with their steps, trajectories, and constraints). "
         "Symmetric to prune_recipes — useful for cleaning up databases that have "

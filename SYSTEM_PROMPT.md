@@ -23,12 +23,12 @@ Choose the workflow that matches your task type:
 | **Refactor / update** | `decompose(goal, root, suppress_creation_hints=true, skip_recipes=true)` → execute steps → `complete_plan(plan_id, outcome=true)` |
 | **Fix failure** | `get_constraints()` → `decompose(goal, root)` → `explore(goal, root)` beams → `verify_step(edits, root)` → `add_constraint(avoid, description)` |
 
-Tools are organized by category (returned in `status`):
-- **planning**: `decompose`, `explore`, `create_plan`, `get_plan`, `complete_plan`, `merge_plans`
-- **execution**: `verify_step`, `record_step`, `claim_step`, `release_step`, `available_steps`
-- **memory**: `get_recipe`, `save_recipe`, `list_recipes`, `validate_recipes`
-- **coordination**: `add_constraint`, `get_constraints`, `list_plans`, `history`
-- **telemetry**: `status`, `list_strategies`, `usage_stats`, `failure_history`
+Tools are organized by category (returned in `status`; 31 tools total):
+- **planning**: `decompose`, `explore`, `create_plan`, `get_plan`, `complete_plan`, `merge_plans`, `resume`, `update_plan_status`
+- **execution**: `verify_step`, `record_step`, `record_steps`, `claim_step`, `release_step`, `available_steps`
+- **memory**: `get_recipe`, `save_recipe`, `list_recipes`, `validate_recipes`, `prune_recipes`
+- **coordination**: `add_constraint`, `deactivate_constraint`, `get_constraints`, `list_plans`, `prune_plans`, `history`
+- **telemetry**: `status`, `estimate`, `list_strategies`, `usage_stats`, `failure_history`, `resolve_failure`
 
 ### `decompose` vs `explore` vs `create_plan` — which do I call?
 
@@ -175,7 +175,7 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (30 tools)
+## Tool reference (31 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -186,6 +186,7 @@ Analysis (symbol collection, import resolution) runs only within the scope. Test
 | `update_plan_status` | Set plan status (pending/running/completed/failed) |
 | `verify_step` | Isolated single-step verification |
 | `record_step` | Update step status/edits/verification |
+| `record_steps` | Batch-update multiple step statuses in one call |
 | `save_recipe` | Store successful (or failed) strategy |
 | `get_recipe` | Retrieve best matching recipe |
 | `list_recipes` | Browse stored recipes with stats and files |
@@ -193,7 +194,8 @@ Analysis (symbol collection, import resolution) runs only within the scope. Test
 | `add_constraint` | Record failure constraint |
 | `get_constraints` | Query active constraints |
 | `deactivate_constraint` | Retire a constraint |
-| `list_plans` | List plans by status |
+| `list_plans` | List plans by status (optionally from another db via `db_path`) |
+| `prune_plans` | Delete stale/stuck plans with their steps, trajectories, constraints |
 | `history` | Trajectory history for a plan |
 | `status` | Summary counts |
 | `list_strategies` | Registered strategies with success rates |

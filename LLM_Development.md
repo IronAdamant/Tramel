@@ -8,10 +8,29 @@
 
 ## Active context
 
-- **Version:** 3.12.1
-- **Focus:** Bug fixes from RecipeLab v3.12.0 review (`MCP_Findings/trammel_open.md`): SQLite transaction nesting on Python 3.14, corrupt-strategy-json hardening, scope-aware scaffold matching, recipe_files dedup, prune_plans tool.
+- **Version:** 3.12.3
+- **Focus:** Released list_plans `db_path` + doc-parity work as v3.12.3. Wikifier doc-health system active (`docs/wiki/` baseline, 45 entries Green).
 
 ## Session log
+
+---
+
+## v3.12.3 — list_plans db_path cleanup + doc parity + wikifier baseline
+
+**Date:** 2026-06-11
+
+### Changes
+
+- **`list_plans` `db_path` cleanup** (`trammel/mcp_server.py`, `trammel/tool_schemas.py`): an earlier uncommitted working-tree change (from an external M5 dogfood session) added an optional `db_path` parameter so MCP clients can read plans from a different project's `trammel.db`. Kept the feature; replaced the session-log comments with a proper docstring note and rewrote the schema description/param doc to remove dogfood-session specifics.
+- **New regression test** (`tests/test_mcp_dispatch.py`): `TestListPlansDbPath` verifies the default (server's own DB) and the cross-database read via `db_path`.
+- **Doc parity fixes** (verified against source):
+  - `README.md` — removed the stale claim that MCP `verify_step` is "static/heuristic only"; `_handle_verify_step` runs `ExecutionHarness.verify_step`, which executes the real test suite in an isolated temp copy in addition to static analysis/preflight/import-integrity checks.
+  - `SYSTEM_PROMPT.md` — category list and "Tool reference" table now cover all **31** tools (added `resume`, `update_plan_status`, `record_steps`, `prune_recipes`, `deactivate_constraint`, `prune_plans`, `estimate`, `resolve_failure` where missing; header said 30).
+  - `CLAUDE.md` (new contributor guide for AI agents, created this session) — corrected tool count and `verify_step` description.
+- **Wikifier integration**: proper setup of the Wikifier documentation-health system — `monitored_paths.txt` scoped to `trammel/` + key root docs (was the whole repo root, which had tracked only a binary `.coordinationhub` DB), new `exclude_patterns.txt`, and an initial agent-to-agent wiki baseline: 45 `docs/wiki/*.wiki.md` entries (one per source file + `patterns.json` + 3 root docs), all marked Green. `library.md` dependency map generated (160 nodes / 397 edges). Note: requires Wikifier's exclude-pattern fix in `wikifier/scripts/wikifier.sh` (uncommitted in the Wikifier repo as of this session).
+
+### Tests
+- 414 passing (was 413; +1 new `db_path` regression test).
 
 ---
 

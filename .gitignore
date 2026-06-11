@@ -57,3 +57,15 @@ wiki-local/
 plan/
 *.plan.md
 
+# Wikifier (local doc-health state; monitored_paths.txt uses machine-specific absolute paths)
+.wikifier/
+.wikifier_staging/
+monitored_paths.txt
+exclude_patterns.txt
+index.html
+wikifier.sh
+file_health.json
+journal/
+Logged_issues/
+.coordinationhub/
+

@@ -194,6 +194,25 @@ class TestTelemetryAndStats(unittest.TestCase):
                 self.assertEqual(history[0]["last_resolution"], "added missing import")
 
 
+class TestListPlansDbPath(unittest.TestCase):
+    """list_plans: optional db_path reads plans from a different database."""
+
+    def test_db_path_reads_target_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            main_db = os.path.join(tmp, "main.db")
+            target_db = os.path.join(tmp, "target.db")
+            strat = {"steps": [{"step_index": 0, "description": "s", "depends_on": []}]}
+            with RecipeStore(target_db) as target_store:
+                target_store.create_plan("target goal", strat)
+            with RecipeStore(main_db) as store:
+                # Default: the server's own (empty) database.
+                self.assertEqual(dispatch_tool(store, "list_plans", {}), [])
+                # With db_path: plans from the target database.
+                plans = dispatch_tool(store, "list_plans", {"db_path": target_db})
+                self.assertEqual(len(plans), 1)
+                self.assertEqual(plans[0]["goal"], "target goal")
+
+
 class TestIntCoercion(unittest.TestCase):
     """Schema-driven int coercion: string inputs for integer params are accepted."""
 

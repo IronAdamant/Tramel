@@ -16,7 +16,7 @@ Instead of letting your AI assistant wing it on complex changes, Trammel breaks 
 
 - **Breaks down goals into steps** — Analyzes your project's code structure, figures out what depends on what, and creates an ordered plan
 - **Tries multiple approaches** — Explores different strategies in parallel (bottom-up, top-down, risk-first, and more) to find what works best
-- **Verifies as it goes** — In the Python harness, runs your tests after each step in an isolated copy so bad changes don't pile up. In MCP mode, `verify_step` is a static/heuristic check — run your test suite yourself between steps, or call `plan_and_execute` from Python for real isolated test execution.
+- **Verifies as it goes** — Runs your tests after each step in an isolated temp copy so bad changes don't pile up. Both the Python harness and the MCP `verify_step` tool execute the real test suite in isolation; `verify_step` also returns static analysis, preflight syntax checks, and import-integrity results alongside the test outcome.
 - **Learns from mistakes** — Records what failed and why, then blocks the same mistake from happening again
 - **Remembers what worked** — Saves successful strategies as reusable recipes, so similar tasks get solved faster next time
 - **Coordinates multiple agents** — Provides step claiming, dependency tracking, and DAG metrics for multi-agent workflows
@@ -205,6 +205,16 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 
 <details>
 <summary><strong>Full Changelog</strong></summary>
+
+### v3.12.3 — list_plans cross-database reads + documentation parity
+
+Patch release: one small MCP feature plus a documentation-accuracy pass verified against source.
+
+- **`list_plans` gains optional `db_path`.** MCP clients can now read plans from a different project's `trammel.db` than the one the server was started with (`list_plans(db_path="/abs/path/trammel.db")`). The server's own database remains the default. New `TestListPlansDbPath` regression test covers both paths.
+- **`verify_step` docs corrected.** The README previously claimed MCP `verify_step` was a static/heuristic check only — in fact it has run the real test suite in an isolated temp copy (alongside static analysis, preflight syntax, and import-integrity checks) via the shared `ExecutionHarness`. Docs now match the source.
+- **`SYSTEM_PROMPT.md` tool listings completed.** The category list and tool-reference table now cover all 31 tools (`resume`, `update_plan_status`, `record_steps`, `prune_recipes`, `deactivate_constraint`, `prune_plans`, `estimate`, `resolve_failure` were missing from one or both).
+- **Contributor guide.** New `CLAUDE.md` documents the architecture layers, registry parity invariants (`_TOOL_SCHEMAS`/`_DISPATCH`, `_LANGUAGES`/analyzer registry), additive-only schema migrations, and repo conventions for AI-assisted development.
+- All 414 tests pass (was 413; +1 regression test).
 
 ### v3.12.2 — Phase 15 findings closure: structural recipe matching, plan deduplication, failure recovery, goal-text scaffold inference
 

@@ -234,7 +234,15 @@ def _handle_deactivate_constraint(store: RecipeStore, args: dict[str, Any]) -> A
 
 
 def _handle_list_plans(store: RecipeStore, args: dict[str, Any]) -> Any:
-    """List all plans, optionally filtered by status."""
+    """List all plans, optionally filtered by status.
+
+    Accepts an optional db_path so MCP clients can inspect plans in a
+    project-local trammel.db other than the one this server was started with.
+    """
+    db_path = args.get("db_path")
+    if db_path:
+        with RecipeStore(db_path) as target_store:
+            return target_store.list_plans(args.get("status"))
     return store.list_plans(args.get("status"))
 
 
