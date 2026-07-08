@@ -8,10 +8,19 @@
 
 ## Active context
 
-- **Version:** 3.15.0
-- **Focus:** Slim MCP primary surface (12 listed by default) + `start_plan`; regex analyzer hardening (string FPs, Go generics, Dart sealed, PEP 695, TS declare).
+- **Version:** 3.15.2
+- **Focus:** CI green on 3.10–3.13 (PEP 695 test gating); prior 3.15.x primary MCP surface + analyzer strip-order fixes.
 
 ## Session log
+
+---
+
+## v3.15.2 — CI PEP 695 gating + docs
+
+**Date:** 2026-07-09
+
+- Skip PEP 695 type-alias test on Python < 3.12; pre-3.12 skip/assert path; README CI matrix note.
+- PyPI via Trusted Publishing (GH Release `v3.15.2`).
 
 ---
 

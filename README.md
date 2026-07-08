@@ -210,10 +210,11 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
-### CI note (post-3.15.1)
+### v3.15.2 — CI matrix green on Python 3.10–3.13
 
-- **Matrix:** GitHub Actions runs `unittest` on **Python 3.10–3.13** (`.github/workflows/ci.yml`).
-- **PEP 695 tests** (`type Point = ...`) run only on **3.12+**. On 3.10/3.11 that syntax is a `SyntaxError`; the analyzer skips the unparseable file and a regression asserts sibling modules still analyze. This unblocked CI after 3.15.0/3.15.1 (3.10/3.11 jobs had failed on the ungated test).
+- **Tests:** Gate PEP 695 (`type Point = ...`) positive coverage to **Python 3.12+**; on 3.10/3.11 assert unparseable files are skipped without breaking sibling modules. Fixes CI matrix failures after 3.15.0/3.15.1.
+- **Docs:** README documents the 3.10–3.13 CI matrix and `skipUnless` guidance for newer-syntax fixtures.
+- No intentional public API changes.
 
 ### v3.15.1 — Symbol preprocess: strings before comments
 
