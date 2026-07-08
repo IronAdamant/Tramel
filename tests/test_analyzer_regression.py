@@ -706,6 +706,10 @@ class TestModernSyntaxCoverage(unittest.TestCase):
         self.assertIn("Circle", names)
         self.assertIn("Widget", names)
 
+    @unittest.skipUnless(
+        sys.version_info >= (3, 12),
+        "PEP 695 type aliases (type Point = ...) require Python 3.12+",
+    )
     def test_python_pep695_type_alias(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             _write_files(d, {
@@ -716,6 +720,21 @@ class TestModernSyntaxCoverage(unittest.TestCase):
         self.assertIn("Point", names)
         self.assertIn("origin", names)
         self.assertIn(("Point", "type_alias"), typed)
+
+    @unittest.skipIf(
+        sys.version_info >= (3, 12),
+        "pre-3.12 SyntaxError path only",
+    )
+    def test_python_pep695_unparseable_file_skipped_pre_312(self) -> None:
+        """On 3.10/3.11, PEP 695 source is a SyntaxError; analyzer skips the file."""
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "alias.py": "type Point = int\ndef origin():\n    return 0\n",
+                "ok.py": "def keep():\n    return 1\n",
+            })
+            symbols = PythonAnalyzer().collect_symbols(d)
+        self.assertNotIn("alias.py", symbols)
+        self.assertIn("keep", symbols.get("ok.py", []))
 
     def test_typescript_declare_function(self) -> None:
         with tempfile.TemporaryDirectory() as d:
