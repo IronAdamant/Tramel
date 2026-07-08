@@ -193,6 +193,7 @@ Contributions welcome. Please open an issue first to discuss changes.
 2. Create a feature branch (`git checkout -b feature/your-feature`)
 3. Make your changes (core must remain stdlib-only; tests use `unittest` only)
 4. Run tests: `python -m unittest discover -q -s tests -p 'test_*.py'`
+   (CI also runs this on Python **3.10–3.13**; feature tests that need newer syntax should use `@unittest.skipUnless` / `skipIf`)
 5. Open a pull request
 
 ## Publishing (Maintainers)
@@ -209,6 +210,11 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
+### CI note (post-3.15.1)
+
+- **Matrix:** GitHub Actions runs `unittest` on **Python 3.10–3.13** (`.github/workflows/ci.yml`).
+- **PEP 695 tests** (`type Point = ...`) run only on **3.12+**. On 3.10/3.11 that syntax is a `SyntaxError`; the analyzer skips the unparseable file and a regression asserts sibling modules still analyze. This unblocked CI after 3.15.0/3.15.1 (3.10/3.11 jobs had failed on the ungated test).
+
 ### v3.15.1 — Symbol preprocess: strings before comments
 
 - **Fix:** Blank string literals **before** stripping `//` comments so `"http://..."` no longer truncates the line and hides following `func`/`export function` declarations (Go/TS/Rust). Regression tests for URL `//` cases.
@@ -217,7 +223,7 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 
 - **Primary tool surface:** MCP `list_tools` defaults to **12 primary** tools (`start_plan`, `decompose`, `get_plan`, `complete_plan`, `verify_step`, recipes/constraints/status/export…). Full registry remains **33** tools (all names still dispatchable). Set `TRAMMEL_MCP_SURFACE=all` to advertise advanced tools. `status` returns `primary_tools` / `advanced_tools` / tiers.
 - **`start_plan` happy path:** one call = decompose + create_plan (`plan_id`). Prefer over separate decompose/create.
-- **Analyzer aging fixes:** strip multi-line/raw string literals before symbol regexes (kills false `func`/`class` hits); Go generic `type Set[T comparable]`; Dart sealed/final/base classes; Python PEP 695 `type` aliases; TS `declare function`. Imports still strip comments only so quoted paths work.
+- **Analyzer aging fixes:** strip multi-line/raw string literals before symbol regexes (kills false `func`/`class` hits); Go generic `type Set[T comparable]`; Dart sealed/final/base classes; Python PEP 695 `type` aliases (**3.12+ only**; gated in tests for the 3.10–3.13 CI matrix); TS `declare function`. Imports still strip comments only so quoted paths work.
 
 ### v3.14.0 — Project-config test_cmd + versioned plan export
 
