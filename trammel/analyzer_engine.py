@@ -55,11 +55,15 @@ class RegexAnalyzerEngine:
         return _COMMENT_STRIPPERS[self.spec.strip_comments]
 
     def _symbol_preprocess(self) -> Any:
-        """Comments + string blanking for symbol regexes (kills multi-line string FPs)."""
+        """String blanking then comments for symbol regexes.
+
+        Strings first so ``//`` inside URLs is not treated as a comment; then
+        comments; multi-line string bodies no longer invent false symbols.
+        """
         strip_comments = self._stripper()
 
         def _prep(src: str) -> str:
-            return _strip_string_literals(strip_comments(src))
+            return strip_comments(_strip_string_literals(src))
 
         return _prep
 

@@ -152,18 +152,23 @@ def _strip_string_literals(src: str) -> str:
 
 
 def _strip_c_noise(src: str) -> str:
-    """Strip C-style comments then string literals (preferred regex preprocess)."""
-    return _strip_string_literals(_strip_c_comments(src))
+    """Blank string literals first, then strip C-style comments.
+
+    Order is critical: ``//`` inside ``\"http://...\"`` must not be treated as a
+    line-comment start. Comment-first stripping truncates the URL string and
+    leaves an unclosed quote so later real declarations disappear.
+    """
+    return _strip_c_comments(_strip_string_literals(src))
 
 
 def _strip_hash_noise(src: str) -> str:
-    """Strip hash comments then string literals (Ruby)."""
-    return _strip_string_literals(_strip_hash_comments(src))
+    """Blank string literals first, then strip hash comments (Ruby)."""
+    return _strip_hash_comments(_strip_string_literals(src))
 
 
 def _strip_php_noise(src: str) -> str:
-    """Strip PHP comments then string literals."""
-    return _strip_string_literals(_strip_php_comments(src))
+    """Blank string literals first, then strip PHP comments."""
+    return _strip_php_comments(_strip_string_literals(src))
 
 
 def _walk_project_sources(

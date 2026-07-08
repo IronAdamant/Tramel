@@ -568,6 +568,44 @@ class TestTypedSymbolCoverage(unittest.TestCase):
 class TestStringLiteralFalsePositives(unittest.TestCase):
     """Multi-line / raw strings must not invent symbols (classic regex aging)."""
 
+    def test_go_url_slash_slash_preserves_following_func(self) -> None:
+        """``//`` inside a double-quoted URL must not eat the next declaration."""
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "go.mod": "module example.com/t\n\ngo 1.21\n",
+                "main.go": (
+                    "package main\n"
+                    'const url = "http://example.com"\n'
+                    "func Real() {}\n"
+                ),
+            })
+            names = set(GoAnalyzer().collect_symbols(d).get("main.go", []))
+        self.assertIn("Real", names)
+        self.assertNotIn("FakeFromString", names)
+
+    def test_typescript_url_slash_slash_preserves_export(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "a.ts": (
+                    'const url = "http://example.com";\n'
+                    "export function Real() {}\n"
+                ),
+            })
+            names = set(TypeScriptAnalyzer().collect_symbols(d).get("a.ts", []))
+        self.assertIn("Real", names)
+
+    def test_rust_url_slash_slash_preserves_fn(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "Cargo.toml": '[package]\nname = "t"\nversion = "0.1.0"\n',
+                "lib.rs": (
+                    'const URL: &str = "http://example.com";\n'
+                    "pub fn real() {}\n"
+                ),
+            })
+            names = set(RustAnalyzer().collect_symbols(d).get("lib.rs", []))
+        self.assertIn("real", names)
+
     def test_go_raw_string(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             _write_files(d, {

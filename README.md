@@ -209,6 +209,10 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
+### v3.15.1 — Symbol preprocess: strings before comments
+
+- **Fix:** Blank string literals **before** stripping `//` comments so `"http://..."` no longer truncates the line and hides following `func`/`export function` declarations (Go/TS/Rust). Regression tests for URL `//` cases.
+
 ### v3.15.0 — Slim MCP surface + regex analyzer hardening
 
 - **Primary tool surface:** MCP `list_tools` defaults to **12 primary** tools (`start_plan`, `decompose`, `get_plan`, `complete_plan`, `verify_step`, recipes/constraints/status/export…). Full registry remains **33** tools (all names still dispatchable). Set `TRAMMEL_MCP_SURFACE=all` to advertise advanced tools. `status` returns `primary_tools` / `advanced_tools` / tiers.
