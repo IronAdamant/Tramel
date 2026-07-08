@@ -140,31 +140,34 @@ Optional project config via `pyproject.toml` (`[tool.trammel]` section) or `.tra
 default_scope = "src/"
 focus_keywords = ["auth", "login"]
 max_files = 50
+test_cmd = ["pytest", "-x", "-q"]   # used by verify_step / plan_and_execute when no explicit override
 ```
+
+**Test command precedence:** explicit caller/`--test-cmd` → project `test_cmd` → language analyzer default (e.g. unittest discover).
+
+**Plan export for non-MCP runners:** `export_strategy` / `export_plan` (Python), CLI `--export PATH`, or MCP `export_plan` write versioned JSON (`format=trammel.plan`, `format_version=1`) with goal, steps + `depends_on`, strategy, and dependency graph.
 
 ## Project Layout
 
 ```
 trammel/              Importable package
-  __init__.py         Public API: plan_and_execute, explore, synthesize
+  __init__.py         Public API: plan_and_execute, explore, synthesize, export_*
   core.py             Planner: decomposition, constraints, step generation
   store.py            RecipeStore: SQLite persistence (8 tables), telemetry
   store_recipes.py    Recipe methods: save, retrieve, list, prune
   strategies.py       9 built-in beam strategies
   harness.py          Execution harness: temp copies, test runner
+  export.py           Versioned plan/strategy JSON for external runners
+  project_config.py   Config merging + resolve_test_cmd (pyproject / .trammel.json)
   analyzer_specs.py   Declarative regex specs for 13 regex-based analyzers
   analyzer_engine.py  RegexAnalyzerEngine + import resolvers + backward-compat shims
   analyzers.py        Python + TypeScript analyzers, language detection
-  analyzers_ext.py    Backward-compat shim (re-exports from analyzer_engine)
-  analyzers_ext2.py   Backward-compat shim (re-exports from analyzer_engine)
-  project_config.py   Config merging (pyproject.toml + .trammel.json)
-  utils.py            Trigrams, cosine, failure extraction, shared helpers
-  cli.py              CLI entry point
-  mcp_server.py       MCP tool schemas and dispatch
+  cli.py              CLI entry point (--export, --test-cmd)
+  mcp_server.py       MCP tool schemas and dispatch (32 tools)
   mcp_stdio.py        MCP stdio server entry point
   plan_merge.py       Plan merging engine: conflict detection + 4 resolution strategies
   store_agents.py     Multi-agent coordination: step claiming, availability, proximity warnings
-tests/                361 tests across 6 modules (stdlib unittest)
+tests/                unittest suite (stdlib)
 SYSTEM_PROMPT.md      Reference orchestration guide for LLM clients
 ```
 
@@ -205,6 +208,14 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 
 <details>
 <summary><strong>Full Changelog</strong></summary>
+
+### v3.14.0 — Project-config test_cmd + versioned plan export
+
+User-facing release: verification honors project-configured test commands, and plans/strategies can be exported as standalone JSON for non-MCP runners.
+
+- **`test_cmd` from project config.** When callers omit an explicit test command, `ExecutionHarness`, `plan_and_execute`, and MCP `verify_step` load `test_cmd` from `.trammel.json` / `[tool.trammel]`. Precedence: explicit arg → project config → analyzer default. New `resolve_test_cmd()` helper is public.
+- **Versioned plan/strategy export.** New `trammel/export.py` with `export_strategy`, `export_plan`, and `export_plan_from_store`. Documents use `format=trammel.plan` and `format_version=1`, including goal, status, steps with `depends_on`, strategy snapshot, and dependency graph. CLI `--export PATH` and MCP tool `export_plan` (32 tools total).
+- **Tests:** `tests/test_export_and_config.py` drives the real harness, store, and MCP dispatch paths (not theater stubs).
 
 ### v3.13.0 — CI hardening: Node 24 artifact actions + verifiable publish pipeline
 

@@ -295,8 +295,12 @@ class ExecutionHarness:
         self._analyzer = analyzer
 
     def _effective_test_cmd(self, project_root: str) -> list[str] | None:
-        if self.test_cmd is not None:
-            return self.test_cmd
+        """Precedence: constructor override → project config → analyzer → None."""
+        from .project_config import resolve_test_cmd
+
+        resolved = resolve_test_cmd(self.test_cmd, project_root)
+        if resolved is not None:
+            return resolved
         if self._analyzer is not None:
             return self._analyzer.pick_test_cmd(project_root)
         return None

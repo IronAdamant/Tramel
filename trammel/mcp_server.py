@@ -132,6 +132,15 @@ def _handle_get_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
     return store.get_plan(args["plan_id"]) or {"error": "plan not found"}
 
 
+def _handle_export_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
+    """Export a persisted plan as versioned JSON for external runners."""
+    from .export import export_plan_from_store
+
+    return export_plan_from_store(
+        store, int(args["plan_id"]), path=args.get("path"),
+    )
+
+
 def _handle_verify_step(_store: RecipeStore, args: dict[str, Any]) -> Any:
     """Run edits in an isolated copy and return structured pass/fail info."""
     harness = ExecutionHarness(test_cmd=args.get("test_cmd"), analyzer=_get_analyzer(args))
@@ -395,6 +404,7 @@ _DISPATCH: dict[str, Callable[..., Any]] = {
     "merge_plans": _handle_merge_plans,
     "complete_plan": _handle_complete_plan,
     "prune_plans": _handle_prune_plans,
+    "export_plan": _handle_export_plan,
 }
 
 

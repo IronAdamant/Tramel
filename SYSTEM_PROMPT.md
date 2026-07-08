@@ -23,7 +23,7 @@ Choose the workflow that matches your task type:
 | **Refactor / update** | `decompose(goal, root, suppress_creation_hints=true, skip_recipes=true)` → execute steps → `complete_plan(plan_id, outcome=true)` |
 | **Fix failure** | `get_constraints()` → `decompose(goal, root)` → `explore(goal, root)` beams → `verify_step(edits, root)` → `add_constraint(avoid, description)` |
 
-Tools are organized by category (returned in `status`; 31 tools total):
+Tools are organized by category (returned in `status`; 32 tools total):
 - **planning**: `decompose`, `explore`, `create_plan`, `get_plan`, `complete_plan`, `merge_plans`, `resume`, `update_plan_status`
 - **execution**: `verify_step`, `record_step`, `record_steps`, `claim_step`, `release_step`, `available_steps`
 - **memory**: `get_recipe`, `save_recipe`, `list_recipes`, `validate_recipes`, `prune_recipes`
@@ -175,7 +175,7 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (31 tools)
+## Tool reference (32 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -183,6 +183,7 @@ Analysis (symbol collection, import resolution) runs only within the scope. Test
 | `explore` | Goal + root → strategy + beam variants |
 | `create_plan` | Persist a plan with tracked steps |
 | `get_plan` | Retrieve full plan state |
+| `export_plan` | Export plan as versioned JSON (`trammel.plan`) for non-MCP runners |
 | `update_plan_status` | Set plan status (pending/running/completed/failed) |
 | `verify_step` | Isolated single-step verification |
 | `record_step` | Update step status/edits/verification |

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Trammel is a dependency-aware task planner for LLM coding assistants: it decomposes goals into ordered steps, explores strategy variants (beam search), verifies steps, learns constraints from failures, and stores successful strategies as reusable recipes. It ships as a Python library, a CLI, and an MCP server (31 tools).
+Trammel is a dependency-aware task planner for LLM coding assistants: it decomposes goals into ordered steps, explores strategy variants (beam search), verifies steps, learns constraints from failures, and stores successful strategies as reusable recipes. It ships as a Python library, a CLI, and an MCP server (32 tools).
 
 Note: the global `~/CLAUDE.md` describes how to *use* the Trammel MCP server as a client. This repo is Trammel's *source* — don't confuse the two when "trammel" tools appear in your MCP tool list.
 

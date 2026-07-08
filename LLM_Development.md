@@ -8,10 +8,26 @@
 
 ## Active context
 
-- **Version:** 3.13.0
-- **Focus:** Released v3.12.3 (list_plans `db_path` + doc parity) and v3.13.0 (CI hardening: Node 24 artifact actions, dispatch-verifiable publish pipeline). Wikifier doc-health system active (`docs/wiki/` baseline, 45 entries Green).
+- **Version:** 3.14.0
+- **Focus:** Project-config `test_cmd` for verification + versioned plan/strategy export (`trammel.plan`) for non-MCP runners; MCP now 32 tools.
 
 ## Session log
+
+---
+
+## v3.14.0 — config test_cmd + plan export
+
+**Date:** 2026-07-09
+
+### Changes
+
+- **`project_config.resolve_test_cmd`**: explicit arg > config `test_cmd` > None (analyzer default). Wired into `ExecutionHarness._effective_test_cmd` and `plan_and_execute`.
+- **`trammel/export.py`**: `export_strategy` / `export_plan` / `export_plan_from_store` with `format=trammel.plan`, `format_version=1`.
+- **MCP `export_plan`**, CLI `--export PATH`; public re-exports from package root.
+- **Tests:** `tests/test_export_and_config.py` (14 cases) — real harness/store/dispatch paths.
+
+### Tests
+- 428 passing (was 414; +14).
 
 ---
 

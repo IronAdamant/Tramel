@@ -8,6 +8,7 @@ import os
 import sys
 
 from . import __version__, explore, plan_and_execute
+from .export import export_strategy
 from .utils import DEFAULT_DB_PATH
 
 
@@ -22,11 +23,15 @@ def main() -> None:
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite path for recipes and plans")
     parser.add_argument(
         "--test-cmd", nargs="+", default=None,
-        help="Custom test command (default: unittest discover)",
+        help="Custom test command (overrides project config; default: config then unittest discover)",
     )
     parser.add_argument("--language", default=None, help="Project language (auto-detected if omitted)")
     parser.add_argument("--scope", default=None, help="Subdirectory scope for analysis (monorepo support)")
     parser.add_argument("--dry-run", action="store_true", help="Preview decomposition without running tests")
+    parser.add_argument(
+        "--export", default=None, metavar="PATH",
+        help="Write versioned plan/strategy JSON (trammel.plan) to PATH for external runners",
+    )
     args = parser.parse_args()
 
     if not os.path.isdir(args.root):
@@ -63,4 +68,14 @@ def main() -> None:
             goal, args.root, num_beams=args.beams, db_path=args.db,
             test_cmd=args.test_cmd, language=args.language, scope=args.scope,
         )
+    if args.export:
+        strategy = result.get("strategy") if isinstance(result, dict) else None
+        if isinstance(strategy, dict):
+            export_strategy(strategy, goal=goal, path=args.export)
+        else:
+            print(
+                f"Error: no strategy available to export (got keys={list(result) if isinstance(result, dict) else type(result)})",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     print(json.dumps(result, indent=2))

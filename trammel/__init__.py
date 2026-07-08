@@ -25,7 +25,15 @@ from .implicit_deps import (
     SharedStateDetector,
 )
 from .strategies import get_strategies, register_strategy
+from .export import (
+    EXPORT_FORMAT,
+    EXPORT_FORMAT_VERSION,
+    export_plan,
+    export_plan_from_store,
+    export_strategy,
+)
 from .harness import ExecutionHarness
+from .project_config import load_project_config, resolve_test_cmd
 from .store import RecipeStore
 from .utils import DEFAULT_DB_PATH
 
@@ -73,8 +81,13 @@ def plan_and_execute(
     language: str | None = None,
     scope: str | None = None,
 ) -> dict[str, Any]:
-    """Decompose goal, explore beam strategies, verify, and store recipe on success."""
+    """Decompose goal, explore beam strategies, verify, and store recipe on success.
+
+    When ``test_cmd`` is omitted (``None``), the project config ``test_cmd`` from
+    ``.trammel.json`` / ``[tool.trammel]`` is used before analyzer defaults.
+    """
     analyzer = get_analyzer(language) if language else None
+    effective_cmd = resolve_test_cmd(test_cmd, project_root)
     with RecipeStore(db_path) as store:
         planner = Planner(store=store, analyzer=analyzer)
         strategy = planner.decompose(goal, project_root, scope=scope)
@@ -82,13 +95,13 @@ def plan_and_execute(
         store.update_plan_status(plan_id, "running")
 
         beams = planner.explore_trajectories(strategy, num_beams=num_beams)
-        harness = ExecutionHarness(test_cmd=test_cmd, analyzer=analyzer)
+        harness = ExecutionHarness(test_cmd=effective_cmd, analyzer=analyzer)
         best: dict[str, Any] | None = None
         best_score = -1.0
 
         base_dir = harness.prepare_base(project_root)
         try:
-            outcomes = _run_beams_parallel(beams, base_dir, test_cmd, analyzer)
+            outcomes = _run_beams_parallel(beams, base_dir, effective_cmd, analyzer)
         finally:
             shutil.rmtree(base_dir, ignore_errors=True)
 
@@ -140,6 +153,8 @@ def synthesize(goal: str, strategy: dict[str, Any], db_path: str = DEFAULT_DB_PA
 
 __all__ = [
     "DEFAULT_DB_PATH",
+    "EXPORT_FORMAT",
+    "EXPORT_FORMAT_VERSION",
     "CSharpAnalyzer",
     "CppAnalyzer",
     "DartAnalyzer",
@@ -162,9 +177,14 @@ __all__ = [
     "__version__",
     "detect_language",
     "explore",
+    "export_plan",
+    "export_plan_from_store",
+    "export_strategy",
     "get_analyzer",
     "get_strategies",
+    "load_project_config",
     "plan_and_execute",
     "register_strategy",
+    "resolve_test_cmd",
     "synthesize",
 ]

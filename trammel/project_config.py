@@ -66,6 +66,30 @@ def load_project_config(project_root: str) -> dict[str, Any]:
     return merged
 
 
+def resolve_test_cmd(
+    explicit: list[str] | None,
+    project_root: str,
+) -> list[str] | None:
+    """Resolve the test command with clear precedence.
+
+    Order: explicit caller argument (non-None) → project config ``test_cmd``
+    (``[tool.trammel]`` / ``.trammel.json``) → ``None`` (caller falls through
+    to analyzer / unittest defaults).
+
+    An empty explicit list is treated as a deliberate override (use as-is),
+    not as "unset". Pass ``None`` to allow config/defaults.
+    """
+    if explicit is not None:
+        return list(explicit)
+    if not project_root:
+        return None
+    cfg = load_project_config(project_root)
+    tc = cfg.get("test_cmd")
+    if isinstance(tc, list) and all(isinstance(x, str) for x in tc) and len(tc) > 0:
+        return list(tc)
+    return None
+
+
 def merge_focus_keywords(
     goal_keywords: set[str],
     explicit: list[str] | None,

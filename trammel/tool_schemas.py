@@ -27,6 +27,7 @@ TOOL_CATEGORIES: dict[str, str] = {
     "explore": "planning",
     "create_plan": "planning",
     "get_plan": "planning",
+    "export_plan": "planning",
     "update_plan_status": "planning",
     "resume": "planning",
     "merge_plans": "planning",
@@ -349,6 +350,13 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
          "step_status": _prop("string", "Status for still-pending steps (default: 'passed').",
                               enum=["passed", "skipped"])},
         ["plan_id", "outcome"]),
+    "export_plan": _schema("export_plan",
+        "Export a persisted plan as versioned, self-contained JSON for non-MCP runners "
+        "(format=trammel.plan, format_version=1). Includes goal, status, steps with "
+        "depends_on, strategy snapshot, and dependency_graph. Optionally write to a path.",
+        {"plan_id": _prop("integer", "Plan ID to export."),
+         "path": _prop("string", "Optional filesystem path to write the JSON document.")},
+        ["plan_id"]),
 }
 
 
