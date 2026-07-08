@@ -8,10 +8,23 @@
 
 ## Active context
 
-- **Version:** 3.14.0
-- **Focus:** Project-config `test_cmd` for verification + versioned plan/strategy export (`trammel.plan`) for non-MCP runners; MCP now 32 tools.
+- **Version:** 3.15.0
+- **Focus:** Slim MCP primary surface (12 listed by default) + `start_plan`; regex analyzer hardening (string FPs, Go generics, Dart sealed, PEP 695, TS declare).
 
 ## Session log
+
+---
+
+## v3.15.0 — MCP primary surface + analyzer aging
+
+**Date:** 2026-07-09
+
+### Changes
+- Tool tiers + `TRAMMEL_MCP_SURFACE`; compose tool `start_plan`; status tier metadata; SYSTEM_PROMPT happy path updated.
+- `_strip_string_literals` for symbol preprocess; Go/Dart/TS/Python analyzer fixes; regression tests.
+
+### Tests
+- 445 passing.
 
 ---
 

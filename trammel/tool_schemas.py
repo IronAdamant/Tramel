@@ -23,6 +23,7 @@ def _prop(type_: str, desc: str, **kw: Any) -> dict[str, Any]:
 
 
 TOOL_CATEGORIES: dict[str, str] = {
+    "start_plan": "planning",
     "decompose": "planning",
     "explore": "planning",
     "create_plan": "planning",
@@ -57,17 +58,80 @@ TOOL_CATEGORIES: dict[str, str] = {
     "estimate": "telemetry",
 }
 
+# Happy-path surface for LLM clients. Advanced tools stay registered for
+# dispatch and for TRAMMEL_MCP_SURFACE=all, but are hidden by default.
+PRIMARY_TOOLS: frozenset[str] = frozenset({
+    "start_plan",
+    "decompose",
+    "get_plan",
+    "complete_plan",
+    "verify_step",
+    "get_recipe",
+    "save_recipe",
+    "status",
+    "resume",
+    "export_plan",
+    "get_constraints",
+    "add_constraint",
+})
+
+
+def tool_tier(name: str) -> str:
+    """Return ``primary`` or ``advanced`` for a tool name."""
+    return "primary" if name in PRIMARY_TOOLS else "advanced"
+
+
+def schemas_for_surface(surface: str = "primary") -> dict[str, dict[str, Any]]:
+    """Filter TOOL_SCHEMAS by MCP listing surface.
+
+    * ``primary`` / ``happy`` / ``default`` — only PRIMARY_TOOLS (recommended)
+    * ``all`` / ``full`` / ``advanced`` — every registered tool
+    """
+    mode = (surface or "primary").strip().lower()
+    if mode in ("all", "full", "advanced", "*"):
+        return dict(TOOL_SCHEMAS)
+    return {n: s for n, s in TOOL_SCHEMAS.items() if n in PRIMARY_TOOLS}
+
 
 def _schema(name: str, desc: str, props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
-    """Build a tool schema dict."""
-    return {"name": name, "description": desc,
-            "category": TOOL_CATEGORIES.get(name, "general"),
-            "parameters": {"type": "object", "properties": props, "required": required or []}}
+    """Build a tool schema dict with category + tier metadata."""
+    tier = tool_tier(name)
+    tier_note = "" if tier == "primary" else " [advanced]"
+    return {
+        "name": name,
+        "description": desc + tier_note,
+        "category": TOOL_CATEGORIES.get(name, "general"),
+        "tier": tier,
+        "parameters": {"type": "object", "properties": props, "required": required or []},
+    }
 
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+    "start_plan": _schema("start_plan",
+        "HAPPY-PATH entry: decompose a goal and create a tracked plan in one call. "
+        "Prefer this over separate decompose + create_plan for new work. "
+        "Returns strategy plus plan_id. Set persist=false to decompose only. "
+        "Accepts the same planning options as decompose (scaffold, scope, language, …).",
+        {"goal": _prop("string", "High-level goal to plan (e.g. 'refactor auth module')."),
+         "project_root": _prop("string", "Absolute path to the project root directory."),
+         "persist": _prop("boolean", "If true (default), create a plan and return plan_id. "
+                         "If false, return strategy only (same as decompose)."),
+         "scope": _prop("string", "Subdirectory to scope analysis to (monorepo support)."),
+         "language": _prop("string", "Project language (auto-detected if omitted).", enum=LANGUAGES),
+         "scaffold": _prop("array", "Explicit file specs for greenfield work.",
+                           items={"type": "object"}),
+         "relevant_only": _prop("boolean", "Filter steps to goal-relevant files."),
+         "skip_recipes": _prop("boolean", "Bypass recipe matching and force fresh decomposition."),
+         "summary_only": _prop("boolean", "Return compact metadata without full step details."),
+         "max_steps": _prop("integer", "Cap number of steps returned."),
+         "expand_repo": _prop("boolean", "With scaffold, also scan the full repo (default scaffold-only)."),
+         "strict_greenfield": _prop("boolean", "Fail if greenfield goal has no scaffold."),
+         "suppress_creation_hints": _prop("boolean", "Disable heuristic new-file suggestions."),
+         },
+        ["goal", "project_root"]),
     "decompose": _schema("decompose",
         "Decompose a high-level goal into a dependency-aware strategy with ordered steps. "
+        "Prefer start_plan when you also need a persisted plan_id. "
         "Analyzes project imports to determine file dependencies, generates steps with "
         "ordering rationale, and checks for matching cached recipes. "
         "Use summary_only=true for a compact overview or max_steps to cap output size. "

@@ -561,5 +561,134 @@ class TestTypedSymbolCoverage(unittest.TestCase):
                 )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Aging / modern-syntax gaps (string false positives, generics, modifiers, PEP695)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestStringLiteralFalsePositives(unittest.TestCase):
+    """Multi-line / raw strings must not invent symbols (classic regex aging)."""
+
+    def test_go_raw_string(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "go.mod": "module example.com/t\n\ngo 1.21\n",
+                "main.go": (
+                    "package main\n"
+                    "const doc = `\nfunc FakeFromString() {}\n`\n"
+                    "func Real() {}\n"
+                ),
+            })
+            names = set(GoAnalyzer().collect_symbols(d).get("main.go", []))
+        self.assertIn("Real", names)
+        self.assertNotIn("FakeFromString", names)
+
+    def test_rust_raw_string(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "Cargo.toml": '[package]\nname = "t"\nversion = "0.1.0"\n',
+                "lib.rs": (
+                    'const DOC: &str = r#"\npub fn FakeFromString() {}\n"#;\n'
+                    "pub fn real() {}\n"
+                ),
+            })
+            names = set(RustAnalyzer().collect_symbols(d).get("lib.rs", []))
+        self.assertIn("real", names)
+        self.assertNotIn("FakeFromString", names)
+
+    def test_typescript_template_string(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "a.ts": (
+                    "const doc = `\nexport function FakeFromString() {}\n`;\n"
+                    "export function real() {}\n"
+                ),
+            })
+            names = set(TypeScriptAnalyzer().collect_symbols(d).get("a.ts", []))
+        self.assertIn("real", names)
+        self.assertNotIn("FakeFromString", names)
+
+    def test_cpp_raw_string(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "a.cpp": (
+                    'const char* doc = R"(\nclass FakeFromString {};\n)";\n'
+                    "class Real {};\n"
+                ),
+            })
+            names = set(CppAnalyzer().collect_symbols(d).get("a.cpp", []))
+        self.assertIn("Real", names)
+        self.assertNotIn("FakeFromString", names)
+
+    def test_java_text_block(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "A.java": (
+                    "class Real {\n"
+                    '  String doc = """\nclass FakeFromString {}\n""";\n'
+                    "}\n"
+                ),
+            })
+            names = set(JavaAnalyzer().collect_symbols(d).get("A.java", []))
+        self.assertIn("Real", names)
+        self.assertNotIn("FakeFromString", names)
+
+
+class TestModernSyntaxCoverage(unittest.TestCase):
+    """Language-family cases that pre-fix regex/AST paths missed."""
+
+    def test_go_generic_types(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "go.mod": "module example.com/t\n\ngo 1.21\n",
+                "gen.go": (
+                    "package t\n"
+                    "type Set[T comparable] struct { m map[T]struct{} }\n"
+                    "type Mapper[A, B any] interface { Map(A) B }\n"
+                    "func Identity[T any](v T) T { return v }\n"
+                ),
+            })
+            names = set(GoAnalyzer().collect_symbols(d).get("gen.go", []))
+            typed = GoAnalyzer().collect_typed_symbols(d).get("gen.go", [])
+        self.assertEqual(names, {"Set", "Mapper", "Identity"})
+        self.assertIn(("Set", "struct"), typed)
+        self.assertIn(("Mapper", "interface"), typed)
+        self.assertIn(("Identity", "function"), typed)
+
+    def test_dart_sealed_class(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "shape.dart": (
+                    "sealed class Shape {}\n"
+                    "final class Circle extends Shape {}\n"
+                    "base class Widget {}\n"
+                ),
+            })
+            names = set(DartAnalyzer().collect_symbols(d).get("shape.dart", []))
+        self.assertIn("Shape", names)
+        self.assertIn("Circle", names)
+        self.assertIn("Widget", names)
+
+    def test_python_pep695_type_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "alias.py": "type Point = tuple[float, float]\ndef origin() -> Point:\n    return (0.0, 0.0)\n",
+            })
+            names = set(PythonAnalyzer().collect_symbols(d).get("alias.py", []))
+            typed = PythonAnalyzer().collect_typed_symbols(d).get("alias.py", [])
+        self.assertIn("Point", names)
+        self.assertIn("origin", names)
+        self.assertIn(("Point", "type_alias"), typed)
+
+    def test_typescript_declare_function(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _write_files(d, {
+                "ambient.d.ts": "declare function fetchJSON(url: string): Promise<unknown>;\nexport function real() {}\n",
+            })
+            names = set(TypeScriptAnalyzer().collect_symbols(d).get("ambient.d.ts", []))
+        self.assertIn("fetchJSON", names)
+        self.assertIn("real", names)
+
+
 if __name__ == "__main__":
     unittest.main()
+

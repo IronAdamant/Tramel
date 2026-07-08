@@ -24,6 +24,7 @@ from .utils import (
     _collect_project_files,
     _collect_symbols_regex,
     _collect_typed_symbols_regex,
+    _strip_string_literals,
 )
 
 
@@ -50,14 +51,24 @@ class RegexAnalyzerEngine:
         return self.spec.extensions
 
     def _stripper(self) -> Any:
+        """Comment strip only — safe for import path extraction."""
         return _COMMENT_STRIPPERS[self.spec.strip_comments]
+
+    def _symbol_preprocess(self) -> Any:
+        """Comments + string blanking for symbol regexes (kills multi-line string FPs)."""
+        strip_comments = self._stripper()
+
+        def _prep(src: str) -> str:
+            return _strip_string_literals(strip_comments(src))
+
+        return _prep
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _collect_symbols_regex(
             project_root,
             self.spec.extensions,
             self.spec.symbol_patterns,
-            self._stripper(),
+            self._symbol_preprocess(),
         )
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
@@ -65,7 +76,7 @@ class RegexAnalyzerEngine:
             project_root,
             self.spec.extensions,
             self.spec.typed_patterns,
-            self._stripper(),
+            self._symbol_preprocess(),
         )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:

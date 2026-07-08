@@ -6,13 +6,25 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .utils import _strip_c_comments, _strip_hash_comments, _strip_php_comments
+from .utils import (
+    _strip_c_comments,
+    _strip_c_noise,
+    _strip_hash_comments,
+    _strip_hash_noise,
+    _strip_php_comments,
+    _strip_php_noise,
+)
 
 
+# Comment strippers used by import resolvers (must preserve string contents —
+# import paths live inside quotes). Symbol collection uses *_noise via the engine.
 _COMMENT_STRIPPERS: dict[str, Callable[[str], str]] = {
     "c": _strip_c_comments,
     "hash": _strip_hash_comments,
     "php": _strip_php_comments,
+    "c_noise": _strip_c_noise,
+    "hash_noise": _strip_hash_noise,
+    "php_noise": _strip_php_noise,
 }
 
 
@@ -44,14 +56,15 @@ GO_SPEC = AnalyzerSpec(
     extensions=(".go",),
     symbol_patterns=[
         re.compile(r"(?:^|\n)\s*func\s+(?:\([^)]+\)\s+)?(\w+)"),
-        re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+"),
+        # Optional type parameters: type Set[T comparable] struct { ... }
+        re.compile(r"(?:^|\n)\s*type\s+(\w+)(?:\[[^\]]*\])?\s+"),
         re.compile(r"(?:^|\n)\s*(?:var|const)\s+(\w+)\s"),
     ],
     typed_patterns=[
         (re.compile(r"(?:^|\n)\s*func\s+(?:\([^)]+\)\s+)?(\w+)"), "function"),
-        (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+struct"), "struct"),
-        (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+interface"), "interface"),
-        (re.compile(r"(?:^|\n)\s*type\s+(\w+)\s+(?!struct|interface)"), "type"),
+        (re.compile(r"(?:^|\n)\s*type\s+(\w+)(?:\[[^\]]*\])?\s+struct"), "struct"),
+        (re.compile(r"(?:^|\n)\s*type\s+(\w+)(?:\[[^\]]*\])?\s+interface"), "interface"),
+        (re.compile(r"(?:^|\n)\s*type\s+(\w+)(?:\[[^\]]*\])?\s+(?!struct|interface)"), "type"),
         (re.compile(r"(?:^|\n)\s*const\s+(\w+)\s"), "constant"),
         (re.compile(r"(?:^|\n)\s*var\s+(\w+)\s"), "variable"),
     ],
@@ -340,9 +353,12 @@ SWIFT_SPEC = AnalyzerSpec(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _DART_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"(?:^|\n)\s*(?:abstract\s+)?class\s+(\w+)"), "class"),
-    (re.compile(r"(?:^|\n)\s*mixin\s+(\w+)"), "mixin"),
-    (re.compile(r"(?:^|\n)\s*extension\s+(\w+)"), "extension"),
+    # class modifiers: abstract / base / interface / final / sealed / mixin
+    (re.compile(
+        r"(?:^|\n)\s*(?:(?:abstract|base|interface|final|sealed|mixin)\s+)*class\s+(\w+)"
+    ), "class"),
+    (re.compile(r"(?:^|\n)\s*mixin\s+(?:class\s+)?(\w+)"), "mixin"),
+    (re.compile(r"(?:^|\n)\s*extension\s+(?:type\s+)?(\w+)"), "extension"),
     (re.compile(r"(?:^|\n)\s*enum\s+(\w+)"), "enum"),
     (re.compile(r"(?:^|\n)\s*typedef\s+(\w+)"), "type_alias"),
     (re.compile(r"(?:^|\n)\s*(?:[\w<>?]+\s+)?(?!if|else|for|while|do|switch|catch)(\w+)\s*\([^)]*\)\s*(?:async\s*)?[{=]"), "function"),

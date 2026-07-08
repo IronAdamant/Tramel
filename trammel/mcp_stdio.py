@@ -18,7 +18,7 @@ import os
 import sys
 from typing import Any
 
-from .mcp_server import _TOOL_SCHEMAS, dispatch_tool
+from .mcp_server import _TOOL_SCHEMAS, _schemas_for_surface, dispatch_tool
 from .store import RecipeStore
 from .utils import DEFAULT_DB_PATH
 
@@ -45,6 +45,11 @@ def _configure_server(db_path: str) -> Server:
     connection created on the event-loop thread is reused in a worker.
     """
     server = Server("trammel")
+    # Default: advertise only primary/happy-path tools so LLM clients see a
+    # short list. Advanced tools remain callable via dispatch when listed
+    # (TRAMMEL_MCP_SURFACE=all) or if a client invokes them by name.
+    surface = os.environ.get("TRAMMEL_MCP_SURFACE", "primary")
+    listed_schemas = _schemas_for_surface(surface)
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:
@@ -54,7 +59,7 @@ def _configure_server(db_path: str) -> Server:
                 description=schema["description"],
                 inputSchema=schema["parameters"],
             )
-            for name, schema in _TOOL_SCHEMAS.items()
+            for name, schema in listed_schemas.items()
         ]
 
     @server.call_tool()

@@ -17,13 +17,23 @@ from .harness import ExecutionHarness
 from .store import RecipeStore
 from .tool_schemas import (
     LANGUAGES as _LANGUAGES,
+    PRIMARY_TOOLS as _PRIMARY_TOOLS,
     TOOL_CATEGORIES as _TOOL_CATEGORIES,
     TOOL_SCHEMAS as _TOOL_SCHEMAS,
     coerce_int_params as _coerce_int_params,
+    schemas_for_surface as _schemas_for_surface,
+    tool_tier as _tool_tier,
 )
 from .utils import _collect_project_files
 
-__all__ = ["dispatch_tool", "_TOOL_SCHEMAS", "_LANGUAGES", "_TOOL_CATEGORIES"]
+__all__ = [
+    "dispatch_tool",
+    "_TOOL_SCHEMAS",
+    "_LANGUAGES",
+    "_TOOL_CATEGORIES",
+    "_PRIMARY_TOOLS",
+    "_schemas_for_surface",
+]
 
 
 # ── Dispatch handlers ────────────────────────────────────────────────────────
@@ -99,6 +109,28 @@ def _handle_decompose(store: RecipeStore, args: dict[str, Any]) -> Any:
         }
 
     return result
+
+
+def _handle_start_plan(store: RecipeStore, args: dict[str, Any]) -> Any:
+    """Happy-path compose: decompose then optionally create_plan."""
+    strategy = _handle_decompose(store, args)
+    if isinstance(strategy, dict) and strategy.get("error"):
+        return strategy
+    persist = args.get("persist", True)
+    if not persist:
+        return {"strategy": strategy, "plan_id": None, "persisted": False, "workflow": "start_plan"}
+    scaffold = args.get("scaffold")
+    if scaffold is None and isinstance(strategy, dict):
+        scaffold = strategy.get("scaffold")
+    plan_id = store.create_plan(
+        args["goal"], strategy if isinstance(strategy, dict) else {}, scaffold=scaffold,
+    )
+    return {
+        "strategy": strategy,
+        "plan_id": plan_id,
+        "persisted": True,
+        "workflow": "start_plan",
+    }
 
 
 def _handle_explore(store: RecipeStore, args: dict[str, Any]) -> Any:
@@ -261,13 +293,30 @@ def _handle_history(store: RecipeStore, args: dict[str, Any]) -> Any:
 
 
 def _handle_status(store: RecipeStore, _args: dict[str, Any]) -> Any:
-    """Return a summary of Trammel state plus tools grouped by category."""
+    """Return a summary of Trammel state plus tools grouped by category/tier."""
     summary = store.get_status_summary()
     summary["tools"] = len(_TOOL_SCHEMAS)
     categories: dict[str, list[str]] = {}
     for name, schema in _TOOL_SCHEMAS.items():
         categories.setdefault(schema.get("category", "general"), []).append(name)
     summary["tools_by_category"] = {k: sorted(v) for k, v in categories.items()}
+    primary = sorted(_PRIMARY_TOOLS)
+    advanced = sorted(n for n in _TOOL_SCHEMAS if n not in _PRIMARY_TOOLS)
+    summary["primary_tools"] = primary
+    summary["advanced_tools"] = advanced
+    summary["primary_tool_count"] = len(primary)
+    summary["advanced_tool_count"] = len(advanced)
+    summary["tool_surface_default"] = "primary"
+    summary["tool_surface_env"] = "TRAMMEL_MCP_SURFACE"
+    summary["tool_surface_hint"] = (
+        "MCP list_tools defaults to primary_tools only. "
+        "Set TRAMMEL_MCP_SURFACE=all to advertise advanced tools. "
+        "Happy path: start_plan → work → complete_plan."
+    )
+    summary["tools_by_tier"] = {
+        "primary": primary,
+        "advanced": advanced,
+    }
     return summary
 
 
@@ -373,6 +422,7 @@ def _handle_prune_plans(store: RecipeStore, args: dict[str, Any]) -> Any:
 # ── Dispatch table ───────────────────────────────────────────────────────────
 
 _DISPATCH: dict[str, Callable[..., Any]] = {
+    "start_plan": _handle_start_plan,
     "decompose": _handle_decompose,
     "explore": _handle_explore,
     "create_plan": _handle_create_plan,

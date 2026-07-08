@@ -15,29 +15,29 @@ Trammel does not generate code — you do. Trammel provides the structure, order
 
 ## Quick Reference: Happy-Path Workflows
 
+**Prefer the primary tool surface.** By default `trammel-mcp` advertises only ~12 *primary* tools (see `status.primary_tools`). Advanced tools stay callable/dispatchable; set `TRAMMEL_MCP_SURFACE=all` to list them in MCP `list_tools`.
+
 Choose the workflow that matches your task type:
 
 | Task Type | Recommended Flow |
 |-----------|------------------|
-| **New feature** | `get_recipe(goal)` → `decompose(goal, root, scaffold=[...])` → `create_plan(goal, strategy)` → execute steps → `complete_plan(plan_id, outcome=true)` |
-| **Refactor / update** | `decompose(goal, root, suppress_creation_hints=true, skip_recipes=true)` → execute steps → `complete_plan(plan_id, outcome=true)` |
-| **Fix failure** | `get_constraints()` → `decompose(goal, root)` → `explore(goal, root)` beams → `verify_step(edits, root)` → `add_constraint(avoid, description)` |
+| **New feature** | `get_recipe(goal)` → **`start_plan(goal, root, scaffold=[...])`** → execute steps → `complete_plan(plan_id, outcome=true)` |
+| **Refactor / update** | **`start_plan(goal, root, skip_recipes=true, suppress_creation_hints=true)`** → execute → `complete_plan` |
+| **Fix failure** | `get_constraints()` → `start_plan` / `decompose` → `verify_step` → `add_constraint` |
+| **Compare orderings** *(advanced)* | `explore(goal, root)` beams → pick one → `create_plan` |
 
-Tools are organized by category (returned in `status`; 32 tools total):
-- **planning**: `decompose`, `explore`, `create_plan`, `get_plan`, `complete_plan`, `merge_plans`, `resume`, `update_plan_status`
-- **execution**: `verify_step`, `record_step`, `record_steps`, `claim_step`, `release_step`, `available_steps`
-- **memory**: `get_recipe`, `save_recipe`, `list_recipes`, `validate_recipes`, `prune_recipes`
-- **coordination**: `add_constraint`, `deactivate_constraint`, `get_constraints`, `list_plans`, `prune_plans`, `history`
-- **telemetry**: `status`, `estimate`, `list_strategies`, `usage_stats`, `failure_history`, `resolve_failure`
+**Primary tools (default listing):** `start_plan`, `decompose`, `get_plan`, `complete_plan`, `verify_step`, `get_recipe`, `save_recipe`, `status`, `resume`, `export_plan`, `get_constraints`, `add_constraint`.
 
-### `decompose` vs `explore` vs `create_plan` — which do I call?
+All tools (primary + advanced) still exist by name; advanced ones are marked `[advanced]` in descriptions. Categories are returned in `status.tools_by_category` / `tools_by_tier`.
 
-- **`decompose`** is the canonical entry point. It produces one dependency-aware strategy. Call it first. Use this for almost every task.
-- **`explore`** calls `decompose` internally, then fans out into multiple beam variants (bottom-up, top-down, risk-first). Only call it when you want to compare ordering strategies — e.g., after a prior attempt failed, or on high-risk refactors.
-- **`create_plan`** persists a strategy to the SQLite store and returns a `plan_id` for tracking. Call it *after* `decompose` (or after picking a beam from `explore`) when you want multi-step tracking, step claiming, or recipe storage on success.
+### Which planning tool do I call?
 
-**Minimal workflow:** `decompose` → `create_plan` → execute → `complete_plan`.
-**When to add `explore`:** only if you want alternative orderings. Don't call both `decompose` and `explore` — `explore` already includes a fresh decompose.
+- **`start_plan`** — **happy path.** Decompose + create plan in one call; returns `{strategy, plan_id}`. Prefer this.
+- **`decompose`** — strategy only (no `plan_id`). Use when you need to inspect/edit the strategy before persisting, or when `persist=false` on `start_plan` is enough.
+- **`explore`** *[advanced]* — multiple beam orderings. Only for high-risk refactors or after failures.
+- **`create_plan`** *[advanced]* — persist an existing strategy dict (usually after `explore` or a hand-edited strategy).
+
+**Minimal workflow:** `start_plan` → execute → `complete_plan`.
 
 ## Workflow: Plan-Verify-Store Loop
 
@@ -175,13 +175,14 @@ explore(goal, project_root, scope="frontend", num_beams=3)
 
 Analysis (symbol collection, import resolution) runs only within the scope. Tests still run against the full project root.
 
-## Tool reference (32 tools)
+## Tool reference (33 tools; 12 primary by default)
 
 | Tool | Purpose |
 |------|---------|
+| `start_plan` | **Happy path:** decompose + create plan (`plan_id`) in one call |
 | `decompose` | Goal + root → dependency-aware strategy |
-| `explore` | Goal + root → strategy + beam variants |
-| `create_plan` | Persist a plan with tracked steps |
+| `explore` | *[advanced]* Goal + root → strategy + beam variants |
+| `create_plan` | *[advanced]* Persist a plan with tracked steps |
 | `get_plan` | Retrieve full plan state |
 | `export_plan` | Export plan as versioned JSON (`trammel.plan`) for non-MCP runners |
 | `update_plan_status` | Set plan status (pending/running/completed/failed) |

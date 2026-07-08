@@ -13,7 +13,7 @@ from .utils import (
     _ERROR_PATTERNS, _collect_project_files, _collect_symbols_regex,
     _collect_typed_symbols_regex, _is_ignored_dir,
     _read_workspace_packages, _resolve_workspace_import,
-    _strip_c_comments,
+    _strip_c_comments, _strip_c_noise,
 )
 from .analyzer_engine import (
     CppAnalyzer, CSharpAnalyzer, DartAnalyzer, GoAnalyzer,
@@ -37,8 +37,16 @@ class LanguageAnalyzer(Protocol):
 
 # ── Python ───────────────────────────────────────────────────────────────────
 
-_PY_AST_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-_PY_TYPE_MAP = {ast.FunctionDef: "function", ast.AsyncFunctionDef: "function", ast.ClassDef: "class"}
+# Include PEP 695 type aliases (Python 3.12+ `type Point = ...`) when available.
+_PY_AST_TYPES: tuple[type, ...] = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_PY_TYPE_MAP: dict[type, str] = {
+    ast.FunctionDef: "function",
+    ast.AsyncFunctionDef: "function",
+    ast.ClassDef: "class",
+}
+if hasattr(ast, "TypeAlias"):
+    _PY_AST_TYPES = _PY_AST_TYPES + (ast.TypeAlias,)  # type: ignore[attr-defined]
+    _PY_TYPE_MAP[ast.TypeAlias] = "type_alias"  # type: ignore[attr-defined,index]
 
 
 class PythonAnalyzer:
@@ -64,11 +72,26 @@ class PythonAnalyzer:
                     continue
                 yield rel, tree
 
+    @staticmethod
+    def _symbol_name(node: ast.AST) -> str | None:
+        """Extract a symbol name; PEP 695 TypeAlias uses an expr for ``name``."""
+        name = getattr(node, "name", None)
+        if isinstance(name, str):
+            return name
+        if isinstance(name, ast.Name):
+            return name.id
+        return None
+
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
-        """Collect function/class symbol names grouped by relative file path."""
+        """Collect function/class/type-alias symbol names by relative path."""
         symbols: dict[str, list[str]] = {}
         for rel, tree in self._iter_ast(project_root):
-            names = [n.name for n in ast.walk(tree) if isinstance(n, _PY_AST_TYPES)]
+            names: list[str] = []
+            for n in ast.walk(tree):
+                if isinstance(n, _PY_AST_TYPES):
+                    nm = self._symbol_name(n)
+                    if nm:
+                        names.append(nm)
             if names:
                 symbols[rel] = names
         return symbols
@@ -77,7 +100,12 @@ class PythonAnalyzer:
         """Collect symbols with type classification via AST."""
         symbols: dict[str, list[tuple[str, str]]] = {}
         for rel, tree in self._iter_ast(project_root):
-            entries = [(n.name, _PY_TYPE_MAP[type(n)]) for n in ast.walk(tree) if isinstance(n, _PY_AST_TYPES)]
+            entries: list[tuple[str, str]] = []
+            for n in ast.walk(tree):
+                if isinstance(n, _PY_AST_TYPES):
+                    nm = self._symbol_name(n)
+                    if nm:
+                        entries.append((nm, _PY_TYPE_MAP[type(n)]))
             if entries:
                 symbols[rel] = entries
         return symbols
@@ -156,6 +184,9 @@ _TS_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs")
 
 _TS_TYPED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:^|\n)\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\*?\s+(\w+)"), "function"),
+    # Ambient declarations (d.ts / declare global)
+    (re.compile(r"(?:^|\n)\s*declare\s+(?:export\s+)?function\s+(\w+)"), "function"),
+    (re.compile(r"(?:^|\n)\s*declare\s+(?:export\s+)?(?:abstract\s+)?class\s+(\w+)"), "class"),
     (re.compile(r"(?:^|\n)\s*(?:@\w+[^\n]*\n\s*)*(?:export\s+(?:default\s+)?)?(?:abstract\s+)?class\s+(\w+)"), "class"),
     (re.compile(r"(?:^|\n)\s*(?:export\s+(?:default\s+)?)?interface\s+(\w+)"), "interface"),
     (re.compile(r"(?:^|\n)\s*(?:export\s+(?:default\s+)?)?(?:const\s+)?enum\s+(\w+)"), "enum"),
@@ -216,12 +247,12 @@ class TypeScriptAnalyzer:
 
     def collect_symbols(self, project_root: str) -> dict[str, list[str]]:
         return _collect_symbols_regex(
-            project_root, _TS_EXTENSIONS, _TS_SYMBOL_PATTERNS, _strip_c_comments,
+            project_root, _TS_EXTENSIONS, _TS_SYMBOL_PATTERNS, _strip_c_noise,
         )
 
     def collect_typed_symbols(self, project_root: str) -> dict[str, list[tuple[str, str]]]:
         return _collect_typed_symbols_regex(
-            project_root, _TS_EXTENSIONS, _TS_TYPED_PATTERNS, _strip_c_comments,
+            project_root, _TS_EXTENSIONS, _TS_TYPED_PATTERNS, _strip_c_noise,
         )
 
     def analyze_imports(self, project_root: str) -> dict[str, list[str]]:
@@ -234,6 +265,7 @@ class TypeScriptAnalyzer:
             path = os.path.join(project_root, rel)
             try:
                 with open(path, encoding="utf-8", errors="replace") as fp:
+                    # Import analysis needs string contents (paths); comments only.
                     src = _strip_c_comments(fp.read())
             except OSError:
                 continue

@@ -72,6 +72,100 @@ def _strip_php_comments(src: str) -> str:
     return _HASH_COMMENT_RE.sub("", _C_COMMENT_RE.sub("", src))
 
 
+def _strip_string_literals(src: str) -> str:
+    """Blank out string/character/template/raw literals, preserving newlines.
+
+    Regex analyzers match declaration patterns line-oriented; multi-line
+    strings (Go raw, JS templates, Java text blocks, C++ raw, Rust raw)
+    commonly embed ``func``/``class``/``pub fn`` and create false-positive
+    symbols. This is a lightweight lexer, not a full language parser.
+    """
+    n = len(src)
+    out: list[str] = []
+    i = 0
+    while i < n:
+        ch = src[i]
+        # C++ raw string: R"delim( ... )delim"
+        if ch == "R" and i + 1 < n and src[i + 1] == '"':
+            j = i + 2
+            while j < n and src[j] not in "(\n":
+                j += 1
+            if j < n and src[j] == "(":
+                delim = src[i + 2 : j]
+                closer = ")" + delim + '"'
+                k = src.find(closer, j + 1)
+                if k != -1:
+                    out.append(" " * (k + len(closer) - i))
+                    # preserve newlines inside
+                    chunk = src[i : k + len(closer)]
+                    out[-1] = "".join("\n" if c == "\n" else " " for c in chunk)
+                    i = k + len(closer)
+                    continue
+        # Rust raw string: r#"..."# / r##"..."## / r"..."
+        if ch == "r" and i + 1 < n and (src[i + 1] == "#" or src[i + 1] == '"'):
+            j = i + 1
+            hashes = 0
+            while j < n and src[j] == "#":
+                hashes += 1
+                j += 1
+            if j < n and src[j] == '"':
+                closer = '"' + ("#" * hashes)
+                k = src.find(closer, j + 1)
+                if k != -1:
+                    chunk = src[i : k + len(closer)]
+                    out.append("".join("\n" if c == "\n" else " " for c in chunk))
+                    i = k + len(closer)
+                    continue
+        # Java / Python-style text block """...""" (also catches some others)
+        if ch == '"' and i + 2 < n and src[i : i + 3] == '"""':
+            k = src.find('"""', i + 3)
+            if k != -1:
+                chunk = src[i : k + 3]
+                out.append("".join("\n" if c == "\n" else " " for c in chunk))
+                i = k + 3
+                continue
+        # Double-quoted, single-quoted, or backtick (Go raw / JS template)
+        if ch in "\"'`":
+            quote = ch
+            j = i + 1
+            while j < n:
+                c = src[j]
+                if c == "\\" and quote != "`":
+                    # Go raw and JS templates: backticks don't use \\ escapes the same way;
+                    # still skip one char after backslash for " and '
+                    j += 2
+                    continue
+                if quote == "`" and c == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if c == quote:
+                    j += 1
+                    break
+                j += 1
+            chunk = src[i:j]
+            out.append("".join("\n" if c == "\n" else " " for c in chunk))
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _strip_c_noise(src: str) -> str:
+    """Strip C-style comments then string literals (preferred regex preprocess)."""
+    return _strip_string_literals(_strip_c_comments(src))
+
+
+def _strip_hash_noise(src: str) -> str:
+    """Strip hash comments then string literals (Ruby)."""
+    return _strip_string_literals(_strip_hash_comments(src))
+
+
+def _strip_php_noise(src: str) -> str:
+    """Strip PHP comments then string literals."""
+    return _strip_string_literals(_strip_php_comments(src))
+
+
 def _walk_project_sources(
     project_root: str,
     extensions: tuple[str, ...],

@@ -209,6 +209,12 @@ Releases use **Trusted Publishing** (GitHub OIDC → PyPI). No API tokens needed
 <details>
 <summary><strong>Full Changelog</strong></summary>
 
+### v3.15.0 — Slim MCP surface + regex analyzer hardening
+
+- **Primary tool surface:** MCP `list_tools` defaults to **12 primary** tools (`start_plan`, `decompose`, `get_plan`, `complete_plan`, `verify_step`, recipes/constraints/status/export…). Full registry remains **33** tools (all names still dispatchable). Set `TRAMMEL_MCP_SURFACE=all` to advertise advanced tools. `status` returns `primary_tools` / `advanced_tools` / tiers.
+- **`start_plan` happy path:** one call = decompose + create_plan (`plan_id`). Prefer over separate decompose/create.
+- **Analyzer aging fixes:** strip multi-line/raw string literals before symbol regexes (kills false `func`/`class` hits); Go generic `type Set[T comparable]`; Dart sealed/final/base classes; Python PEP 695 `type` aliases; TS `declare function`. Imports still strip comments only so quoted paths work.
+
 ### v3.14.0 — Project-config test_cmd + versioned plan export
 
 User-facing release: verification honors project-configured test commands, and plans/strategies can be exported as standalone JSON for non-MCP runners.
